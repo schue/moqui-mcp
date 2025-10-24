@@ -1,0 +1,478 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP Session Management Services -->
+    
+    <service verb="create" noun="McpSession" authenticate="true" transaction-timeout="300">
+        <description>Create MCP session with user context</description>
+        <in-parameters>
+            <parameter name="userAccountId" type="id" required="true"/>
+            <parameter name="durationMinutes" type="number-integer" default="60"/>
+            <parameter name="clientInfo" type="text-long"/>
+            <parameter name="ipAddress" type="text-short"/>
+            <parameter name="userAgent" type="text-medium"/>
+            <parameter name="sessionData" type="text-very-long"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="sessionId" type="id"/>
+            <parameter name="contextToken" type="text-medium"/>
+            <parameter name="expiresDate" type="date-time"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import org.moqui.entity.EntityValue
+                import java.security.SecureRandom
+                import java.time.LocalDateTime
+                import java.time.temporal.ChronoUnit
+                
+                ExecutionContext ec = context.ec
+                
+                // Validate user exists and is active
+                def userAccount = ec.entity.find("moqui.security.UserAccount")
+                    .condition("userAccountId", userAccountId)
+                    .condition("enabled", "Y")
+                    .one()
+                if (!userAccount) {
+                    ec.message.addError("User account not found or disabled")
+                    return
+                }
+                
+                // Check rate limiting
+                def rateLimitResult = ec.service.sync("org.moqui.mcp.McpSecurityServices.check#RateLimit", [
+                    userAccountId: userAccountId,
+                    ipAddress: ipAddress,
+                    limitType: "McpRlMinute"
+                ])
+                if (!rateLimitResult.allowed) {
+                    ec.message.addError("Rate limit exceeded")
+                    return
+                }
+                
+                // Check maximum sessions per user
+                def maxSessions = ec.l10n.localize("mcp.server.max.sessions.per.user", 5) as Integer
+                def activeSessionCount = ec.entity.find("McpSession")
+                    .condition("userAccountId", userAccountId)
+                    .condition("statusId", "McsActive")
+                    .condition("expiresDate", ec.user.now, "greater-than")
+                    .count()
+                if (activeSessionCount >= maxSessions) {
+                    ec.message.addError("Maximum active sessions exceeded")
+                    return
+                }
+                
+                // Generate secure context token
+                def secureRandom = new SecureRandom()
+                def tokenBytes = new byte[32]
+                secureRandom.nextBytes(tokenBytes)
+                def contextToken = tokenBytes.collect { String.format("%02x", it) }.join()
+                
+                // Calculate expiration date
+                def duration = durationMinutes ?: 60
+                def expiresDate = ec.user.now.plus(duration, ChronoUnit.MINUTES)
+                
+                // Create session record
+                def session = ec.entity.makeValue("McpSession")
+                session.setSequencedIdPrimary()
+                session.userAccountId = userAccountId
+                session.contextToken = contextToken
+                session.statusId = "McsActive"
+                session.createdDate = ec.user.now
+                session.lastAccessedDate = ec.user.now
+                session.expiresDate = expiresDate
+                session.clientInfo = clientInfo
+                session.ipAddress = ipAddress
+                session.userAgent = userAgent
+                session.sessionData = sessionData
+                session.create()
+                
+                // Log session creation
+                ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                    sessionId: session.sessionId,
+                    userAccountId: userAccountId,
+                    eventType: "McpEventSessionCreated",
+                    eventDetail: "MCP session created for user ${userAccount.username}",
+                    ipAddress: ipAddress,
+                    userAgent: userAgent,
+                    severity: "McpSeverityInfo"
+                ])
+                
+                // Return results
+                sessionId = session.sessionId
+                contextToken = session.contextToken
+                expiresDate = session.expiresDate
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="validate" noun="McpSessionToken" authenticate="false" transaction-timeout="60">
+        <description>Validate MCP session context token</description>
+        <in-parameters>
+            <parameter name="contextToken" type="text-medium" required="true"/>
+            <parameter name="updateLastAccessed" type="text-indicator" default="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="sessionId" type="id"/>
+            <parameter name="userAccountId" type="id"/>
+            <parameter name="valid" type="text-indicator"/>
+            <parameter name="statusId" type="id"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Find session by token
+                def session = ec.entity.find("McpSession")
+                    .condition("contextToken", contextToken)
+                    .one()
+                
+                if (!session) {
+                    valid = "N"
+                    ec.message.addError("Invalid context token")
+                    return
+                }
+                
+                // Check if session is expired
+                if (session.expiresDate < ec.user.now) {
+                    valid = "N"
+                    // Update session status to expired
+                    ec.service.sync("update#McpSession", [
+                        sessionId: session.sessionId,
+                        statusId: "McsExpired"
+                    ])
+                    ec.message.addError("Session expired")
+                    return
+                }
+                
+                // Check if session is active
+                if (session.statusId != "McsActive") {
+                    valid = "N"
+                    ec.message.addError("Session not active: ${session.statusId}")
+                    return
+                }
+                
+                // Update last accessed date if requested
+                if (updateLastAccessed == "Y") {
+                    ec.service.sync("update#McpSession", [
+                        sessionId: session.sessionId,
+                        lastAccessedDate: ec.user.now
+                    ])
+                }
+                
+                // Set user context for this thread
+                ec.user.setUserIdByToken(session.userAccountId)
+                
+                sessionId = session.sessionId
+                userAccountId = session.userAccountId
+                valid = "Y"
+                statusId = session.statusId
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="terminate" noun="McpSession" authenticate="true" transaction-timeout="60">
+        <description>Terminate MCP session</description>
+        <in-parameters>
+            <parameter name="sessionId" type="id" required="true"/>
+            <parameter name="reason" type="text-medium"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="success" type="text-indicator"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Find session
+                def session = ec.entity.find("McpSession")
+                    .condition("sessionId", sessionId)
+                    .one()
+                
+                if (!session) {
+                    ec.message.addError("Session not found")
+                    success = "N"
+                    return
+                }
+                
+                // Check if user owns the session or is admin
+                if (session.userAccountId != ec.user.userAccountId && !ec.user.hasPermission("MCP_ADMIN", "ALL")) {
+                    ec.message.addError("Permission denied")
+                    success = "N"
+                    return
+                }
+                
+                // Update session status
+                ec.service.sync("update#McpSession", [
+                    sessionId: sessionId,
+                    statusId: "McsTerminated"
+                ])
+                
+                // Log session termination
+                ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                    sessionId: sessionId,
+                    userAccountId: session.userAccountId,
+                    eventType: "McpEventSessionExpired",
+                    eventDetail: "Session terminated: ${reason ?: 'Manual termination'}",
+                    severity: "McpSeverityInfo"
+                ])
+                
+                success = "Y"
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="list" noun="McpSessions" authenticate="true" transaction-timeout="60">
+        <description>List MCP sessions for user or admin</description>
+        <in-parameters>
+            <parameter name="userAccountId" type="id"/>
+            <parameter name="statusId" type="id"/>
+            <parameter name="pageIndex" type="number-integer" default="0"/>
+            <parameter name="pageSize" type="number-integer" default="20"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="sessionList" type="List"/>
+            <parameter name="sessionCount" type="number-integer"/>
+            <parameter name="pageIndex" type="number-integer"/>
+            <parameter name="pageSize" type="number-integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                def findBuilder = ec.entity.find("McpSession")
+                
+                // If not admin, only show own sessions
+                if (!ec.user.hasPermission("MCP_ADMIN", "ALL")) {
+                    findBuilder.condition("userAccountId", ec.user.userAccountId)
+                } else if (userAccountId) {
+                    findBuilder.condition("userAccountId", userAccountId)
+                }
+                
+                if (statusId) {
+                    findBuilder.condition("statusId", statusId)
+                }
+                
+                findBuilder.orderBy("-createdDate")
+                
+                // Get count
+                sessionCount = findBuilder.count()
+                
+                // Get page of results
+                def pagedFind = findBuilder.page(pageIndex, pageSize)
+                sessionList = pagedFind.list()
+                
+                pageIndex = pagedFind.pageIndex
+                pageSize = pagedFind.pageSize
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- MCP Protocol Handler Services -->
+    
+    <service verb="handle" noun="McpRequest" authenticate="false" transaction-timeout="300">
+        <description>Handle incoming MCP protocol request</description>
+        <in-parameters>
+            <parameter name="contextToken" type="text-medium" required="true"/>
+            <parameter name="requestType" type="text-medium" required="true"/>
+            <parameter name="requestData" type="text-very-long" required="true"/>
+            <parameter name="requestId" type="text-medium"/>
+            <parameter name="ipAddress" type="text-short"/>
+            <parameter name="userAgent" type="text-medium"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="responseType" type="text-medium"/>
+            <parameter name="responseData" type="text-very-long"/>
+            <parameter name="success" type="text-indicator"/>
+            <parameter name="errorMessage" type="text-long"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                import groovy.json.JsonSlurper
+                
+                ExecutionContext ec = context.ec
+                
+                // Validate context token
+                def tokenValidation = ec.service.sync("org.moqui.mcp.McpProtocolServices.validate#McpSessionToken", [
+                    contextToken: contextToken,
+                    updateLastAccessed: "Y"
+                ])
+                
+                if (tokenValidation.valid != "Y") {
+                    success = "N"
+                    errorMessage = "Invalid or expired session token"
+                    responseType = "error"
+                    responseData = new JsonBuilder([
+                        error: errorMessage,
+                        code: "INVALID_TOKEN"
+                    ]).toString()
+                    return
+                }
+                
+                def sessionId = tokenValidation.sessionId
+                def userAccountId = tokenValidation.userAccountId
+                
+                // Check rate limiting
+                def rateLimitResult = ec.service.sync("org.moqui.mcp.McpSecurityServices.check#RateLimit", [
+                    userAccountId: userAccountId,
+                    ipAddress: ipAddress,
+                    limitType: "McpRlMinute"
+                ])
+                if (!rateLimitResult.allowed) {
+                    success = "N"
+                    errorMessage = "Rate limit exceeded"
+                    responseType = "error"
+                    responseData = new JsonBuilder([
+                        error: errorMessage,
+                        code: "RATE_LIMIT_EXCEEDED"
+                    ]).toString()
+                    return
+                }
+                
+                // Parse request data
+                def jsonSlurper = new JsonSlurper()
+                def requestDataObj
+                try {
+                    requestDataObj = jsonSlurper.parseText(requestData)
+                } catch (Exception e) {
+                    success = "N"
+                    errorMessage = "Invalid JSON in request data: ${e.message}"
+                    responseType = "error"
+                    responseData = new JsonBuilder([
+                        error: errorMessage,
+                        code: "INVALID_JSON"
+                    ]).toString()
+                    return
+                }
+                
+                // Route request based on type
+                def toolCallId = null
+                def result = null
+                
+                try {
+                    switch (requestType) {
+                        case "tool_call":
+                            // Create tool call record
+                            def toolCall = ec.entity.makeValue("McpToolCall")
+                            toolCall.setSequencedIdPrimary()
+                            toolCall.sessionId = sessionId
+                            toolCall.toolName = requestDataObj.toolName
+                            toolCall.toolType = requestDataObj.toolType ?: "unknown"
+                            toolCall.parameters = requestData
+                            toolCall.statusId = "MtcStarted"
+                            toolCall.startTime = ec.user.now
+                            toolCall.create()
+                            toolCallId = toolCall.toolCallId
+                            
+                            // Execute tool
+                            result = ec.service.sync("org.moqui.mcp.McpToolServices.execute#Tool", [
+                                sessionId: sessionId,
+                                toolName: requestDataObj.toolName,
+                                parameters: requestDataObj.parameters,
+                                toolCallId: toolCallId
+                            ])
+                            
+                            // Update tool call record
+                            def endTime = ec.user.now
+                            def executionTime = java.time.Duration.between(toolCall.startTime.toInstant(), endTime.toInstant()).toMillis() / 1000.0
+                            ec.service.sync("update#McpToolCall", [
+                                toolCallId: toolCallId,
+                                result: result.result,
+                                statusId: result.success == "Y" ? "MtcCompleted" : "MtcFailed",
+                                endTime: endTime,
+                                executionTime: executionTime,
+                                errorMessage: result.errorMessage,
+                                entityName: result.entityName,
+                                serviceName: result.serviceName,
+                                recordCount: result.recordCount
+                            ])
+                            
+                            responseType = "tool_response"
+                            responseData = result.result
+                            success = result.success
+                            break
+                            
+                        case "ping":
+                            responseType = "pong"
+                            responseData = new JsonBuilder([
+                                timestamp: ec.user.now,
+                                sessionId: sessionId
+                            ]).toString()
+                            success = "Y"
+                            break
+                            
+                        case "list_tools":
+                            result = ec.service.sync("org.moqui.mcp.McpToolServices.list#AvailableTools", [
+                                sessionId: sessionId
+                            ])
+                            responseType = "tool_list"
+                            responseData = result.toolList
+                            success = "Y"
+                            break
+                            
+                        default:
+                            success = "N"
+                            errorMessage = "Unknown request type: ${requestType}"
+                            responseType = "error"
+                            responseData = new JsonBuilder([
+                                error: errorMessage,
+                                code: "UNKNOWN_REQUEST_TYPE"
+                            ]).toString()
+                    }
+                } catch (Exception e) {
+                    success = "N"
+                    errorMessage = "Error processing request: ${e.message}"
+                    responseType = "error"
+                    responseData = new JsonBuilder([
+                        error: errorMessage,
+                        code: "PROCESSING_ERROR"
+                    ]).toString()
+                    
+                    // Update tool call if it exists
+                    if (toolCallId) {
+                        ec.service.sync("update#McpToolCall", [
+                            toolCallId: toolCallId,
+                            statusId: "MtcFailed",
+                            endTime: ec.user.now,
+                            errorMessage: errorMessage
+                        ])
+                    }
+                }
+                
+                // Log request if audit is enabled
+                if (ec.l10n.localize("mcp.server.audit.enabled", false)) {
+                    ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                        sessionId: sessionId,
+                        toolCallId: toolCallId,
+                        userAccountId: userAccountId,
+                        eventType: success == "Y" ? "McpEventToolCompleted" : "McpEventToolStarted",
+                        eventDetail: "MCP ${requestType} request: ${success == 'Y' ? 'Success' : 'Failed'}",
+                        ipAddress: ipAddress,
+                        userAgent: userAgent,
+                        severity: success == "Y" ? "McpSeverityInfo" : "McpSeverityError"
+                    ])
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+</services>

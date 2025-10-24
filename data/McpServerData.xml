@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<entity-facade-xml type="seed">
+    
+    <!-- MCP Default Configuration -->
+    <moqui.mcp.McpConfiguration configId="DEFAULT" configName="Default Configuration" 
+        description="Default MCP server configuration" isEnabled="Y" 
+        maxSessionsPerUser="5" sessionTimeoutMinutes="60" rateLimitPerMinute="100" 
+        allowedEntityPatterns=".*" allowedServicePatterns=".*" 
+        blockedEntityPatterns="" blockedServicePatterns="" 
+        requireExplicitPermission="N" auditLevel="McpAuditFull" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <!-- MCP Tool Registry - Entity Tools -->
+    <moqui.mcp.McpToolRegistry toolId="ENTITY_FIND" toolName="entity_find" 
+        toolType="McpToolTypeEntity" serviceName="org.moqui.mcp.mcp-tools.EntityTools.execute#EntityTool" 
+        description="Find entities with flexible conditions and pagination" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}, "condition": {"type": "object"}, "orderBy": {"type": "string"}, "limit": {"type": "integer", "default": 100}, "offset": {"type": "integer", "default": 0}, "fields": {"type": "array"}, "useCache": {"type": "boolean", "default": true}}' 
+        resultSchema='{"entityName": "string", "records": "array", "count": "integer", "limit": "integer", "offset": "integer", "hasMore": "boolean"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="ENTITY_FIND_ONE" toolName="entity_find_one" 
+        toolType="McpToolTypeEntity" serviceName="org.moqui.mcp.mcp-tools.EntityTools.execute#EntityTool" 
+        description="Find a single entity record by conditions" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}, "condition": {"type": "object", "required": true}, "fields": {"type": "array"}, "useCache": {"type": "boolean", "default": true}}' 
+        resultSchema='{"entityName": "string", "record": "object", "found": "boolean"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="ENTITY_CREATE" toolName="entity_create" 
+        toolType="McpToolTypeEntity" serviceName="org.moqui.mcp.mcp-tools.EntityTools.execute#EntityTool" 
+        description="Create a new entity record" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}, "fields": {"type": "object", "required": true}, "createOnlyIfNotExists": {"type": "boolean", "default": false}}' 
+        resultSchema='{"entityName": "string", "created": "boolean", "record": "object", "reason": "string"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="2" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="ENTITY_UPDATE" toolName="entity_update" 
+        toolType="McpToolTypeEntity" serviceName="org.moqui.mcp.mcp-tools.EntityTools.execute#EntityTool" 
+        description="Update entity records matching conditions" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}, "condition": {"type": "object", "required": true}, "fields": {"type": "object", "required": true}, "updateOnlyIfChanged": {"type": "boolean", "default": false}}' 
+        resultSchema='{"entityName": "string", "updated": "boolean", "recordsUpdated": "integer", "records": "array"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="2" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="ENTITY_DELETE" toolName="entity_delete" 
+        toolType="McpToolTypeEntity" serviceName="org.moqui.mcp.mcp-tools.EntityTools.execute#EntityTool" 
+        description="Delete entity records matching conditions" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}, "condition": {"type": "object", "required": true}}' 
+        resultSchema='{"entityName": "string", "deleted": "boolean", "recordsDeleted": "integer", "deletedRecords": "array"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="3" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="ENTITY_COUNT" toolName="entity_count" 
+        toolType="McpToolTypeEntity" serviceName="org.moqui.mcp.mcp-tools.EntityTools.execute#EntityTool" 
+        description="Count entity records matching conditions" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}, "condition": {"type": "object"}, "useCache": {"type": "boolean", "default": true}}' 
+        resultSchema='{"entityName": "string", "count": "integer"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="ENTITY_DESCRIBE" toolName="entity_describe" 
+        toolType="McpToolTypeEntity" serviceName="org.moqui.mcp.mcp-tools.EntityTools.execute#EntityTool" 
+        description="Get entity metadata and field information" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}}' 
+        resultSchema='{"entityName": "string", "packageName": "string", "tableName": "string", "fields": "array", "relationships": "array", "pkFieldNames": "array", "allFieldNames": "array", "nonPkFieldNames": "array"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="ENTITY_LIST" toolName="entity_list" 
+        toolType="McpToolTypeEntity" serviceName="org.moqui.mcp.mcp-tools.EntityTools.execute#EntityTool" 
+        description="List available entities with optional filtering" 
+        parameterSchema='{"packageName": {"type": "string"}, "includeEntities": {"type": "array"}, "excludeEntities": {"type": "array"}}' 
+        resultSchema='{"packageName": "string", "entityNames": "array", "count": "integer"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <!-- MCP Tool Registry - Service Tools -->
+    <moqui.mcp.McpToolRegistry toolId="SERVICE_CALL" toolName="service_call" 
+        toolType="McpToolTypeService" serviceName="org.moqui.mcp.mcp-tools.ServiceTools.execute#ServiceTool" 
+        description="Execute a Moqui service with parameters" 
+        parameterSchema='{"serviceName": {"type": "string", "required": true}, "parameters": {"type": "object", "default": {}}, "timeout": {"type": "integer", "default": 300}, "async": {"type": "boolean", "default": false}}' 
+        resultSchema='{"serviceName": "string", "async": "boolean", "parameters": "object", "result": "object", "executionTime": "number", "submitted": "boolean", "message": "string"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="2" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="SERVICE_DESCRIBE" toolName="service_describe" 
+        toolType="McpToolTypeService" serviceName="org.moqui.mcp.mcp-tools.ServiceTools.execute#ServiceTool" 
+        description="Get service metadata and parameter information" 
+        parameterSchema='{"serviceName": {"type": "string", "required": true}}' 
+        resultSchema='{"serviceName": "string", "verb": "string", "noun": "string", "description": "string", "authenticate": "boolean", "transactionTimeout": "integer", "inParameters": "array", "outParameters": "array", "hasPermission": "boolean", "permissionReason": "string"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="SERVICE_LIST" toolName="service_list" 
+        toolType="McpToolTypeService" serviceName="org.moqui.mcp.mcp-tools.ServiceTools.execute#ServiceTool" 
+        description="List available services with optional filtering" 
+        parameterSchema='{"packageName": {"type": "string"}, "verb": {"type": "string"}, "noun": {"type": "string"}, "includeServices": {"type": "array"}, "excludeServices": {"type": "array"}, "checkPermissions": {"type": "boolean", "default": true}}' 
+        resultSchema='{"packageName": "string", "verb": "string", "noun": "string", "serviceNames": "array", "count": "integer", "checkPermissions": "boolean"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="SERVICE_VALIDATE" toolName="service_validate" 
+        toolType="McpToolTypeService" serviceName="org.moqui.mcp.mcp-tools.ServiceTools.execute#ServiceTool" 
+        description="Validate service parameters and permissions" 
+        parameterSchema='{"serviceName": {"type": "string", "required": true}, "parameters": {"type": "object", "default": {}}}' 
+        resultSchema='{"serviceName": "string", "valid": "boolean", "hasPermission": "boolean", "permissionReason": "string", "validationResults": "array", "summary": "object", "missingRequired": "array", "invalidTypes": "array", "extraParameters": "array"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <!-- MCP Tool Registry - Search Tools -->
+    <moqui.mcp.McpToolRegistry toolId="ENTITY_SEARCH" toolName="entity_search" 
+        toolType="McpToolTypeSearch" serviceName="org.moqui.mcp.mcp-tools.SearchTools.execute#SearchTool" 
+        description="Search within entity fields for text patterns" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}, "searchTerm": {"type": "string", "required": true}, "searchFields": {"type": "array"}, "exactMatch": {"type": "boolean", "default": false}, "caseSensitive": {"type": "boolean", "default": false}, "condition": {"type": "object"}, "orderBy": {"type": "string"}, "limit": {"type": "integer", "default": 100}, "offset": {"type": "integer", "default": 0}}' 
+        resultSchema='{"entityName": "string", "searchTerm": "string", "searchFields": "array", "exactMatch": "boolean", "caseSensitive": "boolean", "records": "array", "count": "integer", "limit": "integer", "offset": "integer", "hasMore": "boolean"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="2" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="FULL_TEXT_SEARCH" toolName="full_text_search" 
+        toolType="McpToolTypeSearch" serviceName="org.moqui.mcp.mcp-tools.SearchTools.execute#SearchTool" 
+        description="Search across multiple entities for text patterns" 
+        parameterSchema='{"searchTerm": {"type": "string", "required": true}, "entityNames": {"type": "array", "required": true}, "limit": {"type": "integer", "default": 100}, "offset": {"type": "integer", "default": 0}}' 
+        resultSchema='{"searchTerm": "string", "entityResults": "array", "totalCount": "integer", "entityCount": "integer"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="3" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="RELATIONSHIP_SEARCH" toolName="relationship_search" 
+        toolType="McpToolTypeSearch" serviceName="org.moqui.mcp.mcp-tools.SearchTools.execute#SearchTool" 
+        description="Search related entities through relationships" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}, "relationshipName": {"type": "string", "required": true}, "searchTerm": {"type": "string", "required": true}, "searchFields": {"type": "array"}, "limit": {"type": "integer", "default": 100}, "offset": {"type": "integer", "default": 0}}' 
+        resultSchema='{"entityName": "string", "relationshipName": "string", "relatedEntityName": "string", "searchTerm": "string", "relatedRecords": "array", "parentRecords": "array", "relatedCount": "integer", "parentCount": "integer"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="2" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="AGGREGATE_SEARCH" toolName="aggregate_search" 
+        toolType="McpToolTypeSearch" serviceName="org.moqui.mcp.mcp-tools.SearchTools.execute#SearchTool" 
+        description="Perform aggregate searches with grouping and functions" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}, "aggregateField": {"type": "string", "required": true}, "aggregateFunction": {"type": "string", "required": true}, "groupByFields": {"type": "array"}, "condition": {"type": "object"}, "orderBy": {"type": "string"}, "limit": {"type": "integer", "default": 100}}' 
+        resultSchema='{"entityName": "string", "aggregateField": "string", "aggregateFunction": "string", "groupByFields": "array", "results": "array", "count": "integer"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="2" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="CROSS_ENTITY_SEARCH" toolName="cross_entity_search" 
+        toolType="McpToolTypeSearch" serviceName="org.moqui.mcp.mcp-tools.SearchTools.execute#SearchTool" 
+        description="Search across multiple entities with relevance scoring" 
+        parameterSchema='{"searchTerm": {"type": "string", "required": true}, "entityConfigs": {"type": "array", "required": true}, "limit": {"type": "integer", "default": 100}}' 
+        resultSchema='{"searchTerm": "string", "results": "array", "totalCount": "integer", "returnedCount": "integer"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="3" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <!-- MCP Tool Registry - Utility Tools -->
+    <moqui.mcp.McpToolRegistry toolId="GET_SERVER_INFO" toolName="get_server_info" 
+        toolType="McpToolTypeUtility" serviceName="org.moqui.mcp.McpToolServices.execute#Tool" 
+        description="Get MCP server information and capabilities" 
+        parameterSchema='{}' 
+        resultSchema='{"serverVersion": "string", "timestamp": "string", "sessionId": "string", "userTimezone": "string", "supportedEntityTypes": "array", "maxResults": "integer"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="GET_USER_INFO" toolName="get_user_info" 
+        toolType="McpToolTypeUtility" serviceName="org.moqui.mcp.McpToolServices.execute#Tool" 
+        description="Get current user information and permissions" 
+        parameterSchema='{}' 
+        resultSchema='{"userAccountId": "string", "username": "string", "displayName": "string", "enabled": "boolean", "createdDate": "string", "permissions": "object"}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="VALIDATE_ENTITY" toolName="validate_entity" 
+        toolType="McpToolTypeUtility" serviceName="org.moqui.mcp.McpToolServices.execute#Tool" 
+        description="Validate if an entity exists and get its metadata" 
+        parameterSchema='{"entityName": {"type": "string", "required": true}}' 
+        resultSchema='{"entityName": "string", "exists": "boolean", "entityInfo": {"packageName": "string", "tableName": "string", "fieldNames": "array", "pkFieldNames": "array"}}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <moqui.mcp.McpToolRegistry toolId="VALIDATE_SERVICE" toolName="validate_service" 
+        toolType="McpToolTypeUtility" serviceName="org.moqui.mcp.McpToolServices.execute#Tool" 
+        description="Validate if a service exists and get its metadata" 
+        parameterSchema='{"serviceName": {"type": "string", "required": true}}' 
+        resultSchema='{"serviceName": "string", "exists": "boolean", "serviceInfo": {"verb": "string", "noun": "string", "authenticate": "boolean", "parameters": "array", "outputParameters": "array"}}' 
+        isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
+        createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
+    
+    <!-- Default User Configuration for Admin -->
+    <moqui.mcp.McpUserConfig userConfigId="ADMIN_CONFIG" userAccountId="ADMIN" 
+        configId="DEFAULT" isEnabled="Y" 
+        customSettings='{"rateLimitMultiplier": 2.0, "maxSessionsPerUser": 10}' 
+        createdDate="${ec.user.now}" lastUsedDate="${ec.user.now}"/>
+
+</entity-facade-xml>

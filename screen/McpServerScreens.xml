@@ -1,0 +1,648 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/screen-definition-3.xsd">
+
+    <!-- MCP Server Main Screen -->
+    <screen name="McpServerDashboard" menu-title="MCP Server" menu-index="1">
+        <parameter name="tabMenuMain" value="McpServerTabMenu"/>
+        
+        <subscreens-item name="Sessions" menu-title="Sessions" menu-index="1"/>
+        <subscreens-item name="ToolCalls" menu-title="Tool Calls" menu-index="2"/>
+        <subscreens-item name="AuditLog" menu-title="Audit Log" menu-index="3"/>
+        <subscreens-item name="Configuration" menu-title="Configuration" menu-index="4"/>
+        <subscreens-item name="Tools" menu-title="Tools" menu-index="5"/>
+        <subscreens-item name="RateLimits" menu-title="Rate Limits" menu-index="6"/>
+        
+        <widgets>
+            <container-panel id="McpServerDashboardPanel">
+                <panel-header><label text="MCP Server Dashboard"/></panel-header>
+                <panel-toolbar>
+                    <container style="btn-group">
+                        <link url="createSession" text="Create Session" button-style="btn-primary"/>
+                        <link url="refreshDashboard" text="Refresh" button-style="btn-secondary"/>
+                    </container>
+                </panel-toolbar>
+                
+                <panel-body>
+                    <!-- Dashboard Statistics -->
+                    <container-row>
+                        <container-col>
+                            <container style="card">
+                                <container style="card-header">
+                                    <h5>Active Sessions</h5>
+                                </container>
+                                <container style="card-body">
+                                    <entity-find entity-name="McpSession" list="activeSessions">
+                                        <econdition field-name="statusId" value="McsActive"/>
+                                        <econdition field-name="expiresDate" operator="greater-than" from="ec.user.now"/>
+                                    </entity-find>
+                                    <h3>${activeSessions.size()}</h3>
+                                    <p class="text-muted">Currently active</p>
+                                </container>
+                            </container>
+                        </container-col>
+                        
+                        <container-col>
+                            <container style="card">
+                                <container style="card-header">
+                                    <h5>Tool Calls Today</h5>
+                                </container>
+                                <container style="card-body">
+                                    <entity-find entity-name="McpToolCall" list="todayToolCalls">
+                                        <econdition field-name="startTime" operator="greater-than-equals" from="ec.user.now.truncatedTo('DAY')"/>
+                                    </entity-find>
+                                    <h3>${todayToolCalls.size()}</h3>
+                                    <p class="text-muted">Since midnight</p>
+                                </container>
+                            </container>
+                        </container-col>
+                        
+                        <container-col>
+                            <container style="card">
+                                <container style="card-header">
+                                    <h5>Success Rate</h5>
+                                </container>
+                                <container style="card-body">
+                                    <entity-find entity-name="McpToolCall" list="totalToolCalls">
+                                        <econdition field-name="startTime" operator="greater-than-equals" from="ec.user.now.minusDays(7)"/>
+                                    </entity-find>
+                                    <set field="successfulCalls" from="totalToolCalls.findAll { it.statusId == 'MtcCompleted' }.size()"/>
+                                    <set field="successRate" from="totalToolCalls.size() > 0 ? (successfulCalls * 100 / totalToolCalls.size()) : 100"/>
+                                    <h3>${successRate.round(1)}%</h3>
+                                    <p class="text-muted">Last 7 days</p>
+                                </container>
+                            </container>
+                        </container-col>
+                        
+                        <container-col>
+                            <container style="card">
+                                <container style="card-header">
+                                    <h5>Security Events</h5>
+                                </container>
+                                <container style="card-body">
+                                    <entity-find entity-name="McpAuditLog" list="securityEvents">
+                                        <econdition field-name="severity" value="McpSeverityWarning"/>
+                                        <econdition field-name="timestamp" operator="greater-than-equals" from="ec.user.now.minusDays(1)"/>
+                                    </entity-find>
+                                    <h3>${securityEvents.size()}</h3>
+                                    <p class="text-muted">Last 24 hours</p>
+                                </container>
+                            </container>
+                        </container-col>
+                    </container-row>
+                    
+                    <!-- Recent Activity -->
+                    <container style="mt-4">
+                        <container style="card">
+                            <container style="card-header">
+                                <h5>Recent Activity</h5>
+                            </container>
+                            <container style="card-body">
+                                <entity-find entity-name="McpToolCall" list="recentActivity">
+                                    <econdition field-name="startTime" operator="greater-than" from="ec.user.now.minusHours(24)"/>
+                                    <order-by field-name="-startTime"/>
+                                    <limit value="10"/>
+                                </entity-find>
+                                
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Tool</th>
+                                            <th>User</th>
+                                            <th>Status</th>
+                                            <th>Duration</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <list list="recentActivity">
+                                            <tr>
+                                                <td><display type="date-time" format="MM/dd HH:mm" entry="startTime"/></td>
+                                                <td>${toolName}</td>
+                                                <td>
+                                                    <entity-find-one entity-name="McpSession" value="session">
+                                                        <field-map field-name="sessionId" from="sessionId"/>
+                                                    </entity-find-one>
+                                                    <entity-find-one entity-name="moqui.security.UserAccount" value="user">
+                                                        <field-map field-name="userAccountId" from="session.userAccountId"/>
+                                                    </entity-find-one>
+                                                    ${user.username}
+                                                </td>
+                                                <td>
+                                                    <display type="enumeration" entry="statusId"/>
+                                                </td>
+                                                <td>${executionTime ? executionTime.round(2) + 's' : '-'}</td>
+                                            </tr>
+                                        </list>
+                                    </tbody>
+                                </table>
+                            </container>
+                        </container>
+                    </container>
+                </panel-body>
+            </container-panel>
+        </widgets>
+    </screen>
+
+    <!-- MCP Sessions Screen -->
+    <screen name="Sessions" menu-title="Sessions" menu-index="1">
+        <parameter name="pageIndex" default-value="0"/>
+        <parameter name="pageSize" default-value="20"/>
+        <parameter name="statusId"/>
+        <parameter name="userAccountId"/>
+        
+        <widgets>
+            <container-panel id="McpSessionsPanel">
+                <panel-header><label text="MCP Sessions"/></panel-header>
+                <panel-toolbar>
+                    <form-list name="SessionSearchForm" list="sessionList">
+                        <field name="statusId">
+                            <default-field>
+                                <drop-down allow-empty="true">
+                                    <entity-options description="${description}" key="${statusId}" entity="moqui.basic.StatusItem">
+                                        <econdition field-name="statusTypeId" value="McpSession"/>
+                                    </entity-options>
+                                </drop-down>
+                            </default-field>
+                        </field>
+                        <field name="userAccountId">
+                            <default-field>
+                                <drop-down allow-empty="true">
+                                    <entity-options description="${username}" key="${userAccountId}" entity="moqui.security.UserAccount">
+                                        <econdition field-name="enabled" value="Y"/>
+                                        <order-by field-name="username"/>
+                                    </entity-options>
+                                </drop-down>
+                            </default-field>
+                        </field>
+                        <field name="submitButton">
+                            <default-field title=" ">
+                                <submit text="Search"/>
+                            </default-field>
+                        </field>
+                    </form-list>
+                </panel-toolbar>
+                
+                <panel-body>
+                    <entity-find entity-name="McpSession" list="sessionList" count="sessionCount">
+                        <econdition field-name="statusId" from="statusId"/>
+                        <econdition field-name="userAccountId" from="userAccountId"/>
+                        <order-by field-name="-createdDate"/>
+                        <pagination page-size="${pageSize}" page-index="${pageIndex}"/>
+                    </entity-find>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Session ID</th>
+                                <th>User</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Last Accessed</th>
+                                <th>Expires</th>
+                                <th>IP Address</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <list list="sessionList">
+                                <tr>
+                                    <td><label text="${sessionId}"/></td>
+                                    <td>
+                                        <entity-find-one entity-name="moqui.security.UserAccount" value="user">
+                                            <field-map field-name="userAccountId" from="userAccountId"/>
+                                        </entity-find-one>
+                                        ${user.username}
+                                    </td>
+                                    <td><display type="enumeration" entry="statusId"/></td>
+                                    <td><display type="date-time" format="MM/dd HH:mm" entry="createdDate"/></td>
+                                    <td><display type="date-time" format="MM/dd HH:mm" entry="lastAccessedDate"/></td>
+                                    <td><display type="date-time" format="MM/dd HH:mm" entry="expiresDate"/></td>
+                                    <td>${ipAddress ?: '-'}</td>
+                                    <td>
+                                        <container style="btn-group btn-group-sm">
+                                            <link url="viewSession?sessionId=${sessionId}" text="View" button-style="btn-outline-primary"/>
+                                            <link url="terminateSession?sessionId=${sessionId}" text="Terminate" button-style="btn-outline-danger" 
+                                                   confirmation="Are you sure you want to terminate this session?"/>
+                                        </container>
+                                    </td>
+                                </tr>
+                            </list>
+                        </tbody>
+                    </table>
+                    
+                    <pagination-nav list="sessionList" count="sessionCount" page-size="${pageSize}" page-index="${pageIndex}"/>
+                </panel-body>
+            </container-panel>
+        </widgets>
+    </screen>
+
+    <!-- MCP Tool Calls Screen -->
+    <screen name="ToolCalls" menu-title="Tool Calls" menu-index="2">
+        <parameter name="pageIndex" default-value="0"/>
+        <parameter name="pageSize" default-value="20"/>
+        <parameter name="toolName"/>
+        <parameter name="statusId"/>
+        <parameter name="sessionId"/>
+        
+        <widgets>
+            <container-panel id="McpToolCallsPanel">
+                <panel-header><label text="MCP Tool Calls"/></panel-header>
+                <panel-toolbar>
+                    <form-list name="ToolCallSearchForm" list="toolCallList">
+                        <field name="toolName">
+                            <default-field>
+                                <text-line size="20"/>
+                            </default-field>
+                        </field>
+                        <field name="statusId">
+                            <default-field>
+                                <drop-down allow-empty="true">
+                                    <entity-options description="${description}" key="${statusId}" entity="moqui.basic.StatusItem">
+                                        <econdition field-name="statusTypeId" value="McpToolCall"/>
+                                    </entity-options>
+                                </drop-down>
+                            </default-field>
+                        </field>
+                        <field name="sessionId">
+                            <default-field>
+                                <text-line size="20"/>
+                            </default-field>
+                        </field>
+                        <field name="submitButton">
+                            <default-field title=" ">
+                                <submit text="Search"/>
+                            </default-field>
+                        </field>
+                    </form-list>
+                </panel-toolbar>
+                
+                <panel-body>
+                    <entity-find entity-name="McpToolCall" list="toolCallList" count="toolCallCount">
+                        <econdition field-name="toolName" operator="contains" from="toolName"/>
+                        <econdition field-name="statusId" from="statusId"/>
+                        <econdition field-name="sessionId" from="sessionId"/>
+                        <order-by field-name="-startTime"/>
+                        <pagination page-size="${pageSize}" page-index="${pageIndex}"/>
+                    </entity-find>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Tool</th>
+                                <th>Session</th>
+                                <th>User</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Entity/Service</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <list list="toolCallList">
+                                <tr>
+                                    <td><display type="date-time" format="MM/dd HH:mm" entry="startTime"/></td>
+                                    <td>${toolName}</td>
+                                    <td><label text="${sessionId}"/></td>
+                                    <td>
+                                        <entity-find-one entity-name="McpSession" value="session">
+                                            <field-map field-name="sessionId" from="sessionId"/>
+                                        </entity-find-one>
+                                        <entity-find-one entity-name="moqui.security.UserAccount" value="user">
+                                            <field-map field-name="userAccountId" from="session.userAccountId"/>
+                                        </entity-find-one>
+                                        ${user.username}
+                                    </td>
+                                    <td><display type="enumeration" entry="statusId"/></td>
+                                    <td>${executionTime ? executionTime.round(2) + 's' : '-'}</td>
+                                    <td>${entityName ?: serviceName ?: '-'}</td>
+                                    <td>
+                                        <container style="btn-group btn-group-sm">
+                                            <link url="viewToolCall?toolCallId=${toolCallId}" text="View" button-style="btn-outline-primary"/>
+                                        </container>
+                                    </td>
+                                </tr>
+                            </list>
+                        </tbody>
+                    </table>
+                    
+                    <pagination-nav list="toolCallList" count="toolCallCount" page-size="${pageSize}" page-index="${pageIndex}"/>
+                </panel-body>
+            </container-panel>
+        </widgets>
+    </screen>
+
+    <!-- MCP Audit Log Screen -->
+    <screen name="AuditLog" menu-title="Audit Log" menu-index="3">
+        <parameter name="pageIndex" default-value="0"/>
+        <parameter name="pageSize" default-value="20"/>
+        <parameter name="eventType"/>
+        <parameter name="severity"/>
+        <parameter name="userAccountId"/>
+        
+        <widgets>
+            <container-panel id="McpAuditLogPanel">
+                <panel-header><label text="MCP Audit Log"/></panel-header>
+                <panel-toolbar>
+                    <form-list name="AuditLogSearchForm" list="auditLogList">
+                        <field name="eventType">
+                            <default-field>
+                                <drop-down allow-empty="true">
+                                    <entity-options description="${description}" key="${enumId}" entity="moqui.basic.Enumeration">
+                                        <econdition field-name="enumTypeId" value="McpEventType"/>
+                                    </entity-options>
+                                </drop-down>
+                            </default-field>
+                        </field>
+                        <field name="severity">
+                            <default-field>
+                                <drop-down allow-empty="true">
+                                    <entity-options description="${description}" key="${enumId}" entity="moqui.basic.Enumeration">
+                                        <econdition field-name="enumTypeId" value="McpSeverityLevel"/>
+                                    </entity-options>
+                                </drop-down>
+                            </default-field>
+                        </field>
+                        <field name="userAccountId">
+                            <default-field>
+                                <drop-down allow-empty="true">
+                                    <entity-options description="${username}" key="${userAccountId}" entity="moqui.security.UserAccount">
+                                        <econdition field-name="enabled" value="Y"/>
+                                        <order-by field-name="username"/>
+                                    </entity-options>
+                                </drop-down>
+                            </default-field>
+                        </field>
+                        <field name="submitButton">
+                            <default-field title=" ">
+                                <submit text="Search"/>
+                            </default-field>
+                        </field>
+                    </form-list>
+                </panel-toolbar>
+                
+                <panel-body>
+                    <entity-find entity-name="McpAuditLog" list="auditLogList" count="auditLogCount">
+                        <econdition field-name="eventType" from="eventType"/>
+                        <econdition field-name="severity" from="severity"/>
+                        <econdition field-name="userAccountId" from="userAccountId"/>
+                        <order-by field-name="-timestamp"/>
+                        <pagination page-size="${pageSize}" page-index="${pageIndex}"/>
+                    </entity-find>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Event Type</th>
+                                <th>Severity</th>
+                                <th>User</th>
+                                <th>Entity/Service</th>
+                                <th>Detail</th>
+                                <th>IP Address</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <list list="auditLogList">
+                                <tr class="${severity == 'McpSeverityError' || severity == 'McpSeverityCritical' ? 'table-danger' : severity == 'McpSeverityWarning' ? 'table-warning' : ''}">
+                                    <td><display type="date-time" format="MM/dd HH:mm" entry="timestamp"/></td>
+                                    <td><display type="enumeration" entry="eventType"/></td>
+                                    <td><display type="enumeration" entry="severity"/></td>
+                                    <td>
+                                        <if condition="userAccountId">
+                                            <entity-find-one entity-name="moqui.security.UserAccount" value="user">
+                                                <field-map field-name="userAccountId" from="userAccountId"/>
+                                            </entity-find-one>
+                                            ${user.username}
+                                        <else/>
+                                            -
+                                        </if>
+                                    </td>
+                                    <td>${entityName ?: serviceName ?: '-'}</td>
+                                    <td><label text="${eventDetail}" size="50"/></td>
+                                    <td>${ipAddress ?: '-'}</td>
+                                </tr>
+                            </list>
+                        </tbody>
+                    </table>
+                    
+                    <pagination-nav list="auditLogList" count="auditLogCount" page-size="${pageSize}" page-index="${pageIndex}"/>
+                </panel-body>
+            </container-panel>
+        </widgets>
+    </screen>
+
+    <!-- MCP Configuration Screen -->
+    <screen name="Configuration" menu-title="Configuration" menu-index="4">
+        <widgets>
+            <container-panel id="McpConfigurationPanel">
+                <panel-header><label text="MCP Configuration"/></panel-header>
+                <panel-body>
+                    <container-row>
+                        <container-col>
+                            <container style="card">
+                                <container style="card-header">
+                                    <h5>Server Settings</h5>
+                                </container>
+                                <container style="card-body">
+                                    <form-list name="ServerSettingsForm" list="serverSettings">
+                                        <field name="enabled">
+                                            <default-field title="Server Enabled">
+                                                <check/>
+                                            </default-field>
+                                        </field>
+                                        <field name="port">
+                                            <default-field title="Port">
+                                                <text-line size="10"/>
+                                            </default-field>
+                                        </field>
+                                        <field name="sessionTimeoutMinutes">
+                                            <default-field title="Session Timeout (minutes)">
+                                                <text-line size="10"/>
+                                            </default-field>
+                                        </field>
+                                        <field name="rateLimitPerMinute">
+                                            <default-field title="Rate Limit (per minute)">
+                                                <text-line size="10"/>
+                                            </default-field>
+                                        </field>
+                                        <field name="auditEnabled">
+                                            <default-field title="Audit Enabled">
+                                                <check/>
+                                            </default-field>
+                                        </field>
+                                        <field name="submitButton">
+                                            <default-field title=" ">
+                                                <submit text="Save Settings"/>
+                                            </default-field>
+                                        </field>
+                                    </form-list>
+                                </container>
+                            </container>
+                        </container-col>
+                        
+                        <container-col>
+                            <container style="card">
+                                <container style="card-header">
+                                    <h5>LLM Provider Settings</h5>
+                                </container>
+                                <container style="card-body">
+                                    <form-list name="LlmSettingsForm" list="llmSettings">
+                                        <field name="providerUrl">
+                                            <default-field title="Provider URL">
+                                                <text-line size="50"/>
+                                            </default-field>
+                                        </field>
+                                        <field name="apiKey">
+                                            <default-field title="API Key">
+                                                <text-line size="50" password="true"/>
+                                            </default-field>
+                                        </field>
+                                        <field name="model">
+                                            <default-field title="Model">
+                                                <text-line size="30"/>
+                                            </default-field>
+                                        </field>
+                                        <field name="timeoutSeconds">
+                                            <default-field title="Timeout (seconds)">
+                                                <text-line size="10"/>
+                                            </default-field>
+                                        </field>
+                                        <field name="submitButton">
+                                            <default-field title=" ">
+                                                <submit text="Save LLM Settings"/>
+                                            </default-field>
+                                        </field>
+                                    </form-list>
+                                </container>
+                            </container>
+                        </container-col>
+                    </container-row>
+                </panel-body>
+            </container-panel>
+        </widgets>
+    </screen>
+
+    <!-- MCP Tools Registry Screen -->
+    <screen name="Tools" menu-title="Tools" menu-index="5">
+        <widgets>
+            <container-panel id="McpToolsPanel">
+                <panel-header><label text="MCP Tools Registry"/></panel-header>
+                <panel-toolbar>
+                    <link url="registerTool" text="Register Tool" button-style="btn-primary"/>
+                </panel-toolbar>
+                
+                <panel-body>
+                    <entity-find entity-name="McpToolRegistry" list="toolRegistryList">
+                        <order-by field-name="toolName"/>
+                    </entity-find>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tool Name</th>
+                                <th>Type</th>
+                                <th>Service</th>
+                                <th>Description</th>
+                                <th>Enabled</th>
+                                <th>Requires Permission</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <list list="toolRegistryList">
+                                <tr>
+                                    <td>${toolName}</td>
+                                    <td><display type="enumeration" entry="toolType"/></td>
+                                    <td>${serviceName ?: '-'}</td>
+                                    <td><label text="${description}" size="50"/></td>
+                                    <td><display type="indicator" entry="isEnabled"/></td>
+                                    <td><display type="indicator" entry="requiresPermission"/></td>
+                                    <td>
+                                        <container style="btn-group btn-group-sm">
+                                            <link url="viewTool?toolId=${toolId}" text="View" button-style="btn-outline-primary"/>
+                                            <link url="editTool?toolId=${toolId}" text="Edit" button-style="btn-outline-secondary"/>
+                                        </container>
+                                    </td>
+                                </tr>
+                            </list>
+                        </tbody>
+                    </table>
+                </panel-body>
+            </container-panel>
+        </widgets>
+    </screen>
+
+    <!-- MCP Rate Limits Screen -->
+    <screen name="RateLimits" menu-title="Rate Limits" menu-index="6">
+        <widgets>
+            <container-panel id="McpRateLimitsPanel">
+                <panel-header><label text="MCP Rate Limits"/></panel-header>
+                <panel-body>
+                    <entity-find entity-name="McpRateLimit" list="rateLimitList">
+                        <econdition field-name="windowEnd" operator="greater-than" from="ec.user.now"/>
+                        <order-by field-name="-windowStart"/>
+                        <limit value="100"/>
+                    </entity-find>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>IP Address</th>
+                                <th>Limit Type</th>
+                                <th>Window Start</th>
+                                <th>Window End</th>
+                                <th>Request Count</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <list list="rateLimitList">
+                                <tr class="${requestCount >= 100 ? 'table-danger' : requestCount >= 80 ? 'table-warning' : ''}">
+                                    <td>
+                                        <if condition="userAccountId">
+                                            <entity-find-one entity-name="moqui.security.UserAccount" value="user">
+                                                <field-map field-name="userAccountId" from="userAccountId"/>
+                                            </entity-find-one>
+                                            ${user.username}
+                                        <else/>
+                                            -
+                                        </if>
+                                    </td>
+                                    <td>${ipAddress ?: '-'}</td>
+                                    <td><display type="enumeration" entry="limitType"/></td>
+                                    <td><display type="date-time" format="MM/dd HH:mm" entry="windowStart"/></td>
+                                    <td><display type="date-time" format="MM/dd HH:mm" entry="windowEnd"/></td>
+                                    <td>${requestCount}</td>
+                                    <td>
+                                        <if condition="requestCount >= 100">
+                                            <span class="badge bg-danger">Exceeded</span>
+                                        <elseif condition="requestCount >= 80"/>
+                                            <span class="badge bg-warning">High</span>
+                                        <else/>
+                                            <span class="badge bg-success">Normal</span>
+                                        </if>
+                                    </td>
+                                </tr>
+                            </list>
+                        </tbody>
+                    </table>
+                </panel-body>
+            </container-panel>
+        </widgets>
+    </screen>
+
+</screen>

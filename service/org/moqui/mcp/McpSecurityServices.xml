@@ -1,0 +1,499 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP Security Services -->
+    
+    <service verb="check" noun="RateLimit" authenticate="false" transaction-timeout="30">
+        <description>Check if user/IP has exceeded rate limits</description>
+        <in-parameters>
+            <parameter name="userAccountId" type="id"/>
+            <parameter name="ipAddress" type="text-short"/>
+            <parameter name="limitType" type="text-short" required="true"/>
+            <parameter name="requestWeight" type="number-integer" default="1"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="allowed" type="text-indicator"/>
+            <parameter name="currentCount" type="number-integer"/>
+            <parameter name="limit" type="number-integer"/>
+            <parameter name="windowEnd" type="date-time"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import java.time.LocalDateTime
+                import java.time.temporal.ChronoUnit
+                
+                ExecutionContext ec = context.ec
+                
+                // Get rate limit configuration
+                def rateLimitPerMinute = ec.l10n.localize("mcp.server.rate.limit.requests.per.minute", 100) as Integer
+                def limit = rateLimitPerMinute
+                
+                // Calculate window based on limit type
+                def windowStart = ec.user.now
+                def windowEnd = ec.user.now
+                
+                switch (limitType) {
+                    case "McpRlMinute":
+                        windowStart = ec.user.now.truncatedTo(ChronoUnit.MINUTES)
+                        windowEnd = windowStart.plusMinutes(1)
+                        break
+                    case "McpRlHour":
+                        windowStart = ec.user.now.truncatedTo(ChronoUnit.HOURS)
+                        windowEnd = windowStart.plusHours(1)
+                        limit = rateLimitPerMinute * 60  // Convert to hourly limit
+                        break
+                    case "McpRlDay":
+                        windowStart = ec.user.now.truncatedTo(ChronoUnit.DAYS)
+                        windowEnd = windowStart.plusDays(1)
+                        limit = rateLimitPerMinute * 60 * 24  // Convert to daily limit
+                        break
+                    default:
+                        windowStart = ec.user.now.truncatedTo(ChronoUnit.MINUTES)
+                        windowEnd = windowStart.plusMinutes(1)
+                }
+                
+                // Clean up old rate limit records
+                ec.entity.find("McpRateLimit")
+                    .condition("windowEnd", ec.user.now, "less-than")
+                    .deleteAll()
+                
+                // Find or create rate limit record
+                def rateLimit = ec.entity.find("McpRateLimit")
+                    .condition("userAccountId", userAccountId)
+                    .condition("ipAddress", ipAddress)
+                    .condition("limitType", limitType)
+                    .condition("windowStart", windowStart)
+                    .one()
+                
+                if (!rateLimit) {
+                    rateLimit = ec.entity.makeValue("McpRateLimit")
+                    rateLimit.setSequencedIdPrimary()
+                    rateLimit.userAccountId = userAccountId
+                    rateLimit.ipAddress = ipAddress
+                    rateLimit.windowStart = windowStart
+                    rateLimit.windowEnd = windowEnd
+                    rateLimit.requestCount = 0
+                    rateLimit.limitType = limitType
+                    rateLimit.create()
+                }
+                
+                // Check if adding this request would exceed the limit
+                currentCount = rateLimit.requestCount
+                allowed = (currentCount + requestWeight) <= limit ? "Y" : "N"
+                
+                if (allowed == "Y") {
+                    // Update the count
+                    ec.service.sync("update#McpRateLimit", [
+                        rateLimitId: rateLimit.rateLimitId,
+                        requestCount: currentCount + requestWeight
+                    ])
+                }
+                
+                // Log rate limit exceeded if applicable
+                if (allowed == "N") {
+                    ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                        userAccountId: userAccountId,
+                        eventType: "McpEventRateLimitExceeded",
+                        eventDetail: "Rate limit exceeded for ${limitType}: ${currentCount + requestWeight}/${limit}",
+                        ipAddress: ipAddress,
+                        severity: "McpSeverityWarning"
+                    ])
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="log" noun="AuditEvent" authenticate="false" transaction-timeout="30">
+        <description>Log MCP audit events</description>
+        <in-parameters>
+            <parameter name="sessionId" type="id"/>
+            <parameter name="toolCallId" type="id"/>
+            <parameter name="userAccountId" type="id"/>
+            <parameter name="eventType" type="text-short" required="true"/>
+            <parameter name="eventDetail" type="text-very-long"/>
+            <parameter name="entityName" type="text-medium"/>
+            <parameter name="serviceName" type="text-medium"/>
+            <parameter name="recordId" type="id"/>
+            <parameter name="oldValues" type="text-very-long"/>
+            <parameter name="newValues" type="text-very-long"/>
+            <parameter name="ipAddress" type="text-short"/>
+            <parameter name="userAgent" type="text-medium"/>
+            <parameter name="severity" type="text-short" default="McpSeverityInfo"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="auditLogId" type="id"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Check if audit is enabled
+                def auditEnabled = ec.l10n.localize("mcp.server.audit.enabled", false)
+                if (!auditEnabled) {
+                    return
+                }
+                
+                // Check audit level - only log security events if minimal
+                def auditLevel = ec.l10n.localize("mcp.server.audit.level", "McpAuditFull")
+                if (auditLevel == "McpAuditMinimal" && severity != "McpSeverityError" && severity != "McpSeverityCritical") {
+                    return
+                }
+                
+                if (auditLevel == "McpAuditSecurity" && 
+                    eventType != "McpEventPermissionDenied" && 
+                    eventType != "McpEventRateLimitExceeded" && 
+                    eventType != "McpEventSecurityViolation") {
+                    return
+                }
+                
+                // Create audit log entry
+                def auditLog = ec.entity.makeValue("McpAuditLog")
+                auditLog.setSequencedIdPrimary()
+                auditLog.sessionId = sessionId
+                auditLog.toolCallId = toolCallId
+                auditLog.userAccountId = userAccountId
+                auditLog.eventType = eventType
+                auditLog.eventDetail = eventDetail
+                auditLog.entityName = entityName
+                auditLog.serviceName = serviceName
+                auditLog.recordId = recordId
+                auditLog.oldValues = oldValues
+                auditLog.newValues = newValues
+                auditLog.ipAddress = ipAddress
+                auditLog.userAgent = userAgent
+                auditLog.timestamp = ec.user.now
+                auditLog.severity = severity
+                auditLog.create()
+                
+                auditLogId = auditLog.auditLogId
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="cleanup" noun="ExpiredSessions" authenticate="false" transaction-timeout="300">
+        <description>Cleanup expired MCP sessions and related data</description>
+        <in-parameters>
+            <parameter name="batchSize" type="number-integer" default="100"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="sessionsExpired" type="number-integer"/>
+            <parameter name="toolCallsUpdated" type="number-integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                sessionsExpired = 0
+                toolCallsUpdated = 0
+                
+                // Find expired sessions
+                def expiredSessions = ec.entity.find("McpSession")
+                    .condition("statusId", "McsActive")
+                    .condition("expiresDate", ec.user.now, "less-than")
+                    .limit(batchSize)
+                    .list()
+                
+                for (session in expiredSessions) {
+                    // Update session status
+                    ec.service.sync("update#McpSession", [
+                        sessionId: session.sessionId,
+                        statusId: "McsExpired"
+                    ])
+                    
+                    // Update any active tool calls for this session
+                    def activeToolCalls = ec.entity.find("McpToolCall")
+                        .condition("sessionId", session.sessionId)
+                        .condition("statusId", "MtcStarted")
+                        .list()
+                    
+                    for (toolCall in activeToolCalls) {
+                        ec.service.sync("update#McpToolCall", [
+                            toolCallId: toolCall.toolCallId,
+                            statusId: "MtcFailed",
+                            endTime: ec.user.now,
+                            errorMessage: "Session expired"
+                        ])
+                        toolCallsUpdated++
+                    }
+                    
+                    // Log session expiration
+                    ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                        sessionId: session.sessionId,
+                        userAccountId: session.userAccountId,
+                        eventType: "McpEventSessionExpired",
+                        eventDetail: "Session expired automatically",
+                        severity: "McpSeverityInfo"
+                    ])
+                    
+                    sessionsExpired++
+                }
+                
+                ec.logger.info("MCP Session cleanup: ${sessionsExpired} sessions expired, ${toolCallsUpdated} tool calls updated")
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="check" noun="EntityPermission" authenticate="false" transaction-timeout="30">
+        <description>Check if user has permission for entity operation</description>
+        <in-parameters>
+            <parameter name="entityName" type="text-medium" required="true"/>
+            <parameter name="operation" type="text-short" required="true"/>
+            <parameter name="userAccountId" type="id"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="hasPermission" type="text-indicator"/>
+            <parameter name="permissionReason" type="text-medium"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Set user context if provided
+                if (userAccountId) {
+                    ec.user.setUserIdByToken(userAccountId)
+                }
+                
+                // Check entity permission
+                def artifactName = "entity:${entityName}"
+                def hasEntityPermission = ec.user.hasPermission(artifactName, operation)
+                
+                hasPermission = hasEntityPermission ? "Y" : "N"
+                permissionReason = hasEntityPermission ? "User has ${operation} permission on ${entityName}" : 
+                    "User lacks ${operation} permission on ${entityName}"
+                
+                // Log permission check if denied
+                if (hasPermission == "N") {
+                    ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                        userAccountId: userAccountId ?: ec.user.userAccountId,
+                        eventType: "McpEventPermissionDenied",
+                        eventDetail: "Entity permission denied: ${operation} on ${entityName}",
+                        entityName: entityName,
+                        severity: "McpSeverityWarning"
+                    ])
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="check" noun="ServicePermission" authenticate="false" transaction-timeout="30">
+        <description>Check if user has permission for service execution</description>
+        <in-parameters>
+            <parameter name="serviceName" type="text-medium" required="true"/>
+            <parameter name="userAccountId" type="id"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="hasPermission" type="text-indicator"/>
+            <parameter name="permissionReason" type="text-medium"/>
+            <parameter name="serviceExists" type="text-indicator"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Set user context if provided
+                if (userAccountId) {
+                    ec.user.setUserIdByToken(userAccountId)
+                }
+                
+                // Check if service exists
+                def serviceDefined = ec.service.isServiceDefined(serviceName)
+                serviceExists = serviceDefined ? "Y" : "N"
+                
+                if (!serviceDefined) {
+                    hasPermission = "N"
+                    permissionReason = "Service not defined: ${serviceName}"
+                    return
+                }
+                
+                // Check service permission
+                def hasServicePermission = ec.service.hasPermission(serviceName)
+                
+                hasPermission = hasServicePermission ? "Y" : "N"
+                permissionReason = hasServicePermission ? "User has permission to execute ${serviceName}" : 
+                    "User lacks permission to execute ${serviceName}"
+                
+                // Log permission check if denied
+                if (hasPermission == "N") {
+                    ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                        userAccountId: userAccountId ?: ec.user.userAccountId,
+                        eventType: "McpEventPermissionDenied",
+                        eventDetail: "Service permission denied: ${serviceName}",
+                        serviceName: serviceName,
+                        severity: "McpSeverityWarning"
+                    ])
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="validate" noun="EntityAccess" authenticate="false" transaction-timeout="60">
+        <description>Validate entity access based on user configuration and patterns</description>
+        <in-parameters>
+            <parameter name="entityName" type="text-medium" required="true"/>
+            <parameter name="userAccountId" type="id" required="true"/>
+            <parameter name="operation" type="text-short" default="VIEW"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="allowed" type="text-indicator"/>
+            <parameter name="reason" type="text-medium"/>
+            <parameter name="configId" type="id"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import java.util.regex.Pattern
+                
+                ExecutionContext ec = context.ec
+                
+                // Set user context
+                ec.user.setUserIdByToken(userAccountId)
+                
+                // Get user configuration
+                def userConfig = ec.entity.find("McpUserConfig")
+                    .condition("userAccountId", userAccountId)
+                    .condition("isEnabled", "Y")
+                    .one()
+                
+                if (!userConfig) {
+                    // Use default configuration
+                    def defaultConfig = ec.entity.find("McpConfiguration")
+                        .condition("configName", "DEFAULT")
+                        .condition("isEnabled", "Y")
+                        .one()
+                    
+                    if (!defaultConfig) {
+                        // No configuration found, allow by default
+                        allowed = "Y"
+                        reason = "No configuration found, allowing by default"
+                        return
+                    }
+                    
+                    configId = defaultConfig.configId
+                    def allowedPatterns = defaultConfig.allowedEntityPatterns?.split("\\|") ?: []
+                    def blockedPatterns = defaultConfig.blockedEntityPatterns?.split("\\|") ?: []
+                    def requireExplicit = defaultConfig.requireExplicitPermission == "Y"
+                    
+                    // Check blocked patterns first
+                    for (pattern in blockedPatterns) {
+                        if (pattern && entityName.matches(pattern)) {
+                            allowed = "N"
+                            reason = "Entity matches blocked pattern: ${pattern}"
+                            return
+                        }
+                    }
+                    
+                    // Check allowed patterns if specified
+                    if (allowedPatterns && !allowedPatterns.isEmpty()) {
+                        def allowedMatch = false
+                        for (pattern in allowedPatterns) {
+                            if (pattern && entityName.matches(pattern)) {
+                                allowedMatch = true
+                                break
+                            }
+                        }
+                        if (!allowedMatch) {
+                            allowed = "N"
+                            reason = "Entity does not match any allowed pattern"
+                            return
+                        }
+                    }
+                    
+                    // Check explicit permission if required
+                    if (requireExplicit) {
+                        def hasPermission = ec.service.sync("org.moqui.mcp.McpSecurityServices.check#EntityPermission", [
+                            entityName: entityName,
+                            operation: operation,
+                            userAccountId: userAccountId
+                        ])
+                        allowed = hasPermission.hasPermission
+                        reason = hasPermission.permissionReason
+                        return
+                    }
+                    
+                    allowed = "Y"
+                    reason = "Entity access allowed by default configuration"
+                    
+                } else {
+                    // Use user-specific configuration
+                    configId = userConfig.configId
+                    def config = ec.entity.find("McpConfiguration")
+                        .condition("configId", userConfig.configId)
+                        .one()
+                    
+                    if (!config) {
+                        allowed = "N"
+                        reason = "User configuration references non-existent config"
+                        return
+                    }
+                    
+                    // Apply configuration logic (same as above)
+                    def allowedPatterns = config.allowedEntityPatterns?.split("\\|") ?: []
+                    def blockedPatterns = config.blockedEntityPatterns?.split("\\|") ?: []
+                    def requireExplicit = config.requireExplicitPermission == "Y"
+                    
+                    // Check blocked patterns first
+                    for (pattern in blockedPatterns) {
+                        if (pattern && entityName.matches(pattern)) {
+                            allowed = "N"
+                            reason = "Entity matches blocked pattern: ${pattern}"
+                            return
+                        }
+                    }
+                    
+                    // Check allowed patterns if specified
+                    if (allowedPatterns && !allowedPatterns.isEmpty()) {
+                        def allowedMatch = false
+                        for (pattern in allowedPatterns) {
+                            if (pattern && entityName.matches(pattern)) {
+                                allowedMatch = true
+                                break
+                            }
+                        }
+                        if (!allowedMatch) {
+                            allowed = "N"
+                            reason = "Entity does not match any allowed pattern"
+                            return
+                        }
+                    }
+                    
+                    // Check explicit permission if required
+                    if (requireExplicit) {
+                        def hasPermission = ec.service.sync("org.moqui.mcp.McpSecurityServices.check#EntityPermission", [
+                            entityName: entityName,
+                            operation: operation,
+                            userAccountId: userAccountId
+                        ])
+                        allowed = hasPermission.hasPermission
+                        reason = hasPermission.permissionReason
+                        return
+                    }
+                    
+                    allowed = "Y"
+                    reason = "Entity access allowed by user configuration"
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+</services>

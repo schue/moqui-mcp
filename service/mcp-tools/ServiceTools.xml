@@ -1,0 +1,479 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP Service Tools -->
+    
+    <service verb="execute" noun="ServiceTool" authenticate="false" transaction-timeout="300">
+        <description>Execute service-related MCP tool</description>
+        <in-parameters>
+            <parameter name="sessionId" type="id" required="true"/>
+            <parameter name="toolName" type="text-medium" required="true"/>
+            <parameter name="parameters" type="Map" required="true"/>
+            <parameter name="toolCallId" type="id"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="text-very-long"/>
+            <parameter name="success" type="text-indicator"/>
+            <parameter name="errorMessage" type="text-long"/>
+            <parameter name="serviceName" type="text-medium"/>
+            <parameter name="recordCount" type="number-integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                import groovy.json.JsonSlurper
+                
+                ExecutionContext ec = context.ec
+                
+                // Get session information
+                def session = ec.entity.find("McpSession")
+                    .condition("sessionId", sessionId)
+                    .one()
+                if (!session) {
+                    success = "N"
+                    errorMessage = "Invalid session"
+                    return
+                }
+                
+                // Set user context
+                ec.user.setUserIdByToken(session.userAccountId)
+                
+                def result = null
+                try {
+                    switch (toolName) {
+                        case "service_call":
+                            result = executeServiceCall(parameters, session.userAccountId, toolCallId)
+                            break
+                        case "service_describe":
+                            result = executeServiceDescribe(parameters, session.userAccountId, toolCallId)
+                            break
+                        case "service_list":
+                            result = executeServiceList(parameters, session.userAccountId, toolCallId)
+                            break
+                        case "service_validate":
+                            result = executeServiceValidate(parameters, session.userAccountId, toolCallId)
+                            break
+                        default:
+                            result = [success: "N", errorMessage: "Unknown service tool: ${toolName}"]
+                    }
+                } catch (Exception e) {
+                    result = [success: "N", errorMessage: "Error executing service tool ${toolName}: ${e.message}"]
+                    ec.logger.error("Service tool execution error", e)
+                }
+                
+                success = result.success
+                errorMessage = result.errorMessage
+                serviceName = result.serviceName
+                recordCount = result.recordCount
+                result = result.result
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Service Tool Implementations -->
+    
+    <script><![CDATA[
+        def executeServiceCall(Map parameters, String userAccountId, String toolCallId) {
+            def ec = context.ec
+            
+            def serviceName = parameters.serviceName
+            def serviceParams = parameters.parameters ?: [:]
+            def timeout = parameters.timeout ?: 300
+            def async = parameters.async == "Y"
+            
+            if (!serviceName) {
+                return [success: "N", errorMessage: "serviceName parameter required"]
+            }
+            
+            // Validate service permission
+            def permissionCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.check#ServicePermission", [
+                serviceName: serviceName,
+                userAccountId: userAccountId
+            ])
+            
+            if (permissionCheck.hasPermission != "Y") {
+                return [success: "N", errorMessage: permissionCheck.permissionReason]
+            }
+            
+            try {
+                def result = null
+                def startTime = System.currentTimeMillis()
+                
+                if (async) {
+                    // Async service call
+                    def future = ec.service.async(serviceName, serviceParams)
+                    result = [
+                        serviceName: serviceName,
+                        async: true,
+                        submitted: true,
+                        message: "Service submitted for async execution"
+                    ]
+                } else {
+                    // Sync service call
+                    result = ec.service.sync(serviceName, serviceParams, timeout)
+                    
+                    // Convert result to JSON-safe format
+                    def jsonResult = [
+                        serviceName: serviceName,
+                        async: false,
+                        parameters: serviceParams,
+                        result: result,
+                        executionTime: System.currentTimeMillis() - startTime
+                    ]
+                    
+                    result = jsonResult
+                }
+                
+                // Log service call
+                ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                    toolCallId: toolCallId,
+                    userAccountId: userAccountId,
+                    eventType: "McpEventToolCompleted",
+                    eventDetail: "Service called: ${serviceName}",
+                    serviceName: serviceName,
+                    newValues: new JsonBuilder(serviceParams).toString(),
+                    severity: "McpSeverityInfo"
+                ])
+                
+                return [
+                    success: "Y",
+                    result: new JsonBuilder(result).toString(),
+                    serviceName: serviceName,
+                    recordCount: 1
+                ]
+                
+            } catch (Exception e) {
+                // Log service call error
+                ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                    toolCallId: toolCallId,
+                    userAccountId: userAccountId,
+                    eventType: "McpEventToolCompleted",
+                    eventDetail: "Service call failed: ${serviceName} - ${e.message}",
+                    serviceName: serviceName,
+                    severity: "McpSeverityError"
+                ])
+                
+                return [success: "N", errorMessage: "Error calling service ${serviceName}: ${e.message}"]
+            }
+        }
+        
+        def executeServiceDescribe(Map parameters, String userAccountId, String toolCallId) {
+            def ec = context.ec
+            
+            def serviceName = parameters.serviceName
+            
+            if (!serviceName) {
+                return [success: "N", errorMessage: "serviceName parameter required"]
+            }
+            
+            try {
+                def serviceExists = ec.service.isServiceDefined(serviceName)
+                
+                if (!serviceExists) {
+                    return [success: "N", errorMessage: "Service not found: ${serviceName}"]
+                }
+                
+                def serviceInfo = ec.service.getServiceInfo(serviceName)
+                
+                // Get parameter information
+                def inParameters = []
+                def outParameters = []
+                
+                for (paramInfo in serviceInfo.getInParameterInfos()) {
+                    inParameters << [
+                        name: paramInfo.name,
+                        type: paramInfo.type,
+                        required: paramInfo.required,
+                        defaultStr: paramInfo.defaultStr,
+                        description: paramInfo.description
+                    ]
+                }
+                
+                for (paramInfo in serviceInfo.getOutParameterInfos()) {
+                    outParameters << [
+                        name: paramInfo.name,
+                        type: paramInfo.type,
+                        description: paramInfo.description
+                    ]
+                }
+                
+                // Check permission
+                def permissionCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.check#ServicePermission", [
+                    serviceName: serviceName,
+                    userAccountId: userAccountId
+                ])
+                
+                def jsonResult = [
+                    serviceName: serviceName,
+                    verb: serviceInfo.verb,
+                    noun: serviceInfo.noun,
+                    description: serviceInfo.description,
+                    authenticate: serviceInfo.authenticate,
+                    transactionTimeout: serviceInfo.transactionTimeout,
+                    inParameters: inParameters,
+                    outParameters: outParameters,
+                    hasPermission: permissionCheck.hasPermission,
+                    permissionReason: permissionCheck.permissionReason
+                ]
+                
+                return [
+                    success: "Y",
+                    result: new JsonBuilder(jsonResult).toString(),
+                    serviceName: serviceName,
+                    recordCount: 0
+                ]
+                
+            } catch (Exception e) {
+                return [success: "N", errorMessage: "Error describing service ${serviceName}: ${e.message}"]
+            }
+        }
+        
+        def executeServiceList(Map parameters, String userAccountId, String toolCallId) {
+            def ec = context.ec
+            
+            def packageName = parameters.packageName
+            def verb = parameters.verb
+            def noun = parameters.noun
+            def includeServices = parameters.includeServices
+            def excludeServices = parameters.excludeServices
+            def checkPermissions = parameters.checkPermissions != "N"
+            
+            try {
+                def allServiceNames = ec.service.getServiceNames(packageName, verb, noun)
+                def filteredServiceNames = []
+                
+                for (serviceName in allServiceNames) {
+                    // Apply include filter
+                    if (includeServices) {
+                        def includeMatch = false
+                        for (pattern in includeServices) {
+                            if (serviceName.matches(pattern)) {
+                                includeMatch = true
+                                break
+                            }
+                        }
+                        if (!includeMatch) continue
+                    }
+                    
+                    // Apply exclude filter
+                    if (excludeServices) {
+                        def excludeMatch = false
+                        for (pattern in excludeServices) {
+                            if (serviceName.matches(pattern)) {
+                                excludeMatch = true
+                                break
+                            }
+                        }
+                        if (excludeMatch) continue
+                    }
+                    
+                    // Check permissions if requested
+                    if (checkPermissions) {
+                        def permissionCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.check#ServicePermission", [
+                            serviceName: serviceName,
+                            userAccountId: userAccountId
+                        ])
+                        
+                        if (permissionCheck.hasPermission != "Y") {
+                            continue
+                        }
+                    }
+                    
+                    filteredServiceNames << serviceName
+                }
+                
+                def jsonResult = [
+                    packageName: packageName,
+                    verb: verb,
+                    noun: noun,
+                    serviceNames: filteredServiceNames,
+                    count: filteredServiceNames.size(),
+                    checkPermissions: checkPermissions
+                ]
+                
+                return [
+                    success: "Y",
+                    result: new JsonBuilder(jsonResult).toString(),
+                    serviceName: null,
+                    recordCount: filteredServiceNames.size()
+                ]
+                
+            } catch (Exception e) {
+                return [success: "N", errorMessage: "Error listing services: ${e.message}"]
+            }
+        }
+        
+        def executeServiceValidate(Map parameters, String userAccountId, String toolCallId) {
+            def ec = context.ec
+            
+            def serviceName = parameters.serviceName
+            def serviceParams = parameters.parameters ?: [:]
+            
+            if (!serviceName) {
+                return [success: "N", errorMessage: "serviceName parameter required"]
+            }
+            
+            try {
+                def serviceExists = ec.service.isServiceDefined(serviceName)
+                
+                if (!serviceExists) {
+                    return [success: "N", errorMessage: "Service not found: ${serviceName}"]
+                }
+                
+                def serviceInfo = ec.service.getServiceInfo(serviceName)
+                def validationResults = []
+                def missingRequired = []
+                def invalidTypes = []
+                def validParams = []
+                
+                // Check required parameters
+                for (paramInfo in serviceInfo.getInParameterInfos()) {
+                    def paramName = paramInfo.name
+                    def paramValue = serviceParams[paramName]
+                    def isRequired = paramInfo.required
+                    def paramType = paramInfo.type
+                    
+                    if (isRequired && (paramValue == null || paramValue.toString().trim().isEmpty())) {
+                        missingRequired << paramName
+                        validationResults << [
+                            parameter: paramName,
+                            status: "ERROR",
+                            message: "Required parameter missing"
+                        ]
+                        continue
+                    }
+                    
+                    if (paramValue != null) {
+                        // Type validation (basic)
+                        def typeValid = true
+                        def typeError = null
+                        
+                        try {
+                            switch (paramType.toLowerCase()) {
+                                case "id":
+                                case "text-long":
+                                case "text-very-long":
+                                case "text-medium":
+                                case "text-short":
+                                    // String types - always valid
+                                    break
+                                case "number-integer":
+                                    paramValue.toInteger()
+                                    break
+                                case "number-decimal":
+                                case "number-float":
+                                    paramValue.toDouble()
+                                    break
+                                case "date":
+                                case "date-time":
+                                case "time":
+                                    // Date/time validation would be more complex
+                                    break
+                                case "text-indicator":
+                                    if (!["Y", "N"].contains(paramValue.toString().toUpperCase())) {
+                                        typeValid = false
+                                        typeError = "Must be Y or N"
+                                    }
+                                    break
+                                default:
+                                    // Unknown type - assume valid
+                                    break
+                            }
+                        } catch (Exception e) {
+                            typeValid = false
+                            typeError = "Invalid ${paramType} value: ${e.message}"
+                        }
+                        
+                        if (!typeValid) {
+                            invalidTypes << [name: paramName, error: typeError]
+                            validationResults << [
+                                parameter: paramName,
+                                status: "ERROR",
+                                message: typeError
+                            ]
+                        } else {
+                            validParams << paramName
+                            validationResults << [
+                                parameter: paramName,
+                                status: "VALID",
+                                type: paramType,
+                                value: paramValue
+                            ]
+                        }
+                    } else {
+                        validationResults << [
+                            parameter: paramName,
+                            status: "OPTIONAL",
+                            type: paramType
+                        ]
+                    }
+                }
+                
+                // Check for extra parameters
+                def validParamNames = serviceInfo.getInParameterNames()
+                def extraParams = []
+                for (paramName in serviceParams.keySet()) {
+                    if (!validParamNames.contains(paramName)) {
+                        extraParams << paramName
+                        validationResults << [
+                            parameter: paramName,
+                            status: "WARNING",
+                            message: "Extra parameter not recognized by service"
+                        ]
+                    }
+                }
+                
+                // Check permission
+                def permissionCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.check#ServicePermission", [
+                    serviceName: serviceName,
+                    userAccountId: userAccountId
+                ])
+                
+                def overallValid = missingRequired.isEmpty() && invalidTypes.isEmpty() && 
+                                 permissionCheck.hasPermission == "Y"
+                
+                def jsonResult = [
+                    serviceName: serviceName,
+                    valid: overallValid,
+                    hasPermission: permissionCheck.hasPermission,
+                    permissionReason: permissionCheck.permissionReason,
+                    validationResults: validationResults,
+                    summary: [
+                        totalParameters: validationResults.size(),
+                        validParameters: validParams.size(),
+                        missingRequired: missingRequired.size(),
+                        invalidTypes: invalidTypes.size(),
+                        extraParameters: extraParams.size()
+                    ],
+                    missingRequired: missingRequired,
+                    invalidTypes: invalidTypes,
+                    extraParameters: extraParams
+                ]
+                
+                return [
+                    success: "Y",
+                    result: new JsonBuilder(jsonResult).toString(),
+                    serviceName: serviceName,
+                    recordCount: validationResults.size()
+                ]
+                
+            } catch (Exception e) {
+                return [success: "N", errorMessage: "Error validating service ${serviceName}: ${e.message}"]
+            }
+        }
+    ]]></script>
+
+</services>

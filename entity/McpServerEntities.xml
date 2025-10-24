@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
+
+    <!-- MCP Session Management Entity -->
+    <entity entity-name="McpSession" package="org.moqui.mcp" cache="true">
+        <field name="sessionId" type="id" is-pk="true"/>
+        <field name="userAccountId" type="id"/>
+        <field name="contextToken" type="text-medium"/>
+        <field name="statusId" type="id"/>
+        <field name="createdDate" type="date-time"/>
+        <field name="lastAccessedDate" type="date-time"/>
+        <field name="expiresDate" type="date-time"/>
+        <field name="clientInfo" type="text-long"/>
+        <field name="ipAddress" type="text-short"/>
+        <field name="userAgent" type="text-medium"/>
+        <field name="sessionData" type="text-very-long"/>
+        
+        <relationship type="one" related-entity-name="moqui.security.UserAccount" short-alias="userAccount">
+            <key-map field-name="userAccountId"/>
+        </relationship>
+        <relationship type="one" related-entity-name="moqui.basic.StatusItem" short-alias="status">
+            <key-map field-name="statusId"/>
+        </relationship>
+        
+        <index name="MCP_SESS_TOKEN" unique="true">
+            <index-field name="contextToken"/>
+        </index>
+        <index name="MCP_SESS_USER">
+            <index-field name="userAccountId"/>
+            <index-field name="statusId"/>
+        </index>
+        <index name="MCP_SESS_EXPIRE">
+            <index-field name="expiresDate"/>
+        </index>
+        
+        <seed-data>
+            <moqui.basic.StatusType description="MCP Session" statusTypeId="McpSession"/>
+            <moqui.basic.StatusItem description="Active" statusId="McsActive" statusTypeId="McpSession"/>
+            <moqui.basic.StatusItem description="Expired" statusId="McsExpired" statusTypeId="McpSession"/>
+            <moqui.basic.StatusItem description="Terminated" statusId="McsTerminated" statusTypeId="McpSession"/>
+        </seed-data>
+    </entity>
+
+    <!-- MCP Tool Call Tracking Entity -->
+    <entity entity-name="McpToolCall" package="org.moqui.mcp" cache="false">
+        <field name="toolCallId" type="id" is-pk="true"/>
+        <field name="sessionId" type="id"/>
+        <field name="toolName" type="text-medium"/>
+        <field name="toolType" type="text-short"/>
+        <field name="parameters" type="text-very-long"/>
+        <field name="result" type="text-very-long"/>
+        <field name="statusId" type="id"/>
+        <field name="executionTime" type="number-decimal"/>
+        <field name="startTime" type="date-time"/>
+        <field name="endTime" type="date-time"/>
+        <field name="errorMessage" type="text-long"/>
+        <field name="entityName" type="text-medium"/>
+        <field name="serviceName" type="text-medium"/>
+        <field name="recordCount" type="number-integer"/>
+        
+        <relationship type="one" related-entity-name="McpSession" short-alias="session">
+            <key-map field-name="sessionId"/>
+        </relationship>
+        <relationship type="one" related-entity-name="moqui.basic.StatusItem" short-alias="status">
+            <key-map field-name="statusId"/>
+        </relationship>
+        
+        <index name="MCP_TC_SESSION">
+            <index-field name="sessionId"/>
+            <index-field name="startTime"/>
+        </index>
+        <index name="MCP_TC_TOOL">
+            <index-field name="toolName"/>
+            <index-field name="startTime"/>
+        </index>
+        <index name="MCP_TC_ENTITY">
+            <index-field name="entityName"/>
+            <index-field name="startTime"/>
+        </index>
+        <index name="MCP_TC_SERVICE">
+            <index-field name="serviceName"/>
+            <index-field name="startTime"/>
+        </index>
+        
+        <seed-data>
+            <moqui.basic.StatusType description="MCP Tool Call" statusTypeId="McpToolCall"/>
+            <moqui.basic.StatusItem description="Started" statusId="MtcStarted" statusTypeId="McpToolCall"/>
+            <moqui.basic.StatusItem description="Completed" statusId="MtcCompleted" statusTypeId="McpToolCall"/>
+            <moqui.basic.StatusItem description="Failed" statusId="MtcFailed" statusTypeId="McpToolCall"/>
+            <moqui.basic.StatusItem description="Cancelled" statusId="MtcCancelled" statusTypeId="McpToolCall"/>
+        </seed-data>
+    </entity>
+
+    <!-- MCP Configuration Entity -->
+    <entity entity-name="McpConfiguration" package="org.moqui.mcp" cache="true">
+        <field name="configId" type="id" is-pk="true"/>
+        <field name="configName" type="text-medium"/>
+        <field name="description" type="text-long"/>
+        <field name="isEnabled" type="text-indicator"/>
+        <field name="maxSessionsPerUser" type="number-integer"/>
+        <field name="sessionTimeoutMinutes" type="number-integer"/>
+        <field name="rateLimitPerMinute" type="number-integer"/>
+        <field name="allowedEntityPatterns" type="text-long"/>
+        <field name="allowedServicePatterns" type="text-long"/>
+        <field name="blockedEntityPatterns" type="text-long"/>
+        <field name="blockedServicePatterns" type="text-long"/>
+        <field name="requireExplicitPermission" type="text-indicator"/>
+        <field name="auditLevel" type="text-short"/>
+        <field name="createdDate" type="date-time"/>
+        <field name="lastUpdatedDate" type="date-time"/>
+        <field name="lastUpdatedByUserAccountId" type="id"/>
+        
+        <relationship type="one" related-entity-name="moqui.security.UserAccount" short-alias="lastUpdatedBy">
+            <key-map field-name="lastUpdatedByUserAccountId"/>
+        </relationship>
+        
+        <seed-data>
+            <moqui.basic.Enumeration description="Full Audit" enumId="McpAuditFull" enumTypeId="McpAuditLevel"/>
+            <moqui.basic.Enumeration description="Security Only" enumId="McpAuditSecurity" enumTypeId="McpAuditLevel"/>
+            <moqui.basic.Enumeration description="Minimal" enumId="McpAuditMinimal" enumTypeId="McpAuditLevel"/>
+            <moqui.basic.EnumerationType description="MCP Audit Level" enumTypeId="McpAuditLevel"/>
+        </seed-data>
+    </entity>
+
+    <!-- MCP User Configuration Entity -->
+    <entity entity-name="McpUserConfig" package="org.moqui.mcp" cache="true">
+        <field name="userConfigId" type="id" is-pk="true"/>
+        <field name="userAccountId" type="id"/>
+        <field name="configId" type="id"/>
+        <field name="isEnabled" type="text-indicator"/>
+        <field name="customSettings" type="text-long"/>
+        <field name="createdDate" type="date-time"/>
+        <field name="lastUsedDate" type="date-time"/>
+        
+        <relationship type="one" related-entity-name="moqui.security.UserAccount" short-alias="userAccount">
+            <key-map field-name="userAccountId"/>
+        </relationship>
+        <relationship type="one" related-entity-name="McpConfiguration" short-alias="config">
+            <key-map field-name="configId"/>
+        </relationship>
+        
+        <index name="MCP_UC_USER" unique="true">
+            <index-field name="userAccountId"/>
+        </index>
+    </entity>
+
+    <!-- MCP Rate Limit Entity -->
+    <entity entity-name="McpRateLimit" package="org.moqui.mcp" cache="false">
+        <field name="rateLimitId" type="id" is-pk="true"/>
+        <field name="userAccountId" type="id"/>
+        <field name="ipAddress" type="text-short"/>
+        <field name="windowStart" type="date-time"/>
+        <field name="windowEnd" type="date-time"/>
+        <field name="requestCount" type="number-integer"/>
+        <field name="limitType" type="text-short"/>
+        
+        <relationship type="one" related-entity-name="moqui.security.UserAccount" short-alias="userAccount">
+            <key-map field-name="userAccountId"/>
+        </relationship>
+        
+        <index name="MCP_RL_USER_IP">
+            <index-field name="userAccountId"/>
+            <index-field name="ipAddress"/>
+            <index-field name="limitType"/>
+            <index-field name="windowStart"/>
+        </index>
+        <index name="MCP_RL_WINDOW">
+            <index-field name="windowEnd"/>
+        </index>
+        
+        <seed-data>
+            <moqui.basic.Enumeration description="Per Minute" enumId="McpRlMinute" enumTypeId="McpRateLimitType"/>
+            <moqui.basic.Enumeration description="Per Hour" enumId="McpRlHour" enumTypeId="McpRateLimitType"/>
+            <moqui.basic.Enumeration description="Per Day" enumId="McpRlDay" enumTypeId="McpRateLimitType"/>
+            <moqui.basic.EnumerationType description="MCP Rate Limit Type" enumTypeId="McpRateLimitType"/>
+        </seed-data>
+    </entity>
+
+    <!-- MCP Audit Log Entity -->
+    <entity entity-name="McpAuditLog" package="org.moqui.mcp" cache="false">
+        <field name="auditLogId" type="id" is-pk="true"/>
+        <field name="sessionId" type="id"/>
+        <field name="toolCallId" type="id"/>
+        <field name="userAccountId" type="id"/>
+        <field name="eventType" type="text-short"/>
+        <field name="eventDetail" type="text-very-long"/>
+        <field name="entityName" type="text-medium"/>
+        <field name="serviceName" type="text-medium"/>
+        <field name="recordId" type="id"/>
+        <field name="oldValues" type="text-very-long"/>
+        <field name="newValues" type="text-very-long"/>
+        <field name=" ipAddress" type="text-short"/>
+        <field name="userAgent" type="text-medium"/>
+        <field name="timestamp" type="date-time"/>
+        <field name="severity" type="text-short"/>
+        
+        <relationship type="one" related-entity-name="McpSession" short-alias="session">
+            <key-map field-name="sessionId"/>
+        </relationship>
+        <relationship type="one" related-entity-name="McpToolCall" short-alias="toolCall">
+            <key-map field-name="toolCallId"/>
+        </relationship>
+        <relationship type="one" related-entity-name="moqui.security.UserAccount" short-alias="userAccount">
+            <key-map field-name="userAccountId"/>
+        </relationship>
+        
+        <index name="MCP_AL_SESSION">
+            <index-field name="sessionId"/>
+            <index-field name="timestamp"/>
+        </index>
+        <index name="MCP_AL_USER">
+            <index-field name="userAccountId"/>
+            <index-field name="timestamp"/>
+        </index>
+        <index name="MCP_AL_ENTITY">
+            <index-field name="entityName"/>
+            <index-field name="timestamp"/>
+        </index>
+        <index name="MCP_AL_SEVERITY">
+            <index-field name="severity"/>
+            <index-field name="timestamp"/>
+        </index>
+        
+        <seed-data>
+            <moqui.basic.Enumeration description="Info" enumId="McpSeverityInfo" enumTypeId="McpSeverityLevel"/>
+            <moqui.basic.Enumeration description="Warning" enumId="McpSeverityWarning" enumTypeId="McpSeverityLevel"/>
+            <moqui.basic.Enumeration description="Error" enumId="McpSeverityError" enumTypeId="McpSeverityLevel"/>
+            <moqui.basic.Enumeration description="Critical" enumId="McpSeverityCritical" enumTypeId="McpSeverityLevel"/>
+            <moqui.basic.EnumerationType description="MCP Severity Level" enumTypeId="McpSeverityLevel"/>
+            
+            <moqui.basic.Enumeration description="Session Created" enumId="McpEventSessionCreated" enumTypeId="McpEventType"/>
+            <moqui.basic.Enumeration description="Session Expired" enumId="McpEventSessionExpired" enumTypeId="McpEventType"/>
+            <moqui.basic.Enumeration description="Tool Call Started" enumId="McpEventToolStarted" enumTypeId="McpEventType"/>
+            <moqui.basic.Enumeration description="Tool Call Completed" enumId="McpEventToolCompleted" enumTypeId="McpEventType"/>
+            <moqui.basic.Enumeration description="Permission Denied" enumId="McpEventPermissionDenied" enumTypeId="McpEventType"/>
+            <moqui.basic.Enumeration description="Rate Limit Exceeded" enumId="McpEventRateLimitExceeded" enumTypeId="McpEventType"/>
+            <moqui.basic.Enumeration description="Security Violation" enumId="McpEventSecurityViolation" enumTypeId="McpEventType"/>
+            <moqui.basic.EnumerationType description="MCP Event Type" enumTypeId="McpEventType"/>
+        </seed-data>
+    </entity>
+
+    <!-- MCP Tool Registry Entity -->
+    <entity entity-name="McpToolRegistry" package="org.moqui.mcp" cache="true">
+        <field name="toolId" type="id" is-pk="true"/>
+        <field name="toolName" type="text-medium"/>
+        <field name="toolType" type="text-short"/>
+        <field name="serviceName" type="text-medium"/>
+        <field name="description" type="text-long"/>
+        <field name="parameterSchema" type="text-very-long"/>
+        <field name="resultSchema" type="text-very-long"/>
+        <field name="isEnabled" type="text-indicator"/>
+        <field name="requiresPermission" type="text-indicator"/>
+        <field name="requiredPermission" type="text-medium"/>
+        <field name="rateLimitWeight" type="number-integer"/>
+        <field name="createdDate" type="date-time"/>
+        <field name="lastUpdatedDate" type="date-time"/>
+        
+        <index name="MCP_TR_NAME" unique="true">
+            <index-field name="toolName"/>
+        </index>
+        <index name="MCP_TR_TYPE">
+            <index-field name="toolType"/>
+            <index-field name="isEnabled"/>
+        </index>
+        
+        <seed-data>
+            <moqui.basic.Enumeration description="Entity Tool" enumId="McpToolTypeEntity" enumTypeId="McpToolType"/>
+            <moqui.basic.Enumeration description="Service Tool" enumId="McpToolTypeService" enumTypeId="McpToolType"/>
+            <moqui.basic.Enumeration description="Search Tool" enumId="McpToolTypeSearch" enumTypeId="McpToolType"/>
+            <moqui.basic.Enumeration description="Utility Tool" enumId="McpToolTypeUtility" enumTypeId="McpToolType"/>
+            <moqui.basic.EnumerationType description="MCP Tool Type" enumTypeId="McpToolType"/>
+        </seed-data>
+    </entity>
+
+</entities>

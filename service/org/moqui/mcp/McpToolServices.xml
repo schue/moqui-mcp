@@ -1,0 +1,392 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP Tool Execution Services -->
+    
+    <service verb="execute" noun="Tool" authenticate="false" transaction-timeout="300">
+        <description>Execute MCP tool with proper validation and security</description>
+        <in-parameters>
+            <parameter name="sessionId" type="id" required="true"/>
+            <parameter name="toolName" type="text-medium" required="true"/>
+            <parameter name="parameters" type="Map" required="true"/>
+            <parameter name="toolCallId" type="id"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="text-very-long"/>
+            <parameter name="success" type="text-indicator"/>
+            <parameter name="errorMessage" type="text-long"/>
+            <parameter name="entityName" type="text-medium"/>
+            <parameter name="serviceName" type="text-medium"/>
+            <parameter name="recordCount" type="number-integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                import groovy.json.JsonSlurper
+                
+                ExecutionContext ec = context.ec
+                
+                // Get session information
+                def session = ec.entity.find("McpSession")
+                    .condition("sessionId", sessionId)
+                    .one()
+                if (!session) {
+                    success = "N"
+                    errorMessage = "Invalid session"
+                    return
+                }
+                
+                // Set user context
+                ec.user.setUserIdByToken(session.userAccountId)
+                
+                // Look up tool in registry
+                def toolRegistry = ec.entity.find("McpToolRegistry")
+                    .condition("toolName", toolName)
+                    .condition("isEnabled", "Y")
+                    .one()
+                
+                if (!toolRegistry) {
+                    success = "N"
+                    errorMessage = "Tool not found or disabled: ${toolName}"
+                    return
+                }
+                
+                // Check tool-specific permissions
+                if (toolRegistry.requiresPermission == "Y" && toolRegistry.requiredPermission) {
+                    if (!ec.user.hasPermission(toolRegistry.requiredPermission, "ALL")) {
+                        success = "N"
+                        errorMessage = "Permission denied for tool: ${toolName}"
+                        
+                        // Log permission denial
+                        ec.service.async("org.moqui.mcp.McpSecurityServices.log#AuditEvent", [
+                            sessionId: sessionId,
+                            toolCallId: toolCallId,
+                            userAccountId: session.userAccountId,
+                            eventType: "McpEventPermissionDenied",
+                            eventDetail: "Permission denied for tool ${toolName}",
+                            severity: "McpSeverityWarning"
+                        ])
+                        return
+                    }
+                }
+                
+                // Route to appropriate tool handler based on tool type
+                def toolResult = null
+                try {
+                    switch (toolRegistry.toolType) {
+                        case "McpToolTypeEntity":
+                            toolResult = ec.service.sync("org.moqui.mcp.mcp-tools.EntityTools.execute#EntityTool", [
+                                sessionId: sessionId,
+                                toolName: toolName,
+                                parameters: parameters,
+                                toolCallId: toolCallId
+                            ])
+                            entityName = toolResult.entityName
+                            serviceName = null
+                            recordCount = toolResult.recordCount
+                            break
+                            
+                        case "McpToolTypeService":
+                            toolResult = ec.service.sync("org.moqui.mcp.mcp-tools.ServiceTools.execute#ServiceTool", [
+                                sessionId: sessionId,
+                                toolName: toolName,
+                                parameters: parameters,
+                                toolCallId: toolCallId
+                            ])
+                            entityName = null
+                            serviceName = toolResult.serviceName
+                            recordCount = toolResult.recordCount
+                            break
+                            
+                        case "McpToolTypeSearch":
+                            toolResult = ec.service.sync("org.moqui.mcp.mcp-tools.SearchTools.execute#SearchTool", [
+                                sessionId: sessionId,
+                                toolName: toolName,
+                                parameters: parameters,
+                                toolCallId: toolCallId
+                            ])
+                            entityName = toolResult.entityName
+                            serviceName = null
+                            recordCount = toolResult.recordCount
+                            break
+                            
+                        case "McpToolTypeUtility":
+                            // Handle utility tools directly
+                            toolResult = executeUtilityTool(toolName, parameters, sessionId, toolCallId)
+                            entityName = null
+                            serviceName = null
+                            recordCount = 0
+                            break
+                            
+                        default:
+                            success = "N"
+                            errorMessage = "Unknown tool type: ${toolRegistry.toolType}"
+                            return
+                    }
+                    
+                    if (toolResult.success == "Y") {
+                        result = toolResult.result
+                        success = "Y"
+                    } else {
+                        success = "N"
+                        errorMessage = toolResult.errorMessage
+                    }
+                    
+                } catch (Exception e) {
+                    success = "N"
+                    errorMessage = "Error executing tool ${toolName}: ${e.message}"
+                    ec.logger.error("MCP Tool execution error", e)
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="list" noun="AvailableTools" authenticate="false" transaction-timeout="60">
+        <description>List available MCP tools for the current user</description>
+        <in-parameters>
+            <parameter name="sessionId" type="id" required="true"/>
+            <parameter name="toolType" type="text-short"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="toolList" type="text-very-long"/>
+            <parameter name="toolCount" type="number-integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                // Get session information
+                def session = ec.entity.find("McpSession")
+                    .condition("sessionId", sessionId)
+                    .one()
+                if (!session) {
+                    ec.message.addError("Invalid session")
+                    return
+                }
+                
+                // Set user context
+                ec.user.setUserIdByToken(session.userAccountId)
+                
+                // Get available tools
+                def findBuilder = ec.entity.find("McpToolRegistry")
+                    .condition("isEnabled", "Y")
+                
+                if (toolType) {
+                    findBuilder.condition("toolType", toolType)
+                }
+                
+                def tools = findBuilder.list()
+                toolCount = tools.size()
+                
+                // Filter tools based on user permissions
+                def availableTools = []
+                for (tool in tools) {
+                    if (tool.requiresPermission == "Y" && tool.requiredPermission) {
+                        if (!ec.user.hasPermission(tool.requiredPermission, "ALL")) {
+                            continue
+                        }
+                    }
+                    
+                    availableTools << [
+                        toolName: tool.toolName,
+                        toolType: tool.toolType,
+                        serviceName: tool.serviceName,
+                        description: tool.description,
+                        parameterSchema: tool.parameterSchema ? new JsonSlurper().parseText(tool.parameterSchema) : null,
+                        resultSchema: tool.resultSchema ? new JsonSlurper().parseText(tool.resultSchema) : null,
+                        rateLimitWeight: tool.rateLimitWeight ?: 1
+                    ]
+                }
+                
+                toolList = new JsonBuilder(availableTools).toString()
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="register" noun="McpTool" authenticate="true" transaction-timeout="60">
+        <description>Register a new MCP tool in the registry</description>
+        <in-parameters>
+            <parameter name="toolName" type="text-medium" required="true"/>
+            <parameter name="toolType" type="text-short" required="true"/>
+            <parameter name="serviceName" type="text-medium"/>
+            <parameter name="description" type="text-long"/>
+            <parameter name="parameterSchema" type="text-very-long"/>
+            <parameter name="resultSchema" type="text-very-long"/>
+            <parameter name="isEnabled" type="text-indicator" default="Y"/>
+            <parameter name="requiresPermission" type="text-indicator" default="N"/>
+            <parameter name="requiredPermission" type="text-medium"/>
+            <parameter name="rateLimitWeight" type="number-integer" default="1"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="toolId" type="id"/>
+            <parameter name="success" type="text-indicator"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Check admin permission
+                if (!ec.user.hasPermission("MCP_ADMIN", "ALL")) {
+                    ec.message.addError("Admin permission required")
+                    success = "N"
+                    return
+                }
+                
+                // Check if tool already exists
+                def existingTool = ec.entity.find("McpToolRegistry")
+                    .condition("toolName", toolName)
+                    .one()
+                
+                if (existingTool) {
+                    ec.message.addError("Tool already exists: ${toolName}")
+                    success = "N"
+                    return
+                }
+                
+                // Create tool registry entry
+                def tool = ec.entity.makeValue("McpToolRegistry")
+                tool.setSequencedIdPrimary()
+                tool.toolName = toolName
+                tool.toolType = toolType
+                tool.serviceName = serviceName
+                tool.description = description
+                tool.parameterSchema = parameterSchema
+                tool.resultSchema = resultSchema
+                tool.isEnabled = isEnabled
+                tool.requiresPermission = requiresPermission
+                tool.requiredPermission = requiredPermission
+                tool.rateLimitWeight = rateLimitWeight
+                tool.createdDate = ec.user.now
+                tool.lastUpdatedDate = ec.user.now
+                tool.create()
+                
+                toolId = tool.toolId
+                success = "Y"
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Utility Tool Execution -->
+    
+    <script><![CDATA[
+        def executeUtilityTool(String toolName, Map parameters, String sessionId, String toolCallId) {
+            def ec = context.ec
+            def result = [:]
+            
+            try {
+                switch (toolName) {
+                    case "get_server_info":
+                        result = [
+                            success: "Y",
+                            result: new JsonBuilder([
+                                serverVersion: ec.l10n.localize("moqui.version", "unknown"),
+                                timestamp: ec.user.now,
+                                sessionId: sessionId,
+                                userTimezone: ec.user.timeZone?.ID,
+                                supportedEntityTypes: ["entity", "service", "search"],
+                                maxResults: ec.l10n.localize("mcp.server.max.results", 1000)
+                            ]).toString()
+                        ]
+                        break
+                        
+                    case "get_user_info":
+                        def userAccount = ec.entity.find("moqui.security.UserAccount")
+                            .condition("userAccountId", ec.user.userAccountId)
+                            .one()
+                        result = [
+                            success: "Y",
+                            result: new JsonBuilder([
+                                userAccountId: userAccount.userAccountId,
+                                username: userAccount.username,
+                                displayName: userAccount.displayName,
+                                enabled: userAccount.enabled,
+                                createdDate: userAccount.createdDate,
+                                permissions: ec.user.getPermissionMap()
+                            ]).toString()
+                        ]
+                        break
+                        
+                    case "validate_entity":
+                        def entityName = parameters.entityName
+                        if (!entityName) {
+                            result = [success: "N", errorMessage: "entityName parameter required"]
+                            break
+                        }
+                        
+                        def entityExists = ec.entity.isEntityDefined(entityName)
+                        def entityInfo = entityExists ? ec.entity.getEntityInfo(entityName) : null
+                        
+                        result = [
+                            success: "Y",
+                            result: new JsonBuilder([
+                                entityName: entityName,
+                                exists: entityExists,
+                                entityInfo: entityInfo ? [
+                                    packageName: entityInfo.packageName,
+                                    tableName: entityInfo.tableName,
+                                    fieldNames: entityInfo.allFieldNames,
+                                    pkFieldNames: entityInfo.pkFieldNames
+                                ] : null
+                            ]).toString(),
+                            entityName: entityName
+                        ]
+                        break
+                        
+                    case "validate_service":
+                        def serviceName = parameters.serviceName
+                        if (!serviceName) {
+                            result = [success: "N", errorMessage: "serviceName parameter required"]
+                            break
+                        }
+                        
+                        def serviceExists = ec.service.isServiceDefined(serviceName)
+                        def serviceInfo = serviceExists ? ec.service.getServiceInfo(serviceName) : null
+                        
+                        result = [
+                            success: "Y",
+                            result: new JsonBuilder([
+                                serviceName: serviceName,
+                                exists: serviceExists,
+                                serviceInfo: serviceInfo ? [
+                                    verb: serviceInfo.verb,
+                                    noun: serviceInfo.noun,
+                                    authenticate: serviceInfo.authenticate,
+                                    parameters: serviceInfo.getInParameterNames(),
+                                    outputParameters: serviceInfo.getOutParameterNames()
+                                ] : null
+                            ]).toString(),
+                            serviceName: serviceName
+                        ]
+                        break
+                        
+                    default:
+                        result = [success: "N", errorMessage: "Unknown utility tool: ${toolName}"]
+                }
+            } catch (Exception e) {
+                result = [success: "N", errorMessage: "Error executing utility tool ${toolName}: ${e.message}"]
+                ec.logger.error("Utility tool execution error", e)
+            }
+            
+            return result
+        }
+    ]]></script>
+
+</services>

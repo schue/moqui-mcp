@@ -1,0 +1,688 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP Search Tools -->
+    
+    <service verb="execute" noun="SearchTool" authenticate="false" transaction-timeout="300">
+        <description>Execute search-related MCP tool</description>
+        <in-parameters>
+            <parameter name="sessionId" type="id" required="true"/>
+            <parameter name="toolName" type="text-medium" required="true"/>
+            <parameter name="parameters" type="Map" required="true"/>
+            <parameter name="toolCallId" type="id"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="text-very-long"/>
+            <parameter name="success" type="text-indicator"/>
+            <parameter name="errorMessage" type="text-long"/>
+            <parameter name="entityName" type="text-medium"/>
+            <parameter name="recordCount" type="number-integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                import groovy.json.JsonSlurper
+                
+                ExecutionContext ec = context.ec
+                
+                // Get session information
+                def session = ec.entity.find("McpSession")
+                    .condition("sessionId", sessionId)
+                    .one()
+                if (!session) {
+                    success = "N"
+                    errorMessage = "Invalid session"
+                    return
+                }
+                
+                // Set user context
+                ec.user.setUserIdByToken(session.userAccountId)
+                
+                def result = null
+                try {
+                    switch (toolName) {
+                        case "entity_search":
+                            result = executeEntitySearch(parameters, session.userAccountId, toolCallId)
+                            break
+                        case "full_text_search":
+                            result = executeFullTextSearch(parameters, session.userAccountId, toolCallId)
+                            break
+                        case "relationship_search":
+                            result = executeRelationshipSearch(parameters, session.userAccountId, toolCallId)
+                            break
+                        case "aggregate_search":
+                            result = executeAggregateSearch(parameters, session.userAccountId, toolCallId)
+                            break
+                        case "cross_entity_search":
+                            result = executeCrossEntitySearch(parameters, session.userAccountId, toolCallId)
+                            break
+                        default:
+                            result = [success: "N", errorMessage: "Unknown search tool: ${toolName}"]
+                    }
+                } catch (Exception e) {
+                    result = [success: "N", errorMessage: "Error executing search tool ${toolName}: ${e.message}"]
+                    ec.logger.error("Search tool execution error", e)
+                }
+                
+                success = result.success
+                errorMessage = result.errorMessage
+                entityName = result.entityName
+                recordCount = result.recordCount
+                result = result.result
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Search Tool Implementations -->
+    
+    <script><![CDATA[
+        def executeEntitySearch(Map parameters, String userAccountId, String toolCallId) {
+            def ec = context.ec
+            
+            def entityName = parameters.entityName
+            def searchTerm = parameters.searchTerm
+            def searchFields = parameters.searchFields
+            def exactMatch = parameters.exactMatch == "Y"
+            def caseSensitive = parameters.caseSensitive == "Y"
+            def condition = parameters.condition
+            def orderBy = parameters.orderBy
+            def limit = parameters.limit ?: 100
+            def offset = parameters.offset ?: 0
+            
+            if (!entityName) {
+                return [success: "N", errorMessage: "entityName parameter required"]
+            }
+            
+            if (!searchTerm) {
+                return [success: "N", errorMessage: "searchTerm parameter required"]
+            }
+            
+            // Validate entity access
+            def accessCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.validate#EntityAccess", [
+                entityName: entityName,
+                userAccountId: userAccountId,
+                operation: "VIEW"
+            ])
+            
+            if (accessCheck.allowed != "Y") {
+                return [success: "N", errorMessage: accessCheck.reason]
+            }
+            
+            try {
+                def entityInfo = ec.entity.getEntityInfo(entityName)
+                def searchableFields = []
+                
+                // Determine which fields to search
+                if (searchFields) {
+                    if (searchFields instanceof List) {
+                        searchableFields = searchFields
+                    } else {
+                        searchableFields = searchFields.split(",")
+                    }
+                } else {
+                    // Use all string fields by default
+                    searchableFields = entityInfo.allFieldInfoList
+                        .findAll { it.type.startsWith("text") }
+                        .collect { it.name }
+                }
+                
+                if (searchableFields.isEmpty()) {
+                    return [success: "N", errorMessage: "No searchable fields found for entity ${entityName}"]
+                }
+                
+                def findBuilder = ec.entity.find(entityName)
+                
+                // Build search conditions
+                def searchConditions = []
+                for (fieldName in searchableFields) {
+                    if (entityInfo.isField(fieldName)) {
+                        def operator = exactMatch ? "equals" : "contains"
+                        def value = caseSensitive ? searchTerm : searchTerm.toLowerCase()
+                        
+                        if (!caseSensitive) {
+                            findBuilder.condition(fieldName + "_lower", value, operator)
+                        } else {
+                            findBuilder.condition(fieldName, value, operator)
+                        }
+                    }
+                }
+                
+                // Apply additional conditions
+                if (condition) {
+                    for (entry in condition) {
+                        if (entry.value instanceof Map && entry.value.containsKey("value")) {
+                            def conditionMap = entry.value
+                            def operator = conditionMap.operator ?: "equals"
+                            def value = conditionMap.value
+                            findBuilder.condition(entry.key, value, operator)
+                        } else {
+                            findBuilder.condition(entry.key, entry.value)
+                        }
+                    }
+                }
+                
+                // Apply ordering
+                if (orderBy) {
+                    if (orderBy instanceof List) {
+                        findBuilder.orderBy(orderBy.join(", "))
+                    } else {
+                        findBuilder.orderBy(orderBy)
+                    }
+                }
+                
+                // Apply pagination
+                findBuilder.offset(offset)
+                findBuilder.limit(limit)
+                
+                // Execute search
+                def resultList = findBuilder.list()
+                def count = findBuilder.count()
+                
+                // Highlight search term in results
+                def highlightedResults = []
+                for (record in resultList) {
+                    def recordMap = record.getMap()
+                    def highlightedRecord = [:]
+                    
+                    for (entry in recordMap.entrySet()) {
+                        def value = entry.value
+                        if (value && searchableFields.contains(entry.key)) {
+                            def highlightedValue = highlightSearchTerm(value.toString(), searchTerm, exactMatch, caseSensitive)
+                            highlightedRecord[entry.key + "_highlighted"] = highlightedValue
+                        }
+                        highlightedRecord[entry.key] = value
+                    }
+                    
+                    highlightedResults << highlightedRecord
+                }
+                
+                def jsonResult = [
+                    entityName: entityName,
+                    searchTerm: searchTerm,
+                    searchFields: searchableFields,
+                    exactMatch: exactMatch,
+                    caseSensitive: caseSensitive,
+                    records: highlightedResults,
+                    count: count,
+                    limit: limit,
+                    offset: offset,
+                    hasMore: (offset + resultList.size()) < count
+                ]
+                
+                return [
+                    success: "Y",
+                    result: new JsonBuilder(jsonResult).toString(),
+                    entityName: entityName,
+                    recordCount: resultList.size()
+                ]
+                
+            } catch (Exception e) {
+                return [success: "N", errorMessage: "Error searching entities: ${e.message}"]
+            }
+        }
+        
+        def executeFullTextSearch(Map parameters, String userAccountId, String toolCallId) {
+            def ec = context.ec
+            
+            def searchTerm = parameters.searchTerm
+            def entityNames = parameters.entityNames
+            def limit = parameters.limit ?: 100
+            def offset = parameters.offset ?: 0
+            
+            if (!searchTerm) {
+                return [success: "N", errorMessage: "searchTerm parameter required"]
+            }
+            
+            if (!entityNames) {
+                return [success: "N", errorMessage: "entityNames parameter required"]
+            }
+            
+            try {
+                def allResults = []
+                def totalCount = 0
+                
+                for (entityName in entityNames) {
+                    // Validate entity access
+                    def accessCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.validate#EntityAccess", [
+                        entityName: entityName,
+                        userAccountId: userAccountId,
+                        operation: "VIEW"
+                    ])
+                    
+                    if (accessCheck.allowed != "Y") {
+                        continue
+                    }
+                    
+                    // Perform search on this entity
+                    def searchResult = executeEntitySearch([
+                        entityName: entityName,
+                        searchTerm: searchTerm,
+                        limit: limit,
+                        offset: 0
+                    ], userAccountId, toolCallId)
+                    
+                    if (searchResult.success == "Y") {
+                        def jsonSlurper = new JsonSlurper()
+                        def entityResult = jsonSlurper.parseText(searchResult.result)
+                        
+                        allResults << [
+                            entityName: entityName,
+                            records: entityResult.records,
+                            count: entityResult.count
+                        ]
+                        
+                        totalCount += entityResult.count
+                    }
+                }
+                
+                // Sort by relevance (simple implementation - could be enhanced)
+                allResults.sort { -it.count }
+                
+                def jsonResult = [
+                    searchTerm: searchTerm,
+                    entityResults: allResults,
+                    totalCount: totalCount,
+                    entityCount: allResults.size()
+                ]
+                
+                return [
+                    success: "Y",
+                    result: new JsonBuilder(jsonResult).toString(),
+                    entityName: null,
+                    recordCount: totalCount
+                ]
+                
+            } catch (Exception e) {
+                return [success: "N", errorMessage: "Error performing full-text search: ${e.message}"]
+            }
+        }
+        
+        def executeRelationshipSearch(Map parameters, String userAccountId, String toolCallId) {
+            def ec = context.ec
+            
+            def entityName = parameters.entityName
+            def relationshipName = parameters.relationshipName
+            def searchTerm = parameters.searchTerm
+            def searchFields = parameters.searchFields
+            def limit = parameters.limit ?: 100
+            def offset = parameters.offset ?: 0
+            
+            if (!entityName) {
+                return [success: "N", errorMessage: "entityName parameter required"]
+            }
+            
+            if (!relationshipName) {
+                return [success: "N", errorMessage: "relationshipName parameter required"]
+            }
+            
+            // Validate entity access
+            def accessCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.validate#EntityAccess", [
+                entityName: entityName,
+                userAccountId: userAccountId,
+                operation: "VIEW"
+            ])
+            
+            if (accessCheck.allowed != "Y") {
+                return [success: "N", errorMessage: accessCheck.reason]
+            }
+            
+            try {
+                def entityInfo = ec.entity.getEntityInfo(entityName)
+                def relationshipInfo = entityInfo.getRelationshipInfo(relationshipName)
+                
+                if (!relationshipInfo) {
+                    return [success: "N", errorMessage: "Relationship not found: ${relationshipName}"]
+                }
+                
+                def relatedEntityName = relationshipInfo.relatedEntityName
+                
+                // Validate access to related entity
+                def relatedAccessCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.validate#EntityAccess", [
+                    entityName: relatedEntityName,
+                    userAccountId: userAccountId,
+                    operation: "VIEW"
+                ])
+                
+                if (relatedAccessCheck.allowed != "Y") {
+                    return [success: "N", errorMessage: relatedAccessCheck.reason]
+                }
+                
+                // Search in related entity
+                def searchParams = [
+                    entityName: relatedEntityName,
+                    searchTerm: searchTerm,
+                    searchFields: searchFields,
+                    limit: limit,
+                    offset: offset
+                ]
+                
+                def searchResult = executeEntitySearch(searchParams, userAccountId, toolCallId)
+                
+                if (searchResult.success != "Y") {
+                    return searchResult
+                }
+                
+                def jsonSlurper = new JsonSlurper()
+                def relatedResults = jsonSlurper.parseText(searchResult.result)
+                
+                // Now find parent records that reference these related records
+                def parentRecords = []
+                def relatedIds = relatedResults.records.collect { 
+                    def pkFields = relationshipInfo.keyMapList.collect { it.relatedFieldName }
+                    def pkMap = [:]
+                    for (pkField in pkFields) {
+                        pkMap[pkField] = it[pkField]
+                    }
+                    return pkMap
+                }
+                
+                for (relatedId in relatedIds) {
+                    def parentCondition = [:]
+                    for (keyMap in relationshipInfo.keyMapList) {
+                        parentCondition[keyMap.fieldName] = relatedId[keyMap.relatedFieldName]
+                    }
+                    
+                    def parentRecords = ec.entity.find(entityName)
+                        .condition(parentCondition)
+                        .list()
+                    
+                    parentRecords.addAll(parentRecords)
+                }
+                
+                def jsonResult = [
+                    entityName: entityName,
+                    relationshipName: relationshipName,
+                    relatedEntityName: relatedEntityName,
+                    searchTerm: searchTerm,
+                    relatedRecords: relatedResults.records,
+                    parentRecords: parentRecords.collect { it.getMap() },
+                    relatedCount: relatedResults.count,
+                    parentCount: parentRecords.size()
+                ]
+                
+                return [
+                    success: "Y",
+                    result: new JsonBuilder(jsonResult).toString(),
+                    entityName: entityName,
+                    recordCount: parentRecords.size()
+                ]
+                
+            } catch (Exception e) {
+                return [success: "N", errorMessage: "Error performing relationship search: ${e.message}"]
+            }
+        }
+        
+        def executeAggregateSearch(Map parameters, String userAccountId, String toolCallId) {
+            def ec = context.ec
+            
+            def entityName = parameters.entityName
+            def aggregateField = parameters.aggregateField
+            def aggregateFunction = parameters.aggregateFunction  // count, sum, avg, min, max
+            def groupByFields = parameters.groupByFields
+            def condition = parameters.condition
+            def orderBy = parameters.orderBy
+            def limit = parameters.limit ?: 100
+            
+            if (!entityName) {
+                return [success: "N", errorMessage: "entityName parameter required"]
+            }
+            
+            if (!aggregateField) {
+                return [success: "N", errorMessage: "aggregateField parameter required"]
+            }
+            
+            if (!aggregateFunction) {
+                return [success: "N", errorMessage: "aggregateFunction parameter required"]
+            }
+            
+            // Validate entity access
+            def accessCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.validate#EntityAccess", [
+                entityName: entityName,
+                userAccountId: userAccountId,
+                operation: "VIEW"
+            ])
+            
+            if (accessCheck.allowed != "Y") {
+                return [success: "N", errorMessage: accessCheck.reason]
+            }
+            
+            try {
+                def findBuilder = ec.entity.find(entityName)
+                
+                // Apply conditions
+                if (condition) {
+                    for (entry in condition) {
+                        if (entry.value instanceof Map && entry.value.containsKey("value")) {
+                            def conditionMap = entry.value
+                            def operator = conditionMap.operator ?: "equals"
+                            def value = conditionMap.value
+                            findBuilder.condition(entry.key, value, operator)
+                        } else {
+                            findBuilder.condition(entry.key, entry.value)
+                        }
+                    }
+                }
+                
+                // Apply grouping and aggregation
+                if (groupByFields) {
+                    def groupByList = groupByFields instanceof List ? groupByFields : groupByFields.split(",")
+                    findBuilder.groupBy(groupByList)
+                }
+                
+                // Apply aggregate function
+                switch (aggregateFunction.toLowerCase()) {
+                    case "count":
+                        findBuilder.selectField("COUNT(${aggregateField}) as ${aggregateFunction}_${aggregateField}")
+                        break
+                    case "sum":
+                        findBuilder.selectField("SUM(${aggregateField}) as ${aggregateFunction}_${aggregateField}")
+                        break
+                    case "avg":
+                        findBuilder.selectField("AVG(${aggregateField}) as ${aggregateFunction}_${aggregateField}")
+                        break
+                    case "min":
+                        findBuilder.selectField("MIN(${aggregateField}) as ${aggregateFunction}_${aggregateField}")
+                        break
+                    case "max":
+                        findBuilder.selectField("MAX(${aggregateField}) as ${aggregateFunction}_${aggregateField}")
+                        break
+                    default:
+                        return [success: "N", errorMessage: "Unknown aggregate function: ${aggregateFunction}"]
+                }
+                
+                // Add group by fields to select
+                if (groupByFields) {
+                    def groupByList = groupByFields instanceof List ? groupByFields : groupByFields.split(",")
+                    for (field in groupByList) {
+                        findBuilder.selectField(field)
+                    }
+                }
+                
+                // Apply ordering
+                if (orderBy) {
+                    findBuilder.orderBy(orderBy)
+                }
+                
+                // Apply limit
+                findBuilder.limit(limit)
+                
+                // Execute query
+                def resultList = findBuilder.list()
+                
+                def jsonResult = [
+                    entityName: entityName,
+                    aggregateField: aggregateField,
+                    aggregateFunction: aggregateFunction,
+                    groupByFields: groupByFields,
+                    results: resultList.collect { it.getMap() },
+                    count: resultList.size()
+                ]
+                
+                return [
+                    success: "Y",
+                    result: new JsonBuilder(jsonResult).toString(),
+                    entityName: entityName,
+                    recordCount: resultList.size()
+                ]
+                
+            } catch (Exception e) {
+                return [success: "N", errorMessage: "Error performing aggregate search: ${e.message}"]
+            }
+        }
+        
+        def executeCrossEntitySearch(Map parameters, String userAccountId, String toolCallId) {
+            def ec = context.ec
+            
+            def searchTerm = parameters.searchTerm
+            def entityConfigs = parameters.entityConfigs  // List of maps with entityName, weight, searchFields
+            def limit = parameters.limit ?: 100
+            
+            if (!searchTerm) {
+                return [success: "N", errorMessage: "searchTerm parameter required"]
+            }
+            
+            if (!entityConfigs) {
+                return [success: "N", errorMessage: "entityConfigs parameter required"]
+            }
+            
+            try {
+                def allResults = []
+                
+                for (config in entityConfigs) {
+                    def entityName = config.entityName
+                    def weight = config.weight ?: 1.0
+                    def searchFields = config.searchFields
+                    
+                    if (!entityName) continue
+                    
+                    // Validate entity access
+                    def accessCheck = ec.service.sync("org.moqui.mcp.McpSecurityServices.validate#EntityAccess", [
+                        entityName: entityName,
+                        userAccountId: userAccountId,
+                        operation: "VIEW"
+                    ])
+                    
+                    if (accessCheck.allowed != "Y") {
+                        continue
+                    }
+                    
+                    // Search this entity
+                    def searchResult = executeEntitySearch([
+                        entityName: entityName,
+                        searchTerm: searchTerm,
+                        searchFields: searchFields,
+                        limit: limit,
+                        offset: 0
+                    ], userAccountId, toolCallId)
+                    
+                    if (searchResult.success == "Y") {
+                        def jsonSlurper = new JsonSlurper()
+                        def entityResult = jsonSlurper.parseText(searchResult.result)
+                        
+                        // Add weight and relevance score to each record
+                        def weightedRecords = entityResult.records.collect { record ->
+                            def relevanceScore = calculateRelevanceScore(record, searchTerm, searchFields)
+                            record.relevanceScore = relevanceScore * weight
+                            record.entityName = entityName
+                            record.weight = weight
+                            return record
+                        }
+                        
+                        allResults.addAll(weightedRecords)
+                    }
+                }
+                
+                // Sort by relevance score
+                allResults.sort { -it.relevanceScore }
+                
+                // Apply overall limit
+                def limitedResults = allResults.take(limit)
+                
+                def jsonResult = [
+                    searchTerm: searchTerm,
+                    results: limitedResults,
+                    totalCount: allResults.size(),
+                    returnedCount: limitedResults.size()
+                ]
+                
+                return [
+                    success: "Y",
+                    result: new JsonBuilder(jsonResult).toString(),
+                    entityName: null,
+                    recordCount: limitedResults.size()
+                ]
+                
+            } catch (Exception e) {
+                return [success: "N", errorMessage: "Error performing cross-entity search: ${e.message}"]
+            }
+        }
+        
+        def highlightSearchTerm(String text, String searchTerm, boolean exactMatch, boolean caseSensitive) {
+            if (!text || !searchTerm) return text
+            
+            def searchText = caseSensitive ? text : text.toLowerCase()
+            def search = caseSensitive ? searchTerm : searchTerm.toLowerCase()
+            
+            def highlightedText = text
+            def startIndex = searchText.indexOf(search)
+            
+            if (startIndex >= 0) {
+                def endIndex = startIndex + search.length()
+                def before = text.substring(0, startIndex)
+                def match = text.substring(startIndex, endIndex)
+                def after = text.substring(endIndex)
+                highlightedText = "${before}[HIGHLIGHT]${match}[/HIGHLIGHT]${after}"
+            }
+            
+            return highlightedText
+        }
+        
+        def calculateRelevanceScore(Map record, String searchTerm, List searchFields) {
+            def score = 0.0
+            def searchLower = searchTerm.toLowerCase()
+            
+            for (entry in record.entrySet()) {
+                if (searchFields && !searchFields.contains(entry.key)) continue
+                
+                def value = entry.value?.toString()
+                if (!value) continue
+                
+                def valueLower = value.toLowerCase()
+                
+                // Exact match gets highest score
+                if (valueLower.equals(searchLower)) {
+                    score += 10.0
+                }
+                // Starts with search term gets high score
+                else if (valueLower.startsWith(searchLower)) {
+                    score += 5.0
+                }
+                // Contains search term gets medium score
+                else if (valueLower.contains(searchLower)) {
+                    score += 2.0
+                }
+                
+                // Bonus for shorter fields (more precise matches)
+                if (value.length() < 50) {
+                    score += 1.0
+                }
+            }
+            
+            return score
+        }
+    ]]></script>
+
+</services>

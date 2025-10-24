@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<moqui-conf xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/moqui-conf-3.xsd">
+
+    <component name="moqui-mcp" version="1.0.0">
+        <depends-on component="moqui-basic"/>
+        <depends-on component="moqui-security"/>
+        <depends-on component="mantle-udm"/>
+        
+        <description>Model Context Protocol (MCP) server component for AI-Moqui integration</description>
+        
+        <!-- Entity Definitions -->
+        <entity-xml type="seed" location="entity/McpServerEntities.xml"/>
+        
+        <!-- Service Definitions -->
+        <service-xml type="xml" location="service/org/moqui/mcp/McpProtocolServices.xml"/>
+        <service-xml type="xml" location="service/org/moqui/mcp/McpToolServices.xml"/>
+        <service-xml type="xml" location="service/org/moqui/mcp/McpSecurityServices.xml"/>
+        <service-xml type="xml" location="service/mcp-tools/EntityTools.xml"/>
+        <service-xml type="xml" location="service/mcp-tools/ServiceTools.xml"/>
+        <service-xml type="xml" location="service/mcp-tools/SearchTools.xml"/>
+        
+        <!-- Screen Definitions -->
+        <screen-xml type="xml" location="screen/McpServerScreens.xml"/>
+        
+        <!-- Data Load -->
+        <entity-facade-xml type="seed" location="data/McpServerData.xml"/>
+        
+        <!-- Webapp Configuration -->
+        <webapp name="mcp-server" 
+                title="MCP Server" 
+                server="default" 
+                location="webapp"
+                https-enabled="false"
+                require-session-token="false">
+            <root-screen host=".*" screen-path="mcp"/>
+        </webapp>
+        
+        <!-- Resource Aliases -->
+        <resource-alias name="mcp-component" location="component://moqui-mcp"/>
+        
+        <!-- Configuration Properties -->
+        <property-list name="mcp.server">
+            <property name="enabled" value="true"/>
+            <property name="port" value="8081"/>
+            <property name="session.timeout.minutes" value="60"/>
+            <property name="rate.limit.requests.per.minute" value="100"/>
+            <property name="audit.enabled" value="true"/>
+            <property name="max.session.duration.minutes" value="480"/>
+            <property name="token.encryption.key" value="${mcp_token_encryption_key}"/>
+        </property-list>
+        
+        <property-list name="mcp.llm">
+            <property name="provider.url" value="${mcp_llm_provider_url}"/>
+            <property name="provider.api_key" value="${mcp_llm_provider_api_key}"/>
+            <property name="provider.model" value="${mcp_llm_provider_model:gpt-4}"/>
+            <property name="timeout.seconds" value="30"/>
+            <property name="max.tokens" value="4096"/>
+            <property name="temperature" value="0.7"/>
+        </property-list>
+        
+        <property-list name="mcp.security">
+            <property name="require.https" value="false"/>
+            <property name="allowed.origins" value="*"/>
+            <property name="max.request.size.mb" value="10"/>
+            <property name="enable.cors" value="true"/>
+        </property-list>
+        
+        <!-- Artifact Tiers -->
+        <artifact-tiers>
+            <artifact-tier type="entity" name="McpSession" tier="1"/>
+            <artifact-tier type="entity" name="McpToolCall" tier="1"/>
+            <artifact-tier type="service" name="org.moqui.mcp.*" tier="1"/>
+        </artifact-tiers>
+        
+        <!-- Artifact Groups -->
+        <artifact-groups>
+            <artifact-group name="MCP_ADMIN" description="MCP Server Administration">
+                <artifact-group-member type="entity" name="McpSession" action="ALL"/>
+                <artifact-group-member type="entity" name="McpToolCall" action="ALL"/>
+                <artifact-group-member type="service" name="org.moqui.mcp.*" action="ALL"/>
+                <artifact-group-member type="screen" name="component://moqui-mcp/screen/McpServerScreens.xml" action="ALL"/>
+            </artifact-group>
+            
+            <artifact-group name="MCP_USER" description="MCP Server User Access">
+                <artifact-group-member type="service" name="org.moqui.mcp.McpProtocolServices.create#McpSession" action="ALL"/>
+                <artifact-group-member type="service" name="org.moqui.mcp.McpToolServices.*" action="ALL"/>
+                <artifact-group-member type="service" name="org.moqui.mcp.mcp-tools.*" action="ALL"/>
+            </artifact-group>
+        </artifact-groups>
+        
+        <!-- User Groups -->
+        <user-groups>
+            <user-group userGroupId="MCP_ADMIN" description="MCP Server Administrators">
+                <member-group userGroupId="MCP_ADMIN"/>
+            </user-group>
+            <user-group userGroupId="MCP_USER" description="MCP Server Users">
+                <member-group userGroupId="MCP_USER"/>
+            </user-group>
+        </user-groups>
+        
+        <!-- Startup Services -->
+        <startup-service name="org.moqui.mcp.McpSecurityServices.cleanup#ExpiredSessions" 
+                        run-on-start="true" 
+                        retry-count="3"/>
+        
+        <!-- Scheduled Services -->
+        <service-schedule name="MCP_SESSION_CLEANUP" 
+                         serviceName="org.moqui.mcp.McpSecurityServices.cleanup#ExpiredSessions"
+                         frequency="15" 
+                         frequency-unit="MINUTES"/>
+        
+        <!-- Email Templates -->
+        <template name="McpSessionNotification" location="template/email/McpSessionNotification.ftl"/>
+        
+        <!-- Message Resources -->
+        <resource-facade type="i18n" location="MoquiMcpLabels"/>
+        
+        <!-- Database Configuration -->
+        <database-list>
+            <database name="transactional" group-name="mcp">
+                <datasource-conf name="default" jndi-jdbc="java:comp/env/jdbc/moqui"/>
+            </database>
+        </database-list>
+    </component>
+</moqui-conf>
