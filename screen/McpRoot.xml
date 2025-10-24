@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/screen-definition-3.xsd">
+
+    <parameter name="tabMenuMain" value="McpServerTabMenu"/>
+    
+    <subscreens-item name="Dashboard" menu-title="Dashboard" menu-index="1"/>
+    <subscreens-item name="Sessions" menu-title="Sessions" menu-index="2"/>
+    <subscreens-item name="ToolCalls" menu-title="Tool Calls" menu-index="3"/>
+    <subscreens-item name="AuditLog" menu-title="Audit Log" menu-index="4"/>
+    <subscreens-item name="Configuration" menu-title="Configuration" menu-index="5"/>
+    <subscreens-item name="Tools" menu-title="Tools" menu-index="6"/>
+    <subscreens-item name="RateLimits" menu-title="Rate Limits" menu-index="7"/>
+    
+    <widgets>
+        <container-panel id="McpServerPanel">
+            <panel-header><label text="MCP Server Management"/></panel-header>
+            <panel-toolbar>
+                <container style="btn-group">
+                    <link url="createSession" text="Create Session" button-style="btn-primary"/>
+                    <link url="refreshDashboard" text="Refresh" button-style="btn-secondary"/>
+                </container>
+            </panel-toolbar>
+            
+            <panel-body>
+                <!-- Quick Stats -->
+                <container-row>
+                    <container-col>
+                        <container style="card">
+                            <container style="card-header">
+                                <h5>Active Sessions</h5>
+                            </container>
+                            <container style="card-body">
+                                <entity-find entity-name="McpSession" list="activeSessions">
+                                    <econdition field-name="statusId" value="McsActive"/>
+                                    <econdition field-name="expiresDate" operator="greater-than" from="ec.user.now"/>
+                                </entity-find>
+                                <h3>${activeSessions.size()}</h3>
+                                <p class="text-muted">Active MCP sessions</p>
+                            </container>
+                        </container>
+                    </container-col>
+                    
+                    <container-col>
+                        <container style="card">
+                            <container style="card-header">
+                                <h5>Total Tool Calls</h5>
+                            </container>
+                            <container style="card-body">
+                                <entity-find entity-name="McpToolCall" list="toolCalls">
+                                    <econdition field-name="createdDate" operator="greater-than" from="${ec.user.now - 24}"/>
+                                </entity-find>
+                                <h3>${toolCalls.size()}</h3>
+                                <p class="text-muted">Last 24 hours</p>
+                            </container>
+                        </container>
+                    </container-col>
+                    
+                    <container-col>
+                        <container style="card">
+                            <container style="card-header">
+                                <h5>Registered Tools</h5>
+                            </container>
+                            <container style="card-body">
+                                <entity-find entity-name="McpToolRegistry" list="tools">
+                                    <econdition field-name="isEnabled" value="Y"/>
+                                </entity-find>
+                                <h3>${tools.size()}</h3>
+                                <p class="text-muted">Available tools</p>
+                            </container>
+                        </container>
+                    </container-col>
+                </container-row>
+                
+                <!-- Recent Activity -->
+                <container-row>
+                    <container-col>
+                        <container style="card mt-3">
+                            <container style="card-header">
+                                <h5>Recent Tool Calls</h5>
+                            </container>
+                            <container style="card-body">
+                                <entity-find entity-name="McpToolCall" list="recentCalls">
+                                    <econdition field-name="createdDate" operator="greater-than" from="${ec.user.now - 2}"/>
+                                    <order-by field-name="-createdDate"/>
+                                </entity-find>
+                                
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Tool</th>
+                                            <th>User</th>
+                                            <th>Status</th>
+                                            <th>Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <list list="recentCalls" entry="call">
+                                            <tr>
+                                                <td>${call.toolName}</td>
+                                                <td>${call.userAccountId}</td>
+                                                <td><label text="${call.statusId}"/></td>
+                                                <td>${call.createdDate}</td>
+                                            </tr>
+                                        </list>
+                                    </tbody>
+                                </table>
+                            </container>
+                        </container>
+                    </container-col>
+                </container-row>
+            </panel-body>
+        </container-panel>
+    </widgets>
+</screen>

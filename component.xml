@@ -37,6 +37,14 @@
         <!-- Data Load -->
         <entity-facade-xml type="seed" location="data/McpServerData.xml"/>
         
+        <!-- Screen Facade Configuration -->
+        <screen-facade>
+            <screen location="component://webroot/screen/webroot/apps.xml">
+                <subscreens-item name="mcp" menu-title="MCP Server" menu-index="50"
+                        location="component://moqui-mcp/screen/McpRoot.xml"/>
+            </screen>
+        </screen-facade>
+        
         <!-- Webapp Configuration -->
         <webapp name="mcp-server" 
                 title="MCP Server" 
