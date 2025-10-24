@@ -193,6 +193,29 @@
         isEnabled="Y" requiresPermission="N" rateLimitWeight="1" 
         createdDate="${ec.user.now}" lastUpdatedDate="${ec.user.now}"/>
     
+    <!-- Artifact Tiers for MCP Screens -->
+    <moqui.security.ArtifactTier artifactTierId="MCP_ALL" description="All MCP Artifacts"/>
+    <moqui.security.ArtifactTierMember artifactTierId="MCP_ALL" artifactGroupId="MCP_SCREEN" 
+        artifactName=".*" inheritAuthz="Y" createdDate="${ec.user.now}"/>
+    
+    <!-- User Group for MCP Access -->
+    <moqui.security.UserGroup userGroupId="MCP_USERS" description="Users with MCP Access"/>
+    <moqui.security.UserGroupMember userGroupId="MCP_USERS" userAccountId="ADMIN" 
+        fromDate="${ec.user.now}"/>
+    
+    <!-- Artifact Permissions for MCP Group -->
+    <moqui.security.ArtifactGroup artifactGroupId="MCP_SCREEN" description="MCP Screens"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="MCP_SCREEN" 
+        artifactName="component://moqui-mcp/screen/.*" artifactTypeEnumId="AT_XML_SCREEN" 
+        isInclude="Y" createdDate="${ec.user.now}"/>
+    
+    <moqui.security.ArtifactAuthz artifactAuthzId="MCP_SCREEN_VIEW" userGroupId="MCP_USERS" 
+        artifactGroupId="MCP_SCREEN" artifactAuthzEnumId="AUTHZT_ALWAYS" 
+        authzActionEnumId="AUTHZA_VIEW" createdDate="${ec.user.now}"/>
+    <moqui.security.ArtifactAuthz artifactAuthzId="MCP_SCREEN_ALL" userGroupId="MCP_USERS" 
+        artifactGroupId="MCP_SCREEN" artifactAuthzEnumId="AUTHZT_ALWAYS" 
+        authzActionEnumId="AUTHZA_ALL" createdDate="${ec.user.now}"/>
+
     <!-- Default User Configuration for Admin -->
     <moqui.mcp.McpUserConfig userConfigId="ADMIN_CONFIG" userAccountId="ADMIN" 
         configId="DEFAULT" isEnabled="Y" 

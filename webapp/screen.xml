@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/screen-definition-3.xsd">
+    
+    <subscreens-item name="Dashboard" menu-title="Dashboard" menu-index="1"
+            location="component://moqui-mcp/screen/McpRoot.xml"/>
+    
+    <widgets>
+        <container style="text-center mt-5">
+            <h2>MCP Server Webapp</h2>
+            <p>Access the MCP Dashboard through the Apps menu or direct link:</p>
+            <link url="Dashboard" text="Open MCP Dashboard" button-style="btn-primary"/>
+        </container>
+    </widgets>
+</screen>

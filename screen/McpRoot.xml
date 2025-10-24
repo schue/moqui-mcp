@@ -11,7 +11,8 @@
      <https://creativecommons.org/publicdomain/zero/1.0/>. -->
 
 <screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/screen-definition-3.xsd">
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/screen-definition-3.xsd"
+        require-authentication="false">
 
     <parameter name="tabMenuMain" value="McpServerTabMenu"/>
     
