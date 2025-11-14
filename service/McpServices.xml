@@ -740,12 +740,17 @@
                 
                 ExecutionContext ec = context.ec
                 
-                // DEBUG: Log initial request details
-                ec.logger.info("=== MCP REQUEST DEBUG START ===")
-                ec.logger.info("MCP Request - Method: ${method}, ID: ${id}")
-                ec.logger.info("MCP Request - Params: ${params}")
-                ec.logger.info("MCP Request - User: ${ec.user.username}, UserID: ${ec.user.userId}")
-                ec.logger.info("MCP Request - Current Time: ${ec.user.getNowTimestamp()}")
+                 // DEBUG: Log initial request details
+                 ec.logger.info("=== MCP REQUEST DEBUG START ===")
+                 ec.logger.info("MCP Request - Method: ${method}, ID: ${id}")
+                 ec.logger.info("MCP Request - Params: ${params}")
+                 ec.logger.info("MCP Request - User: ${ec.user.username}, UserID: ${ec.user.userId}")
+                 ec.logger.info("MCP Request - Current Time: ${ec.user.getNowTimestamp()}")
+                 ec.logger.info("MCP Request - JSONRPC: ${jsonrpc}")
+                 ec.logger.info("MCP Request - All context keys: ${context.keySet()}")
+                 ec.logger.info("MCP Request - ec.web exists: ${ec.web != null}")
+                 ec.logger.info("MCP Request - ec.web.request exists: ${ec.web?.request != null}")
+                 ec.logger.info("MCP Request - ec.web.response exists: ${ec.web?.response != null}")
                 
                 // DEBUG: Log HTTP request details
                 def httpRequest = ec.web?.request
@@ -762,12 +767,15 @@
                     ec.logger.warn("HTTP Request object is null!")
                 }
                 
-                // DEBUG: Log HTTP response details
-                if (httpResponse) {
-                    ec.logger.info("HTTP Response Status: ${httpResponse.status}")
-                } else {
-                    ec.logger.warn("HTTP Response object is null!")
-                }
+                 def httpResponse = ec.web?.response
+                 // DEBUG: Log HTTP response details
+                 if (httpResponse) {
+                     ec.logger.info("HTTP Response Status: ${httpResponse.status}")
+                     ec.logger.info("HTTP Response committed: ${httpResponse.committed}")
+                     ec.logger.info("HTTP Response content type: ${httpResponse.getContentType()}")
+                 } else {
+                     ec.logger.warn("HTTP Response object is null!")
+                 }
                 
                 // Validate HTTP method - only POST allowed for JSON-RPC messages
                 def httpMethod = ec.web?.request?.method
@@ -776,7 +784,9 @@
                     ec.logger.warn("Invalid HTTP method: ${httpMethod}, expected POST")
                     ec.web?.response?.setStatus(405) // Method Not Allowed
                     ec.web?.response?.setHeader("Allow", "POST")
-                    response = "Method Not Allowed. Use POST for JSON-RPC messages."
+                    ec.web?.response?.setContentType("text/plain")
+                    ec.web?.response?.getWriter()?.write("Method Not Allowed. Use POST for JSON-RPC messages.")
+                    ec.web?.response?.getWriter()?.flush()
                     return
                 }
                 ec.logger.info("HTTP method validation passed")
@@ -785,9 +795,11 @@
                 def contentType = ec.web?.request?.getContentType()
                 ec.logger.info("Validating Content-Type: ${contentType}")
                 if (!contentType?.contains("application/json")) {
-                    ec.logger.warn("Invalid Content-Type: ${contentType}, expected application/json")
+                    ec.logger.warn("Invalid Content-Type: ${contentType}, expected application/json or application/json-rpc")
                     ec.web?.response?.setStatus(415) // Unsupported Media Type
-                    response = "Content-Type must be application/json for JSON-RPC messages"
+                    ec.web?.response?.setContentType("text/plain")
+                    ec.web?.response?.getWriter()?.write("Content-Type must be application/json or application/json-rpc for JSON-RPC messages")
+                    ec.web?.response?.getWriter()?.flush()
                     return
                 }
                 ec.logger.info("Content-Type validation passed")
@@ -798,7 +810,9 @@
                 if (!acceptHeader?.contains("application/json")) {
                     ec.logger.warn("Invalid Accept header: ${acceptHeader}")
                     ec.web?.response?.setStatus(406) // Not Acceptable
-                    response = "Accept header must include application/json for JSON-RPC"
+                    ec.web?.response?.setContentType("text/plain")
+                    ec.web?.response?.getWriter()?.write("Accept header must include application/json for JSON-RPC")
+                    ec.web?.response?.getWriter()?.flush()
                     return
                 }
                 ec.logger.info("Accept header validation passed")
@@ -806,7 +820,9 @@
                 // Validate Content-Type header for POST requests
                 if (!contentType?.contains("application/json")) {
                     ec.web?.response?.setStatus(415) // Unsupported Media Type
-                    response = "Content-Type must be application/json for JSON-RPC messages"
+                    ec.web?.response?.setContentType("text/plain")
+                    ec.web?.response?.getWriter()?.write("Content-Type must be application/json for JSON-RPC messages")
+                    ec.web?.response?.getWriter()?.flush()
                     return
                 }
                 
@@ -820,13 +836,17 @@
                         if (!originValid) {
                             ec.logger.warn("Invalid Origin header rejected: ${originHeader}")
                             ec.web?.response?.setStatus(403) // Forbidden
-                            response = "Invalid Origin header"
+                            ec.web?.response?.setContentType("text/plain")
+                            ec.web?.response?.getWriter()?.write("Invalid Origin header")
+                            ec.web?.response?.getWriter()?.flush()
                             return
                         }
                     } catch (Exception e) {
                         ec.logger.error("Error during Origin validation", e)
                         ec.web?.response?.setStatus(500) // Internal Server Error
-                        response = "Error during Origin validation: ${e.message}"
+                        ec.web?.response?.setContentType("text/plain")
+                        ec.web?.response?.getWriter()?.write("Error during Origin validation: ${e.message}")
+                        ec.web?.response?.getWriter()?.flush()
                         return
                     }
                 } else {
@@ -849,7 +869,9 @@
                 if (!isInitialize && !sessionId) {
                     ec.logger.warn("Missing session ID for non-initialization request")
                     ec.web?.response?.setStatus(400) // Bad Request
-                    response = "Mcp-Session-Id header required for non-initialization requests"
+                    ec.web?.response?.setContentType("text/plain")
+                    ec.web?.response?.getWriter()?.write("Mcp-Session-Id header required for non-initialization requests")
+                    ec.web?.response?.getWriter()?.flush()
                     return
                 }
                 
@@ -878,7 +900,9 @@
                     ec.logger.info("Built JSON-RPC error response: ${errorResponse}")
                     
                     if (wantsStreaming) {
-                        response = "event: error\ndata: ${errorResponse}\n\n"
+                        ec.web?.response?.setContentType("text/event-stream")
+                        ec.web?.response?.getWriter()?.write("event: error\ndata: ${errorResponse}\n\n")
+                        ec.web?.response?.getWriter()?.flush()
                         ec.logger.info("Returning streaming error response")
                     } else {
                         response = errorResponse
@@ -979,21 +1003,24 @@
                     ec.logger.info("Response includes result")
                 }
                 
-                def jsonResponse = new JsonBuilder(responseObj).toString()
-                ec.logger.info("Built JSON response: ${jsonResponse}")
-                ec.logger.info("JSON response length: ${jsonResponse.length()}")
+                 def jsonResponse = new JsonBuilder(responseObj).toString()
+                 ec.logger.info("Built JSON response: ${jsonResponse}")
+                 ec.logger.info("JSON response length: ${jsonResponse.length()}")
 
-                def httpResponse = ec.web?.response
-                
-                 // MVP: Always return JSON-RPC 2.0, no streaming
-                 ec.logger.info("Creating JSON-RPC 2.0 response")
-                 if (httpResponse) {
-                     httpResponse.setContentType("application/json")
-                     httpResponse.setHeader("Content-Type", "application/json")
-                     ec.logger.info("Set JSON-RPC content type")
-                 }
-                 response = jsonResponse
-                 ec.logger.info("Created JSON-RPC response, length: ${response.length()}")
+                   // MVP: Always return JSON-RPC 2.0, no streaming
+                   ec.logger.info("Creating JSON-RPC 2.0 response")
+                   if (httpResponse) {
+                       httpResponse.setContentType("application/json")
+                       httpResponse.setHeader("Content-Type", "application/json")
+                       ec.logger.info("Set JSON-RPC content type: ${httpResponse.getContentType()}")
+                       ec.logger.info("Response committed before: ${httpResponse.committed}")
+                   } else {
+                       ec.logger.error("HTTP Response object is null - cannot set headers!")
+                   }
+                    response = jsonResponse
+                    ec.logger.info("Created JSON-RPC response, length: ${response.length()}")
+                    ec.logger.info("Response object type: ${response?.getClass()}")
+                    ec.logger.info("Response object is null: ${response == null}")
                 
                 ec.logger.info("=== MCP REQUEST DEBUG END ===")
             ]]></script>
