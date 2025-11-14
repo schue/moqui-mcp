@@ -15,11 +15,22 @@
         description="MCP JSON-RPC 2.0 services for Moqui integration">
 
     <resource name="rpc">
-        <method type="post">
+        <method type="post" content-type="application/json">
             <service name="McpServices.handle#McpRequest"/>
         </method>
+        <method type="post" content-type="application/json-rpc">
+            <service name="McpServices.handle#McpRequest"/>
+        </method>
+
         <method type="get">
             <service name="McpServices.mcp#Ping"/>
+        </method>
+        <method type="get" path="debug">
+            <service name="McpServices.debug#ComponentStatus"/>
+        </method>
+        <!-- Add a catch-all method for debugging -->
+        <method type="post">
+            <service name="McpServices.handle#McpRequest"/>
         </method>
     </resource>
     

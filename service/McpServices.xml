@@ -120,7 +120,7 @@
                     def entityNames = []
                     
                     // Get all entity names
-                    def allEntityNames = ec.entity.getEntityNames()
+                    def allEntityNames = ec.entity.getAllEntityNames()
                     
                     // Filter to commonly used entities for demonstration
                     def commonEntities = [
@@ -296,7 +296,7 @@
                 ExecutionContext ec = context.ec
                 
                 // Get all service names from Moqui service engine
-                def allServiceNames = ec.service.getServiceNames()
+                def allServiceNames = ec.service.getKnownServiceNames()
                 def availableTools = []
                 
                 // Convert services to MCP tools
@@ -456,7 +456,7 @@
                 ExecutionContext ec = context.ec
                 
                 // Get all entity names from Moqui entity engine
-                def allEntityNames = ec.entity.getEntityNames()
+                def allEntityNames = ec.entity.getAllEntityNames()
                 def availableResources = []
                 
                 // Convert entities to MCP resources
@@ -583,20 +583,108 @@
         <description>Handle MCP ping request for health check</description>
         <in-parameters/>
         <out-parameters>
-            <parameter name="timestamp" type="date-time"/>
-            <parameter name="status" type="text-indicator"/>
-            <parameter name="version"/>
+            <parameter name="result" type="Map"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
-                timestamp = ec.user.getNowTimestamp()
-                status = "healthy"
-                version = "2.0.0"
+                result = [
+                    timestamp: ec.user.getNowTimestamp(),
+                    status: "healthy",
+                    version: "2.0.0"
+                ]
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Debug Service -->
+    
+    <service verb="debug" noun="ComponentStatus" authenticate="false" allow-remote="true">
+        <description>Debug service to verify component is loaded and working</description>
+        <in-parameters/>
+        <out-parameters>
+            <parameter name="status" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                def status = [
+                    componentLoaded: true,
+                    componentName: "mo-mcp",
+                    timestamp: ec.user.getNowTimestamp(),
+                    user: ec.user.username,
+                    userId: ec.user.userId,
+                    serviceNames: ec.service.getKnownServiceNames().findAll { it.contains("Mcp") },
+                    entityNames: ec.entity.getAllEntityNames().findAll { it.contains("ArtifactHit") }
+                ]
+                
+                ec.logger.info("=== MCP COMPONENT DEBUG ===")
+                ec.logger.info("Component status: ${status}")
+                ec.logger.info("All service names count: ${ec.service.getKnownServiceNames().size()}")
+                ec.logger.info("All entity names count: ${ec.entity.getAllEntityNames().size()}")
+                ec.logger.info("=== END MCP COMPONENT DEBUG ===")
+                
+                result.status = status
             ]]></script>
         </actions>
     </service>
 
     <!-- Helper Functions -->
+    
+    <service verb="validate" noun="Origin" authenticate="false" allow-remote="false">
+        <description>Validate Origin header for DNS rebinding protection</description>
+        <in-parameters>
+            <parameter name="origin" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="isValid" type="boolean"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Allow localhost origins
+                if (origin?.startsWith("http://localhost:") || origin?.startsWith("https://localhost:")) {
+                    isValid = true
+                    return
+                }
+                
+                // Allow 127.0.0.1 origins
+                if (origin?.startsWith("http://127.0.0.1:") || origin?.startsWith("https://127.0.0.1:")) {
+                    isValid = true
+                    return
+                }
+                
+                // Allow same-origin requests (check against current host)
+                def currentHost = ec.web?.request?.getServerName()
+                def currentScheme = ec.web?.request?.getScheme()
+                def currentPort = ec.web?.request?.getServerPort()
+                
+                def expectedOrigin = "${currentScheme}://${currentHost}"
+                if ((currentScheme == "http" && currentPort != 80) || (currentScheme == "https" && currentPort != 443)) {
+                    expectedOrigin += ":${currentPort}"
+                }
+                
+                if (origin == expectedOrigin) {
+                    isValid = true
+                    return
+                }
+                
+                // Check for configured allowed origins (could be from system properties)
+                def allowedOrigins = ec.getFactory().getConfiguration().getStringList("moqui.mcp.allowed_origins", [])
+                if (allowedOrigins.contains(origin)) {
+                    isValid = true
+                    return
+                }
+                
+                isValid = false
+            ]]></script>
+        </actions>
+    </service>
     
     <service verb="convert" noun="MoquiTypeToJsonSchemaType" authenticate="false">
         <description>Convert Moqui data types to JSON Schema types</description>
@@ -648,17 +736,136 @@
             <script><![CDATA[
                 import groovy.json.JsonBuilder
                 import org.moqui.context.ExecutionContext
+                import java.util.UUID
                 
                 ExecutionContext ec = context.ec
                 
-                // Check Accept header to determine if client wants streaming response
+                // DEBUG: Log initial request details
+                ec.logger.info("=== MCP REQUEST DEBUG START ===")
+                ec.logger.info("MCP Request - Method: ${method}, ID: ${id}")
+                ec.logger.info("MCP Request - Params: ${params}")
+                ec.logger.info("MCP Request - User: ${ec.user.username}, UserID: ${ec.user.userId}")
+                ec.logger.info("MCP Request - Current Time: ${ec.user.getNowTimestamp()}")
+                
+                // DEBUG: Log HTTP request details
+                def httpRequest = ec.web?.request
+                if (httpRequest) {
+                    ec.logger.info("HTTP Method: ${httpRequest.method}")
+                    ec.logger.info("HTTP Content-Type: ${httpRequest.getContentType()}")
+                    ec.logger.info("HTTP Accept: ${httpRequest.getHeader('Accept')}")
+                    ec.logger.info("HTTP Origin: ${httpRequest.getHeader('Origin')}")
+                    ec.logger.info("HTTP User-Agent: ${httpRequest.getHeader('User-Agent')}")
+                    ec.logger.info("HTTP Remote Addr: ${httpRequest.getRemoteAddr()}")
+                    ec.logger.info("HTTP Request URL: ${httpRequest.getRequestURL()}")
+                    ec.logger.info("HTTP Query String: ${httpRequest.getQueryString()}")
+                } else {
+                    ec.logger.warn("HTTP Request object is null!")
+                }
+                
+                // DEBUG: Log HTTP response details
+                if (httpResponse) {
+                    ec.logger.info("HTTP Response Status: ${httpResponse.status}")
+                } else {
+                    ec.logger.warn("HTTP Response object is null!")
+                }
+                
+                // Validate HTTP method - only POST allowed for JSON-RPC messages
+                def httpMethod = ec.web?.request?.method
+                ec.logger.info("Validating HTTP method: ${httpMethod}")
+                if (httpMethod != "POST") {
+                    ec.logger.warn("Invalid HTTP method: ${httpMethod}, expected POST")
+                    ec.web?.response?.setStatus(405) // Method Not Allowed
+                    ec.web?.response?.setHeader("Allow", "POST")
+                    response = "Method Not Allowed. Use POST for JSON-RPC messages."
+                    return
+                }
+                ec.logger.info("HTTP method validation passed")
+                
+                // Validate Content-Type header for POST requests
+                def contentType = ec.web?.request?.getContentType()
+                ec.logger.info("Validating Content-Type: ${contentType}")
+                if (!contentType?.contains("application/json")) {
+                    ec.logger.warn("Invalid Content-Type: ${contentType}, expected application/json")
+                    ec.web?.response?.setStatus(415) // Unsupported Media Type
+                    response = "Content-Type must be application/json for JSON-RPC messages"
+                    return
+                }
+                ec.logger.info("Content-Type validation passed")
+                
+                // Validate Accept header - must accept application/json for MVP
                 def acceptHeader = ec.web?.request?.getHeader("Accept")
-                def wantsStreaming = acceptHeader && acceptHeader.contains("text/event-stream")
+                ec.logger.info("Validating Accept header: ${acceptHeader}")
+                if (!acceptHeader?.contains("application/json")) {
+                    ec.logger.warn("Invalid Accept header: ${acceptHeader}")
+                    ec.web?.response?.setStatus(406) // Not Acceptable
+                    response = "Accept header must include application/json for JSON-RPC"
+                    return
+                }
+                ec.logger.info("Accept header validation passed")
+                
+                // Validate Content-Type header for POST requests
+                if (!contentType?.contains("application/json")) {
+                    ec.web?.response?.setStatus(415) // Unsupported Media Type
+                    response = "Content-Type must be application/json for JSON-RPC messages"
+                    return
+                }
+                
+                // Validate Origin header for DNS rebinding protection
+                def originHeader = ec.web?.request?.getHeader("Origin")
+                ec.logger.info("Checking Origin header: ${originHeader}")
+                if (originHeader) {
+                    try {
+                        def originValid = ec.service.sync("mo-mcp.McpServices.validate#Origin", [origin: originHeader]).isValid
+                        ec.logger.info("Origin validation result: ${originValid}")
+                        if (!originValid) {
+                            ec.logger.warn("Invalid Origin header rejected: ${originHeader}")
+                            ec.web?.response?.setStatus(403) // Forbidden
+                            response = "Invalid Origin header"
+                            return
+                        }
+                    } catch (Exception e) {
+                        ec.logger.error("Error during Origin validation", e)
+                        ec.web?.response?.setStatus(500) // Internal Server Error
+                        response = "Error during Origin validation: ${e.message}"
+                        return
+                    }
+                } else {
+                    ec.logger.info("No Origin header present")
+                }
+                
+                // Force non-streaming for MVP - always use JSON-RPC 2.0
+                def wantsStreaming = false
+                ec.logger.info("Streaming disabled for MVP - using JSON-RPC 2.0")
+                
+                // Set protocol version header on all responses
+                ec.web?.response?.setHeader("MCP-Protocol-Version", "2025-06-18")
+                ec.logger.info("Set MCP protocol version header")
+                
+                // Handle session management
+                def sessionId = ec.web?.request?.getHeader("Mcp-Session-Id")
+                def isInitialize = (method == "initialize")
+                ec.logger.info("Session management - SessionId: ${sessionId}, IsInitialize: ${isInitialize}")
+                
+                if (!isInitialize && !sessionId) {
+                    ec.logger.warn("Missing session ID for non-initialization request")
+                    ec.web?.response?.setStatus(400) // Bad Request
+                    response = "Mcp-Session-Id header required for non-initialization requests"
+                    return
+                }
+                
+                // Generate new session ID for initialization
+                if (isInitialize) {
+                    def newSessionId = UUID.randomUUID().toString()
+                    ec.web?.response?.setHeader("Mcp-Session-Id", newSessionId)
+                    ec.logger.info("Generated new session ID: ${newSessionId}")
+                }
 
                 ec.logger.info("MCP ${method} :: ${params} STREAMING ${wantsStreaming}")
                 
                 // Validate JSON-RPC version
+                ec.logger.info("Validating JSON-RPC version: ${jsonrpc}")
                 if (jsonrpc && jsonrpc != "2.0") {
+                    ec.logger.warn("Invalid JSON-RPC version: ${jsonrpc}")
                     def errorResponse = new JsonBuilder([
                         jsonrpc: "2.0",
                         error: [
@@ -668,13 +875,18 @@
                         id: id
                     ]).toString()
                     
+                    ec.logger.info("Built JSON-RPC error response: ${errorResponse}")
+                    
                     if (wantsStreaming) {
-                        response = "data: ${errorResponse}\n\n"
+                        response = "event: error\ndata: ${errorResponse}\n\n"
+                        ec.logger.info("Returning streaming error response")
                     } else {
                         response = errorResponse
+                        ec.logger.info("Returning regular error response")
                     }
                     return
                 }
+                ec.logger.info("JSON-RPC version validation passed")
                 
                 def result = null
                 def error = null
@@ -682,32 +894,40 @@
                 try {
                     // Map OpenCode method names to actual service names
                     def serviceName = null
+                    ec.logger.info("Mapping method '${method}' to service name")
                     switch (method) {
                         case "mcp#Ping":
                         case "ping":
                             serviceName = "McpServices.mcp#Ping"
+                            ec.logger.info("Mapped to service: ${serviceName}")
                             break
                         case "initialize":
                         case "mcp#Initialize":
                             serviceName = "McpServices.mcp#Initialize"
+                            ec.logger.info("Mapped to service: ${serviceName}")
                             break
                         case "tools/list":
                         case "mcp#ToolsList":
                             serviceName = "McpServices.mcp#ToolsList"
+                            ec.logger.info("Mapped to service: ${serviceName}")
                             break
                         case "tools/call":
                         case "mcp#ToolsCall":
                             serviceName = "McpServices.mcp#ToolsCall"
+                            ec.logger.info("Mapped to service: ${serviceName}")
                             break
                         case "resources/list":
                         case "mcp#ResourcesList":
                             serviceName = "McpServices.mcp#ResourcesList"
+                            ec.logger.info("Mapped to service: ${serviceName}")
                             break
                         case "resources/read":
                         case "mcp#ResourcesRead":
                             serviceName = "McpServices.mcp#ResourcesRead"
+                            ec.logger.info("Mapped to service: ${serviceName}")
                             break
                         default:
+                            ec.logger.warn("Unknown method: ${method}")
                             error = [
                                 code: -32601,
                                 message: "Method not found: ${method}"
@@ -715,12 +935,29 @@
                     }
                     
                     if (serviceName && !error) {
-                        // Call the actual MCP service (services now return Maps, no streaming logic)
-                        result = ec.service.sync().name(serviceName).parameters(params ?: [:]).call()
+                        ec.logger.info("Calling service: ${serviceName} with params: ${params}")
+                        // Check if service exists before calling
+                        if (!ec.service.isServiceDefined(serviceName)) {
+                            ec.logger.error("Service not defined: ${serviceName}")
+                            error = [
+                                code: -32601,
+                                message: "Service not found: ${serviceName}"
+                            ]
+                        } else {
+                            // Call the actual MCP service (services now return Maps, no streaming logic)
+                            def serviceStartTime = System.currentTimeMillis()
+                            result = ec.service.sync().name(serviceName).parameters(params ?: [:]).call()
+                            def serviceEndTime = System.currentTimeMillis()
+                            ec.logger.info("Service ${serviceName} completed in ${serviceEndTime - serviceStartTime}ms")
+                            ec.logger.info("Service result type: ${result?.getClass()?.getSimpleName()}")
+                            ec.logger.info("Service result: ${result}")
+                        }
                     }
                     
                 } catch (Exception e) {
                     ec.logger.error("MCP request error for method ${method}", e)
+                    ec.logger.error("Exception details: ${e.getClass().getName()}: ${e.message}")
+                    ec.logger.error("Exception stack trace: ${e.getStackTrace()}")
                     error = [
                         code: -32603,
                         message: "Internal error: ${e.message}"
@@ -728,6 +965,7 @@
                 }
                 
                 // Build JSON-RPC response
+                ec.logger.info("Building JSON-RPC response")
                 def responseObj = [
                     jsonrpc: "2.0",
                     id: id
@@ -735,23 +973,29 @@
                 
                 if (error) {
                     responseObj.error = error
+                    ec.logger.info("Response includes error: ${error}")
                 } else {
                     responseObj.result = result
+                    ec.logger.info("Response includes result")
                 }
                 
                 def jsonResponse = new JsonBuilder(responseObj).toString()
+                ec.logger.info("Built JSON response: ${jsonResponse}")
+                ec.logger.info("JSON response length: ${jsonResponse.length()}")
+
+                def httpResponse = ec.web?.response
                 
-                if (wantsStreaming) {
-                    // Set streaming headers and return as Server-Sent Events
-                    ec.web?.response?.setContentType("text/event-stream")
-                    ec.web?.response?.setHeader("Cache-Control", "no-cache")
-                    ec.web?.response?.setHeader("Connection", "keep-alive")
-                    ec.web?.response?.setHeader("Access-Control-Allow-Origin", "*")
-                    ec.web?.response?.setHeader("Access-Control-Allow-Headers", "Cache-Control")
-                    response = "data: ${jsonResponse}\n\n"
-                } else {
-                    response = jsonResponse
-                }
+                 // MVP: Always return JSON-RPC 2.0, no streaming
+                 ec.logger.info("Creating JSON-RPC 2.0 response")
+                 if (httpResponse) {
+                     httpResponse.setContentType("application/json")
+                     httpResponse.setHeader("Content-Type", "application/json")
+                     ec.logger.info("Set JSON-RPC content type")
+                 }
+                 response = jsonResponse
+                 ec.logger.info("Created JSON-RPC response, length: ${response.length()}")
+                
+                ec.logger.info("=== MCP REQUEST DEBUG END ===")
             ]]></script>
         </actions>
     </service>
