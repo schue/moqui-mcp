@@ -10,17 +10,19 @@
      along with this software (see the LICENSE.md file). If not, see
      <https://creativecommons.org/publicdomain/zero/1.0/>. -->
 
-<component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/component-definition-3.xsd"
-         name="mo-mcp">
+<resource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/rest-api-3.xsd"
+        name="mcp" displayName="MCP JSON-RPC API" version="2.0.0"
+        description="MCP JSON-RPC 2.0 services for Moqui integration">
 
-    <!-- No dependencies - uses only core framework -->
-
-    <entity-factory load-path="entity/" />
-    <service-factory load-path="service/" />
-<!--    <screen-factory load-path="screen/" /> -->
+    <resource name="rpc">
+        <method type="post">
+            <service name="McpServices.handle#McpRequest"/>
+        </method>
+        <method type="get">
+            <service name="McpServices.mcp#Ping"/>
+        </method>
+    </resource>
     
-    <!-- Load seed data -->
-    <entity-factory load-data="data/McpSecuritySeedData.xml" />
 
-</component>
+
+</resource>

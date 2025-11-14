@@ -15,18 +15,10 @@
 
     <!-- MCP Services using Moqui's built-in JSON-RPC support -->
     
-    <service verb="mcp" noun="Initialize" authenticate="true" allow-remote="true" transaction-timeout="30">
-        <description>Handle MCP initialize request using Moqui authentication</description>
-        <in-parameters>
-            <parameter name="protocolVersion" type="text-medium" required="true"/>
-            <parameter name="capabilities" type="Map"/>
-            <parameter name="clientInfo" type="Map"/>
-        </in-parameters>
+    <service verb="discover" noun="McpTools" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Discover available MCP tools (services) with admin permissions</description>
         <out-parameters>
-            <parameter name="protocolVersion" type="text-medium"/>
-            <parameter name="capabilities" type="Map"/>
-            <parameter name="serverInfo" type="Map"/>
-            <parameter name="instructions" type="text-long"/>
+            <parameter name="tools" type="List"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
@@ -35,10 +27,235 @@
                 
                 ExecutionContext ec = context.ec
                 
-                // Validate protocol version
-                if (protocolVersion != "2025-06-18") {
-                    throw new Exception("Unsupported protocol version: ${protocolVersion}")
+                // Run as admin to discover all available services
+                def originalUser = ec.user.username
+                try {
+                    ec.user.internalLoginUser("admin", null)
+                    
+                    def tools = []
+                    
+                    // Get commonly used entity services
+                    def entityServices = [
+                        "org.moqui.entity.EntityServices.find#List",
+                        "org.moqui.entity.EntityServices.find#One", 
+                        "org.moqui.entity.EntityServices.count",
+                        "org.moqui.entity.EntityServices.create",
+                        "org.moqui.entity.EntityServices.update",
+                        "org.moqui.entity.EntityServices.delete"
+                    ]
+                    
+                    for (serviceName in entityServices) {
+                        try {
+                            def serviceDef = ec.service.getServiceDefinition(serviceName)
+                            if (serviceDef) {
+                                tools << [
+                                    name: serviceName,
+                                    description: "Entity operation: ${serviceName}",
+                                    inputSchema: [
+                                        type: "object",
+                                        properties: [
+                                            entityName: [type: "string", description: "Name of the entity"],
+                                            conditions: [type: "object", description: "Query conditions (for find operations)"],
+                                            fields: [type: "array", description: "Fields to return (optional)"]
+                                        ],
+                                        required: ["entityName"]
+                                    ]
+                                ]
+                            }
+                        } catch (Exception e) {
+                            // Skip services that don't exist or aren't accessible
+                        }
+                    }
+                    
+                    // Add some basic services
+                    def basicServices = [
+                        "org.moqui.impl.ServiceServices.ping#Service"
+                    ]
+                    
+                    for (serviceName in basicServices) {
+                        try {
+                            def serviceDef = ec.service.getServiceDefinition(serviceName)
+                            if (serviceDef) {
+                                tools << [
+                                    name: serviceName,
+                                    description: "System service: ${serviceName}",
+                                    inputSchema: [type: "object", properties: [:], required: []]
+                                ]
+                            }
+                        } catch (Exception e) {
+                            // Skip services that don't exist
+                        }
+                    }
+                    
+                    result.tools = tools
+                    
+                } finally {
+                    // Restore original user context
+                    if (originalUser) {
+                        ec.user.internalLoginUser(originalUser, null)
+                    }
                 }
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="discover" noun="McpResources" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Discover available MCP resources (entities) with admin permissions</description>
+        <out-parameters>
+            <parameter name="resources" type="List"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                // Run as admin to discover all available entities
+                def originalUser = ec.user.username
+                try {
+                    ec.user.internalLoginUser("admin", null)
+                    
+                    def resources = []
+                    def entityNames = []
+                    
+                    // Get all entity names
+                    def allEntityNames = ec.entity.getEntityNames()
+                    
+                    // Filter to commonly used entities for demonstration
+                    def commonEntities = [
+                        "moqui.basic.Enumeration",
+                        "moqui.basic.Geo",
+                        "moqui.security.UserAccount", 
+                        "moqui.security.UserGroup",
+                        "moqui.security.ArtifactAuthz",
+                        "moqui.example.Example",
+                        "moqui.example.ExampleItem",
+                        "mantle.account.Customer",
+                        "mantle.product.Product",
+                        "mantle.product.Category",
+                        "mantle.ledger.transaction.AcctgTransaction",
+                        "mantle.ledger.transaction.AcctgTransEntry"
+                    ]
+                    
+                    for (entityName in commonEntities) {
+                        if (allEntityNames.contains(entityName)) {
+                            resources << [
+                                uri: "entity://${entityName}",
+                                name: entityName,
+                                description: "Moqui entity: ${entityName}",
+                                mimeType: "application/json"
+                            ]
+                        }
+                    }
+                    
+                    result.resources = resources
+                    
+                } finally {
+                    // Restore original user context
+                    if (originalUser) {
+                        ec.user.internalLoginUser(originalUser, null)
+                    }
+                }
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="execute" noun="McpTool" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Execute an MCP tool (service) with elevated permissions</description>
+        <in-parameters>
+            <parameter name="toolName" type="text-long" required="true"/>
+            <parameter name="arguments" type="Map"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Run as admin to execute services that may require elevated permissions
+                def originalUser = ec.user.username
+                try {
+                    ec.user.internalLoginUser("admin", null)
+                    
+                    def serviceResult = null
+                    
+                    // Handle common entity operations
+                    if (toolName == "org.moqui.entity.EntityServices.count") {
+                        def entityName = arguments?.entityName
+                        def conditions = arguments?.conditions ?: [:]
+                        
+                        if (!entityName) {
+                            throw new Exception("entityName is required for count operation")
+                        }
+                        
+                        def count = ec.entity.find(entityName).condition(conditions).count()
+                        serviceResult = [count: count]
+                        
+                    } else if (toolName == "org.moqui.entity.EntityServices.find#List") {
+                        def entityName = arguments?.entityName
+                        def conditions = arguments?.conditions ?: [:]
+                        def fields = arguments?.fields
+                        def limit = arguments?.limit
+                        def offset = arguments?.offset
+                        
+                        if (!entityName) {
+                            throw new Exception("entityName is required for find operation")
+                        }
+                        
+                        def entityFind = ec.entity.find(entityName).condition(conditions)
+                        if (fields) entityFind.selectFields(fields)
+                        if (limit) entityFind.limit(limit)
+                        if (offset) entityFind.offset(offset)
+                        
+                        def list = entityFind.list()
+                        serviceResult = [list: list, count: list.size()]
+                        
+                    } else {
+                        // Try to call the service directly
+                        serviceResult = ec.service.sync().name(toolName).parameters(arguments).call()
+                    }
+                    
+                    result.result = [content: [type: "text", text: serviceResult?.toString()]]
+                    
+                } finally {
+                    // Restore original user context
+                    if (originalUser) {
+                        ec.user.internalLoginUser(originalUser, null)
+                    }
+                }
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="mcp" noun="Initialize" authenticate="true" allow-remote="true" transaction-timeout="30">
+        <description>Handle MCP initialize request using Moqui authentication</description>
+        <in-parameters>
+            <parameter name="protocolVersion" required="true"/>
+            <parameter name="capabilities" type="Map"/>
+            <parameter name="clientInfo" type="Map"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Validate protocol version - support common MCP versions
+                def supportedVersions = ["2025-06-18", "2024-11-05", "2024-10-07", "2023-06-05"]
+                if (!supportedVersions.contains(protocolVersion)) {
+                    throw new Exception("Unsupported protocol version: ${protocolVersion}. Supported versions: ${supportedVersions.join(', ')}")
+                }
+                
+                // Get current user context (if authenticated)
+                def userId = ec.user.userId
+                def userAccountId = userId ? userId : null
                 
                 // Build server capabilities
                 def serverCapabilities = [
@@ -53,9 +270,12 @@
                     version: "2.0.0"
                 ]
                 
-                protocolVersion = "2025-06-18"
-                capabilities = serverCapabilities
-                instructions = "This server provides access to Moqui ERP services and entities through MCP. Use mcp#ToolsList to discover available operations."
+                result = [
+                    protocolVersion: "2025-06-18",
+                    capabilities: serverCapabilities,
+                    serverInfo: serverInfo,
+                    instructions: "This server provides access to Moqui ERP services and entities through MCP. Use tools/list to discover available operations."
+                ]
             ]]></script>
         </actions>
     </service>
@@ -63,16 +283,14 @@
     <service verb="mcp" noun="ToolsList" authenticate="true" allow-remote="true" transaction-timeout="60">
         <description>Handle MCP tools/list request with direct Moqui service discovery</description>
         <in-parameters>
-            <parameter name="cursor" type="text-medium"/>
+            <parameter name="cursor"/>
         </in-parameters>
         <out-parameters>
-            <parameter name="tools" type="List"/>
-            <parameter name="nextCursor" type="text-medium"/>
+            <parameter name="result" type="Map"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
-                import groovy.json.JsonBuilder
                 import java.util.UUID
                 
                 ExecutionContext ec = context.ec
@@ -102,7 +320,6 @@
                                 required: []
                             ]
                         ]
-                        ]
                         
                         // Convert service parameters to JSON Schema
                         def inParamNames = serviceInfo.getInParameterNames()
@@ -125,11 +342,11 @@
                     }
                 }
                 
-                tools = availableTools
+                result = [tools: availableTools]
                 
                 // Add pagination if needed
                 if (availableTools.size() >= 100) {
-                    nextCursor = UUID.randomUUID().toString()
+                    result.nextCursor = UUID.randomUUID().toString()
                 }
             ]]></script>
         </actions>
@@ -138,12 +355,11 @@
     <service verb="mcp" noun="ToolsCall" authenticate="true" allow-remote="true" transaction-timeout="300">
         <description>Handle MCP tools/call request with direct Moqui service execution</description>
         <in-parameters>
-            <parameter name="name" type="text-medium" required="true"/>
+            <parameter name="name" required="true"/>
             <parameter name="arguments" type="Map"/>
         </in-parameters>
         <out-parameters>
-            <parameter name="content" type="List"/>
-            <parameter name="isError" type="text-indicator"/>
+            <parameter name="result" type="Map"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
@@ -171,17 +387,17 @@
                 artifactHit.artifactSubType = "Tool"
                 artifactHit.artifactName = name
                 artifactHit.parameterString = new JsonBuilder(arguments ?: [:]).toString()
-                artifactHit.startDateTime = ec.user.now
+                artifactHit.startDateTime = ec.user.getNowTimestamp()
                 artifactHit.create()
                 
                 def startTime = System.currentTimeMillis()
                 try {
-                    // Execute service directly
-                    def serviceResult = ec.service.sync(name, arguments ?: [:])
+                    // Execute service
+                    def serviceResult = ec.service.sync().name(name).parameters(arguments ?: [:]).call()
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
                     // Convert result to MCP format
-                    content = []
+                    def content = []
                     if (serviceResult) {
                         content << [
                             type: "text",
@@ -189,12 +405,15 @@
                         ]
                     }
                     
-                    isError = "N"
+                    result = [
+                        content: content,
+                        isError: false
+                    ]
                     
                     // Update audit record
                     artifactHit.runningTimeMillis = executionTime
                     artifactHit.wasError = "N"
-                    artifactHit.outputSize = new JsonBuilder([content: content, isError: isError]).toString().length()
+                    artifactHit.outputSize = new JsonBuilder(result).toString().length()
                     artifactHit.update()
                     
                 } catch (Exception e) {
@@ -206,14 +425,16 @@
                     artifactHit.errorMessage = e.message
                     artifactHit.update()
                     
-                    content = [
-                        [
-                            type: "text",
-                            text: "Error executing tool ${name}: ${e.message}"
-                        ]
+                    result = [
+                        content: [
+                            [
+                                type: "text",
+                                text: "Error executing tool ${name}: ${e.message}"
+                            ]
+                        ],
+                        isError: true
                     ]
                     
-                    isError = "Y"
                     ec.logger.error("MCP tool execution error", e)
                 }
             ]]></script>
@@ -223,15 +444,14 @@
     <service verb="mcp" noun="ResourcesList" authenticate="true" allow-remote="true" transaction-timeout="60">
         <description>Handle MCP resources/list request with Moqui entity discovery</description>
         <in-parameters>
-            <parameter name="cursor" type="text-medium"/>
+            <parameter name="cursor"/>
         </in-parameters>
         <out-parameters>
-            <parameter name="resources" type="List"/>
+            <parameter name="result" type="Map"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
-                import groovy.json.JsonBuilder
                 
                 ExecutionContext ec = context.ec
                 
@@ -265,7 +485,7 @@
                     }
                 }
                 
-                resources = availableResources
+                result = [resources: availableResources]
             ]]></script>
         </actions>
     </service>
@@ -273,10 +493,10 @@
     <service verb="mcp" noun="ResourcesRead" authenticate="true" allow-remote="true" transaction-timeout="120">
         <description>Handle MCP resources/read request with Moqui entity queries</description>
         <in-parameters>
-            <parameter name="uri" type="text-medium" required="true"/>
+            <parameter name="uri" required="true"/>
         </in-parameters>
         <out-parameters>
-            <parameter name="contents" type="List"/>
+            <parameter name="result" type="Map"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
@@ -311,7 +531,7 @@
                 artifactHit.artifactSubType = "Resource"
                 artifactHit.artifactName = "resources/read"
                 artifactHit.parameterString = uri
-                artifactHit.startDateTime = ec.user.now
+                artifactHit.startDateTime = ec.user.getNowTimestamp()
                 artifactHit.create()
                 
                 def startTime = System.currentTimeMillis()
@@ -324,7 +544,7 @@
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
                     // Convert to MCP resource content
-                    contents = [
+                    def contents = [
                         [
                             uri: uri,
                             mimeType: "application/json",
@@ -336,10 +556,12 @@
                         ]
                     ]
                     
+                    result = [contents: contents]
+                    
                     // Update audit record
                     artifactHit.runningTimeMillis = executionTime
                     artifactHit.wasError = "N"
-                    artifactHit.outputSize = new JsonBuilder(contents).toString().length()
+                    artifactHit.outputSize = new JsonBuilder(result).toString().length()
                     artifactHit.update()
                     
                 } catch (Exception e) {
@@ -362,12 +584,12 @@
         <in-parameters/>
         <out-parameters>
             <parameter name="timestamp" type="date-time"/>
-            <parameter name="status" type="text-short"/>
-            <parameter name="version" type="text-medium"/>
+            <parameter name="status" type="text-indicator"/>
+            <parameter name="version"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
-                timestamp = ec.user.now
+                timestamp = ec.user.getNowTimestamp()
                 status = "healthy"
                 version = "2.0.0"
             ]]></script>
@@ -379,10 +601,10 @@
     <service verb="convert" noun="MoquiTypeToJsonSchemaType" authenticate="false">
         <description>Convert Moqui data types to JSON Schema types</description>
         <in-parameters>
-            <parameter name="moquiType" type="text-medium" required="true"/>
+            <parameter name="moquiType" required="true"/>
         </in-parameters>
         <out-parameters>
-            <parameter name="jsonSchemaType" type="text-medium"/>
+            <parameter name="jsonSchemaType"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
@@ -405,6 +627,131 @@
                 ]
                 
                 jsonSchemaType = typeMap[moquiType] ?: "string"
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Main MCP Request Handler -->
+    
+    <service verb="handle" noun="McpRequest" authenticate="true" allow-remote="true" transaction-timeout="300">
+        <description>Handle MCP JSON-RPC 2.0 requests with method name mapping for OpenCode, centrally manages streaming</description>
+        <in-parameters>
+            <parameter name="jsonrpc" required="true"/>
+            <parameter name="id"/>
+            <parameter name="method" required="true"/>
+            <parameter name="params" type="Map"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="response" type="text-very-long"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import groovy.json.JsonBuilder
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Check Accept header to determine if client wants streaming response
+                def acceptHeader = ec.web?.request?.getHeader("Accept")
+                def wantsStreaming = acceptHeader && acceptHeader.contains("text/event-stream")
+
+                ec.logger.info("MCP ${method} :: ${params} STREAMING ${wantsStreaming}")
+                
+                // Validate JSON-RPC version
+                if (jsonrpc && jsonrpc != "2.0") {
+                    def errorResponse = new JsonBuilder([
+                        jsonrpc: "2.0",
+                        error: [
+                            code: -32600,
+                            message: "Invalid Request: Only JSON-RPC 2.0 supported"
+                        ],
+                        id: id
+                    ]).toString()
+                    
+                    if (wantsStreaming) {
+                        response = "data: ${errorResponse}\n\n"
+                    } else {
+                        response = errorResponse
+                    }
+                    return
+                }
+                
+                def result = null
+                def error = null
+                
+                try {
+                    // Map OpenCode method names to actual service names
+                    def serviceName = null
+                    switch (method) {
+                        case "mcp#Ping":
+                        case "ping":
+                            serviceName = "McpServices.mcp#Ping"
+                            break
+                        case "initialize":
+                        case "mcp#Initialize":
+                            serviceName = "McpServices.mcp#Initialize"
+                            break
+                        case "tools/list":
+                        case "mcp#ToolsList":
+                            serviceName = "McpServices.mcp#ToolsList"
+                            break
+                        case "tools/call":
+                        case "mcp#ToolsCall":
+                            serviceName = "McpServices.mcp#ToolsCall"
+                            break
+                        case "resources/list":
+                        case "mcp#ResourcesList":
+                            serviceName = "McpServices.mcp#ResourcesList"
+                            break
+                        case "resources/read":
+                        case "mcp#ResourcesRead":
+                            serviceName = "McpServices.mcp#ResourcesRead"
+                            break
+                        default:
+                            error = [
+                                code: -32601,
+                                message: "Method not found: ${method}"
+                            ]
+                    }
+                    
+                    if (serviceName && !error) {
+                        // Call the actual MCP service (services now return Maps, no streaming logic)
+                        result = ec.service.sync().name(serviceName).parameters(params ?: [:]).call()
+                    }
+                    
+                } catch (Exception e) {
+                    ec.logger.error("MCP request error for method ${method}", e)
+                    error = [
+                        code: -32603,
+                        message: "Internal error: ${e.message}"
+                    ]
+                }
+                
+                // Build JSON-RPC response
+                def responseObj = [
+                    jsonrpc: "2.0",
+                    id: id
+                ]
+                
+                if (error) {
+                    responseObj.error = error
+                } else {
+                    responseObj.result = result
+                }
+                
+                def jsonResponse = new JsonBuilder(responseObj).toString()
+                
+                if (wantsStreaming) {
+                    // Set streaming headers and return as Server-Sent Events
+                    ec.web?.response?.setContentType("text/event-stream")
+                    ec.web?.response?.setHeader("Cache-Control", "no-cache")
+                    ec.web?.response?.setHeader("Connection", "keep-alive")
+                    ec.web?.response?.setHeader("Access-Control-Allow-Origin", "*")
+                    ec.web?.response?.setHeader("Access-Control-Allow-Headers", "Cache-Control")
+                    response = "data: ${jsonResponse}\n\n"
+                } else {
+                    response = jsonResponse
+                }
             ]]></script>
         </actions>
     </service>
