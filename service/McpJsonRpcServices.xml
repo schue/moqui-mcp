@@ -1,0 +1,519 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP JSON-RPC 2.0 Handler -->
+    
+    <service verb="handle" noun="JsonRpcRequest" authenticate="false" transaction-timeout="300">
+        <description>Handle MCP JSON-RPC 2.0 requests with direct Moqui integration</description>
+        <in-parameters>
+            <parameter name="jsonrpc" type="text-short" required="true"/>
+            <parameter name="id" type="text-medium"/>
+            <parameter name="method" type="text-medium" required="true"/>
+            <parameter name="params" type="Map"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="response" type="text-very-long"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                import groovy.json.JsonSlurper
+                import java.util.UUID
+                
+                ExecutionContext ec = context.ec
+                
+                // Validate JSON-RPC version
+                if (jsonrpc != "2.0") {
+                    response = new JsonBuilder([
+                        jsonrpc: "2.0",
+                        error: [
+                            code: -32600,
+                            message: "Invalid Request: Only JSON-RPC 2.0 supported"
+                        ],
+                        id: id
+                    ]).toString()
+                    return
+                }
+                
+                def result = null
+                def error = null
+                
+                try {
+                    // Route to appropriate MCP method handler
+                    switch (method) {
+                        case "initialize":
+                            result = handleInitialize(params, ec)
+                            break
+                        case "tools/list":
+                            result = handleToolsList(params, ec)
+                            break
+                        case "tools/call":
+                            result = handleToolsCall(params, ec)
+                            break
+                        case "resources/list":
+                            result = handleResourcesList(params, ec)
+                            break
+                        case "resources/read":
+                            result = handleResourcesRead(params, ec)
+                            break
+                        case "ping":
+                            result = handlePing(params, ec)
+                            break
+                        default:
+                            error = [
+                                code: -32601,
+                                message: "Method not found: ${method}"
+                            ]
+                    }
+                } catch (Exception e) {
+                    ec.logger.error("MCP JSON-RPC error for method ${method}", e)
+                    error = [
+                        code: -32603,
+                        message: "Internal error: ${e.message}"
+                    ]
+                }
+                
+                // Build JSON-RPC response
+                def responseObj = [
+                    jsonrpc: "2.0",
+                    id: id
+                ]
+                
+                if (error) {
+                    responseObj.error = error
+                } else {
+                    responseObj.result = result
+                }
+                
+                response = new JsonBuilder(responseObj).toString()
+                
+                // Log request for audit
+                ec.message.addMessage("MCP ${method} request processed", "info")
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- MCP Method Implementations -->
+    
+    <service verb="handle" noun="Initialize" authenticate="false" transaction-timeout="30">
+        <description>Handle MCP initialize request with Moqui authentication</description>
+        <in-parameters>
+            <parameter name="protocolVersion" type="text-medium" required="true"/>
+            <parameter name="capabilities" type="Map"/>
+            <parameter name="clientInfo" type="Map"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                // Validate protocol version
+                if (protocolVersion != "2025-06-18") {
+                    throw new Exception("Unsupported protocol version: ${protocolVersion}")
+                }
+                
+                // Get current user context (if authenticated)
+                def userId = ec.user.userId
+                def userAccountId = userId ? userId : null
+                
+                // Build server capabilities
+                def serverCapabilities = [
+                    tools: [:],
+                    resources: [:],
+                    logging: [:]
+                ]
+                
+                // Build server info
+                def serverInfo = [
+                    name: "Moqui MCP Server",
+                    version: "2.0.0"
+                ]
+                
+                result = [
+                    protocolVersion: "2025-06-18",
+                    capabilities: serverCapabilities,
+                    serverInfo: serverInfo,
+                    instructions: "This server provides access to Moqui ERP services and entities through MCP. Use tools/list to discover available operations."
+                ]
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="handle" noun="ToolsList" authenticate="false" transaction-timeout="60">
+        <description>Handle MCP tools/list request with direct Moqui service discovery</description>
+        <in-parameters>
+            <parameter name="cursor" type="text-medium"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                // Get all service names from Moqui service engine
+                def allServiceNames = ec.service.getServiceNames()
+                def availableTools = []
+                
+                // Convert services to MCP tools
+                for (serviceName in allServiceNames) {
+                    try {
+                        // Check if user has permission
+                        if (!ec.service.hasPermission(serviceName)) {
+                            continue
+                        }
+                        
+                        def serviceInfo = ec.service.getServiceInfo(serviceName)
+                        if (!serviceInfo) continue
+                        
+                        // Convert service to MCP tool format
+                        def tool = [
+                            name: serviceName,
+                            description: serviceInfo.description ?: "Moqui service: ${serviceName}",
+                            inputSchema: [
+                                type: "object",
+                                properties: [:],
+                                required: []
+                            ]
+                        ]
+                        ]
+                        
+                        // Convert service parameters to JSON Schema
+                        def inParamNames = serviceInfo.getInParameterNames()
+                        for (paramName in inParamNames) {
+                            def paramInfo = serviceInfo.getInParameter(paramName)
+                            tool.inputSchema.properties[paramName] = [
+                                type: convertMoquiTypeToJsonSchemaType(paramInfo.type),
+                                description: paramInfo.description ?: ""
+                            ]
+                            
+                            if (paramInfo.required) {
+                                tool.inputSchema.required << paramName
+                            }
+                        }
+                        
+                        availableTools << tool
+                        
+                    } catch (Exception e) {
+                        ec.logger.warn("Error processing service ${serviceName}: ${e.message}")
+                    }
+                }
+                
+                result = [
+                    tools: availableTools
+                ]
+                
+                // Add pagination if needed
+                if (availableTools.size() >= 100) {
+                    result.nextCursor = UUID.randomUUID().toString()
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="handle" noun="ToolsCall" authenticate="false" transaction-timeout="300">
+        <description>Handle MCP tools/call request with direct Moqui service execution</description>
+        <in-parameters>
+            <parameter name="name" type="text-medium" required="true"/>
+            <parameter name="arguments" type="Map"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                // Validate service exists
+                if (!ec.service.isServiceDefined(name)) {
+                    throw new Exception("Tool not found: ${name}")
+                }
+                
+                // Check permission
+                if (!ec.service.hasPermission(name)) {
+                    throw new Exception("Permission denied for tool: ${name}")
+                }
+                
+                // Create audit record
+                def artifactHit = ec.entity.makeValue("moqui.server.ArtifactHit")
+                artifactHit.setSequencedIdPrimary()
+                artifactHit.visitId = ec.web?.visitId
+                artifactHit.userId = ec.user.userId
+                artifactHit.artifactType = "MCP"
+                artifactHit.artifactSubType = "Tool"
+                artifactHit.artifactName = name
+                artifactHit.parameterString = new JsonBuilder(arguments ?: [:]).toString()
+                artifactHit.startDateTime = ec.user.now
+                artifactHit.create()
+                
+                def startTime = System.currentTimeMillis()
+                try {
+                    // Execute service directly
+                    def serviceResult = ec.service.sync(name, arguments ?: [:])
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Convert result to MCP format
+                    def content = []
+                    if (serviceResult) {
+                        content << [
+                            type: "text",
+                            text: new JsonBuilder(serviceResult).toString()
+                        ]
+                    }
+                    
+                    result = [
+                        content: content,
+                        isError: false
+                    ]
+                    
+                    // Update audit record
+                    artifactHit.runningTimeMillis = executionTime
+                    artifactHit.wasError = "N"
+                    artifactHit.outputSize = new JsonBuilder(result).toString().length()
+                    artifactHit.update()
+                    
+                } catch (Exception e) {
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Update audit record with error
+                    artifactHit.runningTimeMillis = executionTime
+                    artifactHit.wasError = "Y"
+                    artifactHit.errorMessage = e.message
+                    artifactHit.update()
+                    
+                    result = [
+                        content: [
+                            [
+                                type: "text",
+                                text: "Error executing tool ${name}: ${e.message}"
+                            ]
+                        ],
+                        isError: true
+                    ]
+                    
+                    ec.logger.error("MCP tool execution error", e)
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="handle" noun="ResourcesList" authenticate="false" transaction-timeout="60">
+        <description>Handle MCP resources/list request with Moqui entity discovery</description>
+        <in-parameters>
+            <parameter name="cursor" type="text-medium"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                // Get all entity names from Moqui entity engine
+                def allEntityNames = ec.entity.getEntityNames()
+                def availableResources = []
+                
+                // Convert entities to MCP resources
+                for (entityName in allEntityNames) {
+                    try {
+                        // Check if user has permission
+                        if (!ec.user.hasPermission("entity:${entityName}", "VIEW")) {
+                            continue
+                        }
+                        
+                        def entityInfo = ec.entity.getEntityInfo(entityName)
+                        if (!entityInfo) continue
+                        
+                        // Convert entity to MCP resource format
+                        def resource = [
+                            uri: "entity://${entityName}",
+                            name: entityName,
+                            description: "Moqui entity: ${entityName}",
+                            mimeType: "application/json"
+                        ]
+                        
+                        availableResources << resource
+                        
+                    } catch (Exception e) {
+                        ec.logger.warn("Error processing entity ${entityName}: ${e.message}")
+                    }
+                }
+                
+                result = [
+                    resources: availableResources
+                ]
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="handle" noun="ResourcesRead" authenticate="false" transaction-timeout="120">
+        <description>Handle MCP resources/read request with Moqui entity queries</description>
+        <in-parameters>
+            <parameter name="uri" type="text-medium" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                // Parse entity URI (format: entity://EntityName)
+                if (!uri.startsWith("entity://")) {
+                    throw new Exception("Invalid resource URI: ${uri}")
+                }
+                
+                def entityName = uri.substring(9) // Remove "entity://" prefix
+                
+                // Validate entity exists
+                if (!ec.entity.isEntityDefined(entityName)) {
+                    throw new Exception("Entity not found: ${entityName}")
+                }
+                
+                // Check permission
+                if (!ec.user.hasPermission("entity:${entityName}", "VIEW")) {
+                    throw new Exception("Permission denied for entity: ${entityName}")
+                }
+                
+                // Create audit record
+                def artifactHit = ec.entity.makeValue("moqui.server.ArtifactHit")
+                artifactHit.setSequencedIdPrimary()
+                artifactHit.visitId = ec.web?.visitId
+                artifactHit.userId = ec.user.userId
+                artifactHit.artifactType = "MCP"
+                artifactHit.artifactSubType = "Resource"
+                artifactHit.artifactName = "resources/read"
+                artifactHit.parameterString = uri
+                artifactHit.startDateTime = ec.user.now
+                artifactHit.create()
+                
+                def startTime = System.currentTimeMillis()
+                try {
+                    // Query entity data (limited to prevent large responses)
+                    def entityList = ec.entity.find(entityName)
+                        .limit(100)
+                        .list()
+                    
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Convert to MCP resource content
+                    def contents = [
+                        [
+                            uri: uri,
+                            mimeType: "application/json",
+                            text: new JsonBuilder([
+                                entityName: entityName,
+                                recordCount: entityList.size(),
+                                data: entityList
+                            ]).toString()
+                        ]
+                    ]
+                    
+                    result = [
+                        contents: contents
+                    ]
+                    
+                    // Update audit record
+                    artifactHit.runningTimeMillis = executionTime
+                    artifactHit.wasError = "N"
+                    artifactHit.outputSize = new JsonBuilder(result).toString().length()
+                    artifactHit.update()
+                    
+                } catch (Exception e) {
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Update audit record with error
+                    artifactHit.runningTimeMillis = executionTime
+                    artifactHit.wasError = "Y"
+                    artifactHit.errorMessage = e.message
+                    artifactHit.update()
+                    
+                    throw new Exception("Error reading resource ${uri}: ${e.message}")
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="handle" noun="Ping" authenticate="false" transaction-timeout="10">
+        <description>Handle MCP ping request for health check</description>
+        <in-parameters/>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                result = [
+                    timestamp: ec.user.now,
+                    status: "healthy",
+                    version: "2.0.0"
+                ]
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Helper Functions -->
+    
+    <service verb="convert" noun="MoquiTypeToJsonSchemaType" authenticate="false">
+        <description>Convert Moqui data types to JSON Schema types</description>
+        <in-parameters>
+            <parameter name="moquiType" type="text-medium" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="jsonSchemaType" type="text-medium"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                // Simple type mapping - can be expanded as needed
+                def typeMap = [
+                    "text-short": "string",
+                    "text-medium": "string", 
+                    "text-long": "string",
+                    "text-very-long": "string",
+                    "id": "string",
+                    "id-long": "string",
+                    "number-integer": "integer",
+                    "number-decimal": "number",
+                    "number-float": "number",
+                    "date": "string",
+                    "date-time": "string",
+                    "date-time-nano": "string",
+                    "boolean": "boolean",
+                    "text-indicator": "boolean"
+                ]
+                
+                jsonSchemaType = typeMap[moquiType] ?: "string"
+            ]]></script>
+        </actions>
+    </service>
+
+</services>
