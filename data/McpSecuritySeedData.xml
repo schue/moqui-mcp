@@ -19,6 +19,7 @@
     <!-- MCP Artifact Groups -->
     <moqui.security.ArtifactGroup artifactGroupId="McpServices" description="MCP JSON-RPC Services"/>
     <moqui.security.ArtifactGroup artifactGroupId="McpRestPaths" description="MCP REST API Paths"/>
+    <moqui.security.ArtifactGroup artifactGroupId="McpScreenTransitions" description="MCP Screen Transitions"/>
     
     <!-- MCP Artifact Group Members -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="mo-mcp.mo-mcp.*" artifactTypeEnumId="AT_SERVICE"/>
@@ -32,10 +33,12 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#ResourcesRead" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpRestPaths" artifactName="/mcp/rpc" artifactTypeEnumId="AT_REST_PATH"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpRestPaths" artifactName="/mcp/rpc/*" artifactTypeEnumId="AT_REST_PATH"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreenTransitions" artifactName="component://moqui-mcp-2/screen/webroot/mcp.xml/rpc" artifactTypeEnumId="AT_XML_SCREEN_TRANS"/>
     
     <!-- MCP Artifact Authz -->
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpRestPaths" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+    <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreenTransitions" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
     
     <!-- MCP User Accounts -->
     <moqui.security.UserAccount userId="MCP_USER" username="mcp-user" currentPassword="16ac58bbfa332c1c55bd98b53e60720bfa90d394" passwordHashType="SHA"/>

@@ -12,13 +12,13 @@
 
 <component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/component-definition-3.xsd"
-         name="mo-mcp">
+         name="moqui-mcp-2">
 
     <!-- No dependencies - uses only core framework -->
 
     <entity-factory load-path="entity/" />
     <service-factory load-path="service/" />
-<!--    <screen-factory load-path="screen/" /> -->
+    <screen-factory load-path="screen/" />
     
     <!-- Load seed data -->
     <entity-factory load-data="data/McpSecuritySeedData.xml" />

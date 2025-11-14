@@ -2,7 +2,7 @@
 <!-- This software is in the public domain under CC0 1.0 Universal plus a 
      Grant of Patent License.
 
-     To the extent possible under law, the author(s) have dedicated all
+     To the extent possible under law, author(s) have dedicated all
      copyright and related and neighboring rights to this software to the
      public domain worldwide. This software is distributed without any warranty.
 
@@ -11,29 +11,19 @@
      <https://creativecommons.org/publicdomain/zero/1.0/>. -->
 
 <resource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/rest-api-3.xsd"
-        name="mcp" displayName="MCP JSON-RPC API" version="2.0.0"
-        description="MCP JSON-RPC 2.0 services for Moqui integration">
+        name="mcp" displayName="MCP API" version="2.0.0"
+        description="MCP API services for Moqui integration - NOTE: Main functionality moved to screen/webapp.xml">
 
+    <!-- NOTE: Main MCP functionality moved to screen/webapp.xml for unified JSON-RPC and SSE handling -->
+    <!-- Keeping only basic GET endpoints for health checks and debugging -->
+    
     <resource name="rpc">
-        <method type="post" content-type="application/json">
-            <service name="McpServices.handle#McpRequest"/>
-        </method>
-        <method type="post" content-type="application/json-rpc">
-            <service name="McpServices.handle#McpRequest"/>
-        </method>
-
         <method type="get">
             <service name="McpServices.mcp#Ping"/>
         </method>
         <method type="get" path="debug">
             <service name="McpServices.debug#ComponentStatus"/>
         </method>
-        <!-- Add a catch-all method for debugging -->
-        <method type="post">
-            <service name="McpServices.handle#McpRequest"/>
-        </method>
     </resource>
-    
-
 
 </resource>
