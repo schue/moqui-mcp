@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<entity-facade-xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-facade-3.xsd">
+
+    <!-- MCP User Group -->
+    <moqui.security.UserGroup userGroupId="McpUser" description="MCP Server Users"/>
+    
+    <!-- MCP Artifact Groups -->
+    <moqui.security.ArtifactGroup artifactGroupId="McpRestPaths" description="MCP REST Paths"/>
+    <moqui.security.ArtifactGroup artifactGroupId="McpServices" description="MCP Services"/>
+    
+    <!-- MCP Artifact Group Members -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpRestPaths" artifactName="/rest/s1/mcp-2" artifactTypeEnumId="AT_REST_PATH"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpRestPaths" artifactName="/rest/s1/mcp-2/*" artifactTypeEnumId="AT_REST_PATH"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.mcp.*" artifactTypeEnumId="AT_SERVICE"/>
+    
+    <!-- MCP Artifact Authz -->
+    <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpRestPaths" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+    <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+    
+    <!-- Add john.doe to MCP user group -->
+    <moqui.security.UserGroupMember userGroupId="McpUser" userId="JOHN_DOE" fromDate="2025-01-01 00:00:00.000"/>
+    
+    <!-- Add MCP user to MCP user group -->
+    <moqui.security.UserGroupMember userGroupId="McpUser" userId="MCP_USER" fromDate="2025-01-01 00:00:00.000"/>
+    
+    <!-- Create minimal MCP user for testing -->
+    <moqui.security.UserAccount userId="MCP_USER" username="mcp-user" disabled="N" requirePasswordChange="N" 
+            currentPassword="16ac58bbfa332c1c55bd98b53e60720bfa90d394" passwordHashType="SHA" />
+
+</entity-facade-xml>

@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP Unified Security and Audit Services -->
+    
+    <service verb="create" noun="McpSession" authenticate="false" transaction-timeout="30">
+        <description>Create a new MCP session using Moqui's Visit entity</description>
+        <in-parameters>
+            <parameter name="username" type="text-medium" required="true"/>
+            <parameter name="password" type="text-medium" required="true"/>
+            <parameter name="clientInfo" type="text-long"/>
+            <parameter name="ipAddress" type="text-short"/>
+            <parameter name="userAgent" type="text-medium"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="visitId" type="id"/>
+            <parameter name="contextToken" type="text-medium"/>
+            <parameter name="userAccountId" type="id"/>
+            <parameter name="success" type="text-indicator"/>
+            <parameter name="errorMessage" type="text-long"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import java.util.UUID
+                
+                ExecutionContext ec = context.ec
+                
+                // Authenticate user
+                def userAccount = ec.entity.find("moqui.security.UserAccount")
+                    .condition("username", username)
+                    .one()
+                
+                if (!userAccount) {
+                    success = "N"
+                    errorMessage = "Invalid username or password"
+                    return
+                }
+                
+                // Verify password using Moqui's password service
+                try {
+                    def authResult = ec.service.sync("org.moqui.security.UserServices.authenticate#User", [
+                        username: username,
+                        password: password
+                    ])
+                    
+                    if (!authResult.authenticated) {
+                        success = "N"
+                        errorMessage = "Invalid username or password"
+                        return
+                    }
+                } catch (Exception e) {
+                    success = "N"
+                    errorMessage = "Authentication error: ${e.message}"
+                    return
+                }
+                
+                // Create Visit record (Moqui's native session tracking)
+                def visit = ec.entity.makeValue("moqui.server.Visit")
+                visit.setSequencedIdPrimary()
+                visit.userId = userAccount.userAccountId
+                visit.userCreated = "N"
+                visit.sessionId = UUID.randomUUID().toString()
+                visit.webappName = "mcp-2"
+                visit.initialLocale = ec.user.locale.toString()
+                visit.initialRequest = "MCP Session Creation"
+                visit.initialUserAgent = userAgent
+                visit.clientIpAddress = ipAddress
+                visit.fromDate = ec.user.now
+                
+                // Add MCP-specific fields
+                visit.mcpContextToken = UUID.randomUUID().toString()
+                visit.mcpStatusId = "McsActive"
+                visit.mcpExpiresDate = new Date(ec.user.now.time + (24 * 60 * 60 * 1000)) // 24 hours
+                visit.mcpClientInfo = clientInfo
+                
+                visit.create()
+                
+                visitId = visit.visitId
+                contextToken = visit.mcpContextToken
+                userAccountId = userAccount.userAccountId
+                success = "Y"
+                
+                // Log session creation via ArtifactHit
+                ec.message.addMessage("MCP session created for user ${username}", "info")
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="validate" noun="McpSession" authenticate="false" transaction-timeout="30">
+        <description>Validate MCP session using Visit entity</description>
+        <in-parameters>
+            <parameter name="visitId" type="id" required="true"/>
+            <parameter name="contextToken" type="text-medium" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="valid" type="text-indicator"/>
+            <parameter name="userAccountId" type="id"/>
+            <parameter name="errorMessage" type="text-long"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                def visit = ec.entity.find("moqui.server.Visit")
+                    .condition("visitId", visitId)
+                    .condition("mcpContextToken", contextToken)
+                    .condition("mcpStatusId", "McsActive")
+                    .one()
+                
+                if (!visit) {
+                    valid = "N"
+                    errorMessage = "Invalid or expired session"
+                    return
+                }
+                
+                // Check if session has expired
+                if (visit.mcpExpiresDate && visit.mcpExpiresDate.before(ec.user.now)) {
+                    // Mark as expired
+                    visit.mcpStatusId = "McsExpired"
+                    visit.thruDate = ec.user.now
+                    visit.update()
+                    
+                    valid = "N"
+                    errorMessage = "Session expired"
+                    return
+                }
+                
+                // Update Visit thruDate (acts as last accessed)
+                visit.thruDate = ec.user.now
+                visit.update()
+                
+                valid = "Y"
+                userAccountId = visit.userId
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="terminate" noun="McpSession" authenticate="false" transaction-timeout="30">
+        <description>Terminate MCP session using Visit entity</description>
+        <in-parameters>
+            <parameter name="visitId" type="id" required="true"/>
+            <parameter name="contextToken" type="text-medium" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="success" type="text-indicator"/>
+            <parameter name="errorMessage" type="text-long"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                def visit = ec.entity.find("moqui.server.Visit")
+                    .condition("visitId", visitId)
+                    .condition("mcpContextToken", contextToken)
+                    .one()
+                
+                if (!visit) {
+                    success = "N"
+                    errorMessage = "Invalid session"
+                    return
+                }
+                
+                // Mark as terminated
+                visit.mcpStatusId = "McsTerminated"
+                visit.thruDate = ec.user.now
+                visit.update()
+                
+                success = "Y"
+                
+                // Log session termination via ArtifactHit
+                ec.message.addMessage("MCP session terminated", "info")
+            ]]></script>
+        </actions>
+    </service>
+
+
+
+    <service verb="cleanup" noun="ExpiredSessions" authenticate="true" transaction-timeout="300">
+        <description>Cleanup expired MCP sessions</description>
+        <in-parameters>
+            <parameter name="dryRun" type="text-indicator" default="N"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="expiredCount" type="number-integer"/>
+            <parameter name="cleanedCount" type="number-integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // Find expired MCP sessions
+                def expiredVisits = ec.entity.find("moqui.server.Visit")
+                    .condition("mcpStatusId", "McsActive")
+                    .condition("mcpExpiresDate", ec.user.now, "less-than")
+                    .list()
+                
+                expiredCount = expiredVisits.size()
+                cleanedCount = 0
+                
+                if (dryRun != "Y") {
+                    for (visit in expiredVisits) {
+                        visit.mcpStatusId = "McsExpired"
+                        visit.thruDate = ec.user.now
+                        visit.update()
+                        cleanedCount++
+                        
+                        // Log session expiration via ArtifactHit
+                        ec.message.addMessage("MCP session expired during cleanup", "info")
+                    }
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+</services>

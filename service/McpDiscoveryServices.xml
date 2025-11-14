@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP Native Service Discovery using Moqui Service Engine Directly -->
+    
+    <service verb="discover" noun="McpTools" authenticate="false" transaction-timeout="60">
+        <description>Discover available MCP tools from native Moqui service definitions based on UserGroupPermission</description>
+        <in-parameters>
+            <parameter name="userAccountId" type="id" required="true"/>
+            <parameter name="sessionId" type="id"/>
+            <parameter name="servicePattern" type="text-medium"/>
+            <parameter name="packageName" type="text-medium"/>
+            <parameter name="verb" type="text-medium"/>
+            <parameter name="noun" type="text-medium"/>
+            <parameter name="includeParameters" type="text-indicator" default="Y"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="toolList" type="text-very-long"/>
+            <parameter name="toolCount" type="number-integer"/>
+            <parameter name="summary" type="text-long"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                import groovy.json.JsonSlurper
+                
+                ExecutionContext ec = context.ec
+                
+                // Set user context for permission checks
+                ec.user.setUserIdByToken(userAccountId)
+                
+                // Get all service names from Moqui service engine
+                def allServiceNames = ec.service.getServiceNames()
+                
+                // Filter services based on criteria
+                def filteredServiceNames = []
+                for (serviceName in allServiceNames) {
+                    // Apply package filter
+                    if (packageName && !serviceName.startsWith(packageName)) {
+                        continue
+                    }
+                    
+                    // Apply service pattern filter
+                    if (servicePattern && !serviceName.matches(servicePattern)) {
+                        continue
+                    }
+                    
+                    // Apply verb/noun filters
+                    if (verb || noun) {
+                        def serviceInfo = ec.service.getServiceInfo(serviceName)
+                        if (!serviceInfo) continue
+                        
+                        if (verb && serviceInfo.verb != verb) continue
+                        if (noun && serviceInfo.noun != noun) continue
+                    }
+                    
+                    filteredServiceNames << serviceName
+                }
+                
+                // Check permissions and build tool info
+                def availableTools = []
+                
+                for (serviceName in filteredServiceNames) {
+                    try {
+                        def serviceInfo = ec.service.getServiceInfo(serviceName)
+                        if (!serviceInfo) continue
+                        
+                        // Check if user has permission to execute this service
+                        def hasPermission = ec.service.hasPermission(serviceName)
+                        
+                        if (hasPermission) {
+                            def toolData = [
+                                toolName: serviceName,
+                                serviceName: serviceName,
+                                verb: serviceInfo.verb,
+                                noun: serviceInfo.noun,
+                                description: serviceInfo.description ?: "",
+                                authenticate: serviceInfo.authenticate,
+                                hasPermission: true
+                            ]
+                            
+                            // Include parameter information if requested
+                            if (includeParameters == "Y") {
+                                toolData.parameters = serviceInfo.getInParameterNames().collect { paramName ->
+                                    def paramInfo = serviceInfo.getInParameter(paramName)
+                                    [
+                                        name: paramName,
+                                        type: paramInfo.type,
+                                        required: paramInfo.required,
+                                        defaultValue: paramInfo.defaultValue,
+                                        description: paramInfo.description ?: ""
+                                    ]
+                                }
+                                
+                                toolData.outputParameters = serviceInfo.getOutParameterNames().collect { paramName ->
+                                    def paramInfo = serviceInfo.getOutParameter(paramName)
+                                    [
+                                        name: paramName,
+                                        type: paramInfo.type,
+                                        description: paramInfo.description ?: ""
+                                    ]
+                                }
+                            }
+                            
+                            availableTools << toolData
+                        }
+                        
+                    } catch (Exception e) {
+                        // Skip services that can't be accessed
+                        ec.logger.warn("Error accessing service info for ${serviceName}: ${e.message}")
+                    }
+                }
+                
+                toolCount = availableTools.size()
+                
+                // Create summary
+                def summaryInfo = [
+                    totalServices: allServiceNames.size(),
+                    filteredServices: filteredServiceNames.size(),
+                    availableTools: availableTools.size(),
+                    userAccountId: userAccountId,
+                    hasSession: sessionId ? true : false
+                ]
+                summary = new JsonBuilder(summaryInfo).toString()
+                
+                // Build final result
+                def result = [
+                    userAccountId: userAccountId,
+                    availableTools: availableTools,
+                    summary: summaryInfo
+                ]
+                
+                toolList = new JsonBuilder(result).toString()
+                
+                // Log discovery via ArtifactHit
+                if (sessionId) {
+                    ec.message.addMessage("Discovered ${availableTools.size()} available tools via native discovery", "info")
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="validate" noun="McpToolAccess" authenticate="false" transaction-timeout="30">
+        <description>Validate if user can access specific MCP tools using native permission checking</description>
+        <in-parameters>
+            <parameter name="userAccountId" type="id" required="true"/>
+            <parameter name="serviceNames" type="list" required="true"/>
+            <parameter name="sessionId" type="id"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="validationResults" type="text-very-long"/>
+            <parameter name="accessibleTools" type="text-long"/>
+            <parameter name="deniedTools" type="text-long"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                // Set user context for permission checks
+                ec.user.setUserIdByToken(userAccountId)
+                
+                def results = []
+                def accessible = []
+                def denied = []
+                
+                for (serviceName in serviceNames) {
+                    def result = [
+                        serviceName: serviceName,
+                        toolName: serviceName,
+                        serviceExists: false,
+                        accessible: false,
+                        reason: ""
+                    ]
+                    
+                    // Check if service exists
+                    def serviceDefined = ec.service.isServiceDefined(serviceName)
+                    result.serviceExists = serviceDefined
+                    
+                    if (!serviceDefined) {
+                        result.reason = "Service not defined"
+                        denied << result
+                        results << result
+                        continue
+                    }
+                    
+                    // Get service info
+                    def serviceInfo = ec.service.getServiceInfo(serviceName)
+                    if (serviceInfo) {
+                        result.verb = serviceInfo.verb
+                        result.noun = serviceInfo.noun
+                        result.description = serviceInfo.description ?: ""
+                        result.authenticate = serviceInfo.authenticate
+                    }
+                    
+                    // Check service permission
+                    def hasPermission = ec.service.hasPermission(serviceName)
+                    result.accessible = hasPermission
+                    result.reason = hasPermission ? 
+                        "Service permission granted" : 
+                        "Service permission denied"
+                    
+                    if (hasPermission) {
+                        accessible << result
+                    } else {
+                        denied << result
+                    }
+                    
+                    results << result
+                }
+                
+                validationResults = new JsonBuilder(results).toString()
+                accessibleTools = new JsonBuilder(accessible).toString()
+                deniedTools = new JsonBuilder(denied).toString()
+                
+                // Log validation via ArtifactHit
+                if (sessionId) {
+                    def msg = "Validated access to ${serviceNames.size()} tools: ${accessible.size()} allowed, ${denied.size()} denied"
+                    ec.message.addMessage(msg, denied.size() > 0 ? "warning" : "info")
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+</services>

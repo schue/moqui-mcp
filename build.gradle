@@ -1,0 +1,5 @@
+// Moqui MCP v2 Component Build File
+// Minimal dependencies - depends only on moqui framework
+
+// No additional repositories or dependencies needed
+// All functionality uses native Moqui framework capabilities

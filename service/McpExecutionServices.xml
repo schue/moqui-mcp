@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-3.xsd">
+
+    <!-- MCP Direct Service Execution Services -->
+    
+    <service verb="execute" noun="McpTool" authenticate="false" transaction-timeout="300">
+        <description>Execute MCP tool directly using Moqui service engine with proper validation and security</description>
+        <in-parameters>
+            <parameter name="sessionId" type="id" required="true"/>
+            <parameter name="serviceName" type="text-medium" required="true"/>
+            <parameter name="parameters" type="Map" required="true"/>
+            <parameter name="toolCallId" type="id"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="text-very-long"/>
+            <parameter name="success" type="text-indicator"/>
+            <parameter name="errorMessage" type="text-long"/>
+            <parameter name="serviceName" type="text-medium"/>
+            <parameter name="recordCount" type="number-integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                import groovy.json.JsonSlurper
+                
+                ExecutionContext ec = context.ec
+                
+                // Get visit information
+                def visit = ec.entity.find("moqui.server.Visit")
+                    .condition("visitId", sessionId)
+                    .condition("mcpContextToken", contextToken)
+                    .condition("mcpStatusId", "McsActive")
+                    .one()
+                if (!visit) {
+                    success = "N"
+                    errorMessage = "Invalid session"
+                    return
+                }
+                
+                // Set user context
+                ec.user.setUserIdByToken(visit.userId)
+                
+                // Check if service exists
+                if (!ec.service.isServiceDefined(serviceName)) {
+                    success = "N"
+                    errorMessage = "Service not defined: ${serviceName}"
+                    return
+                }
+                
+                // Check service permission
+                if (!ec.service.hasPermission(serviceName)) {
+                    success = "N"
+                    errorMessage = "Permission denied for service: ${serviceName}"
+                    
+                    // Log permission denial via ArtifactHit
+                    ec.message.addError("Permission denied for service ${serviceName}")
+                    return
+                }
+                
+                // Create ArtifactHit record for MCP tool execution
+                def artifactHit = ec.entity.makeValue("moqui.server.ArtifactHit")
+                artifactHit.setSequencedIdPrimary()
+                artifactHit.visitId = sessionId  // This is visitId
+                artifactHit.userId = visit.userId
+                artifactHit.artifactType = "MCP"
+                artifactHit.artifactSubType = "Service"
+                artifactHit.artifactName = serviceName
+                artifactHit.parameterString = new JsonBuilder(parameters).toString()
+                artifactHit.startDateTime = ec.user.now
+                artifactHit.serverIpAddress = ec.web.request.serverIpAddress
+                artifactHit.serverHostName = ec.web.request.serverHostName
+                artifactHit.create()
+                
+                if (!toolCallId) toolCallId = artifactHit.hitId
+                
+                // Execute the service directly
+                def startTime = System.currentTimeMillis()
+                try {
+                    def serviceResult = ec.service.sync(serviceName, parameters)
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Convert result to JSON
+                    def resultJson = new JsonBuilder(serviceResult).toString()
+                    
+                    // Update ArtifactHit record
+                    artifactHit.runningTimeMillis = executionTime
+                    artifactHit.wasError = "N"
+                    artifactHit.outputSize = resultJson.length()
+                    artifactHit.update()
+                    
+                    result = resultJson
+                    success = "Y"
+                    serviceName = serviceName
+                    
+                    // Log successful execution via ArtifactHit
+                    ec.message.addMessage("Successfully executed service ${serviceName}", "info")
+                    
+                } catch (Exception e) {
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Update ArtifactHit record with error
+                    artifactHit.runningTimeMillis = executionTime
+                    artifactHit.wasError = "Y"
+                    artifactHit.errorMessage = e.message
+                    artifactHit.update()
+                    
+                    success = "N"
+                    errorMessage = "Error executing service ${serviceName}: ${e.message}"
+                    ec.logger.error("MCP Tool execution error", e)
+                    
+                    // Log execution error via ArtifactHit
+                    ec.message.addError("Service execution failed: ${serviceName} - ${e.message}")
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="execute" noun="EntityQuery" authenticate="false" transaction-timeout="120">
+        <description>Execute entity query as MCP tool with security validation</description>
+        <in-parameters>
+            <parameter name="sessionId" type="id" required="true"/>
+            <parameter name="entityName" type="text-medium" required="true"/>
+            <parameter name="queryType" type="text-short" default="list"/> <!-- list, one, count -->
+            <parameter name="conditions" type="Map"/>
+            <parameter name="orderBy" type="text-medium"/>
+            <parameter name="limit" type="number-integer" default="100"/>
+            <parameter name="offset" type="number-integer" default="0"/>
+            <parameter name="toolCallId" type="id"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="text-very-long"/>
+            <parameter name="success" type="text-indicator"/>
+            <parameter name="errorMessage" type="text-long"/>
+            <parameter name="recordCount" type="number-integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                // Get visit information
+                def visit = ec.entity.find("moqui.server.Visit")
+                    .condition("visitId", sessionId)
+                    .condition("mcpContextToken", contextToken)
+                    .condition("mcpStatusId", "McsActive")
+                    .one()
+                if (!visit) {
+                    success = "N"
+                    errorMessage = "Invalid session"
+                    return
+                }
+                
+                // Set user context
+                ec.user.setUserIdByToken(visit.userId)
+                
+                // Check if entity exists
+                if (!ec.entity.isEntityDefined(entityName)) {
+                    success = "N"
+                    errorMessage = "Entity not defined: ${entityName}"
+                    return
+                }
+                
+                // Check entity permission
+                if (!ec.user.hasPermission("entity:${entityName}", "VIEW")) {
+                    success = "N"
+                    errorMessage = "Permission denied for entity: ${entityName}"
+                    return
+                }
+                
+                // Create ArtifactHit record for MCP entity query
+                def artifactHit = ec.entity.makeValue("moqui.server.ArtifactHit")
+                artifactHit.setSequencedIdPrimary()
+                artifactHit.visitId = sessionId  // This is visitId
+                artifactHit.userId = visit.userId
+                artifactHit.artifactType = "MCP"
+                artifactHit.artifactSubType = "Entity"
+                artifactHit.artifactName = "execute#EntityQuery"
+                artifactHit.parameterString = new JsonBuilder([
+                    entityName: entityName,
+                    queryType: queryType,
+                    conditions: conditions,
+                    orderBy: orderBy,
+                    limit: limit,
+                    offset: offset
+                ]).toString()
+                artifactHit.startDateTime = ec.user.now
+                artifactHit.serverIpAddress = ec.web.request.serverIpAddress
+                artifactHit.serverHostName = ec.web.request.serverHostName
+                artifactHit.create()
+                
+                if (!toolCallId) toolCallId = artifactHit.hitId
+                
+                def startTime = System.currentTimeMillis()
+                try {
+                    def entityBuilder = ec.entity.find(entityName)
+                    
+                    // Apply conditions if provided
+                    if (conditions) {
+                        conditions.each { key, value ->
+                            if (value instanceof List) {
+                                entityBuilder.condition(key, value, "in")
+                            } else {
+                                entityBuilder.condition(key, value)
+                            }
+                        }
+                    }
+                    
+                    // Apply ordering if provided
+                    if (orderBy) {
+                        entityBuilder.orderBy(orderBy)
+                    }
+                    
+                    // Execute query based on type
+                    def queryResult
+                    switch (queryType) {
+                        case "one":
+                            queryResult = entityBuilder.one()
+                            recordCount = queryResult ? 1 : 0
+                            break
+                        case "count":
+                            queryResult = entityBuilder.count()
+                            recordCount = queryResult
+                            break
+                        case "list":
+                        default:
+                            entityBuilder.limit(limit).offset(offset)
+                            queryResult = entityBuilder.list()
+                            recordCount = queryResult.size()
+                            break
+                    }
+                    
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Convert result to JSON
+                    def resultJson = new JsonBuilder([
+                        entityName: entityName,
+                        queryType: queryType,
+                        conditions: conditions,
+                        result: queryResult,
+                        recordCount: recordCount,
+                        executionTime: executionTime
+                    ]).toString()
+                    
+                    // Update ArtifactHit record
+                    artifactHit.runningTimeMillis = executionTime
+                    artifactHit.wasError = "N"
+                    artifactHit.outputSize = resultJson.length()
+                    artifactHit.update()
+                    
+                    result = resultJson
+                    success = "Y"
+                    
+                    // Log successful query via ArtifactHit
+                    ec.message.addMessage("Successfully queried entity ${entityName} (${queryType})", "info")
+                    
+                } catch (Exception e) {
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Update ArtifactHit record with error
+                    artifactHit.runningTimeMillis = executionTime
+                    artifactHit.wasError = "Y"
+                    artifactHit.errorMessage = e.message
+                    artifactHit.update()
+                    
+                    success = "N"
+                    errorMessage = "Error querying entity ${entityName}: ${e.message}"
+                    ec.logger.error("MCP Entity query error", e)
+                    
+                    // Log query error via ArtifactHit
+                    ec.message.addError("Entity query failed: ${entityName} - ${e.message}")
+                }
+            ]]></script>
+        </actions>
+    </service>
+
+</services>

@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<resource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/rest-api-3.xsd"
+          name="mcp-2" displayName="MCP v2 REST API" version="2.0.0"
+          description="Model Context Protocol (MCP) v2 server endpoints for AI-Moqui integration">
+
+    <!-- MCP Session Management -->
+    
+    <resource name="session" description="MCP Session Management">
+        <method type="post" json-request="true">
+            <description>Create new MCP session</description>
+            <service name="org.moqui.mcp.McpSecurityServices.create#McpSession"/>
+            <parameter-map>
+                <parameter field-name="username" required="true"/>
+                <parameter field-name="password" required="true"/>
+                <parameter field-name="clientInfo"/>
+                <parameter field-name="ipAddress"/>
+                <parameter field-name="userAgent"/>
+            </parameter-map>
+        </method>
+        
+        <id name="visitId">
+            <method type="post" json-request="true">
+                <description>Validate MCP session</description>
+                <service name="org.moqui.mcp.McpSecurityServices.validate#McpSession"/>
+                <parameter-map>
+                    <parameter field-name="visitId" from="uri-path"/>
+                    <parameter field-name="contextToken" required="true"/>
+                </parameter-map>
+            </method>
+            
+            <resource name="terminate">
+                <method type="post" json-request="true">
+                    <description>Terminate MCP session</description>
+                    <service name="org.moqui.mcp.McpSecurityServices.terminate#McpSession"/>
+                    <parameter-map>
+                        <parameter field-name="visitId" from="uri-path"/>
+                        <parameter field-name="contextToken" required="true"/>
+                    </parameter-map>
+                </method>
+            </resource>
+        </id>
+    </resource>
+
+    <!-- MCP Tool Discovery -->
+    
+    <resource name="tools" description="MCP Tool Discovery and Execution">
+        <resource name="discover">
+            <method type="post" json-request="true">
+                <description>Discover available MCP tools</description>
+                <service name="org.moqui.mcp.McpDiscoveryServices.discover#McpTools"/>
+                <parameter-map>
+                    <parameter field-name="userAccountId" required="true"/>
+                    <parameter field-name="visitId"/>
+                    <parameter field-name="servicePattern"/>
+                    <parameter field-name="packageName"/>
+                    <parameter field-name="verb"/>
+                    <parameter field-name="noun"/>
+                    <parameter field-name="includeParameters"/>
+                </parameter-map>
+            </method>
+        </resource>
+        
+        <resource name="validate">
+            <method type="post" json-request="true">
+                <description>Validate access to specific MCP tools</description>
+                <service name="org.moqui.mcp.McpDiscoveryServices.validate#McpToolAccess"/>
+                <parameter-map>
+                    <parameter field-name="userAccountId" required="true"/>
+                    <parameter field-name="serviceNames" required="true"/>
+                    <parameter field-name="visitId"/>
+                </parameter-map>
+            </method>
+        </resource>
+        
+        <method type="post" json-request="true">
+            <description>Execute MCP tool (service)</description>
+            <service name="org.moqui.mcp.McpExecutionServices.execute#McpTool"/>
+            <parameter-map>
+                <parameter field-name="sessionId" required="true"/>
+                <parameter field-name="contextToken" required="true"/>
+                <parameter field-name="serviceName" required="true"/>
+                <parameter field-name="parameters" required="true"/>
+                <parameter field-name="toolCallId"/>
+            </parameter-map>
+        </method>
+        
+        <resource name="entity">
+            <resource name="query">
+                <method type="post" json-request="true">
+                    <description>Execute entity query as MCP tool</description>
+                    <service name="org.moqui.mcp.McpExecutionServices.execute#EntityQuery"/>
+                    <parameter-map>
+                        <parameter field-name="sessionId" required="true"/>
+                        <parameter field-name="contextToken" required="true"/>
+                        <parameter field-name="serviceName" required="true"/>
+                        <parameter field-name="parameters" required="true"/>
+                        <parameter field-name="toolCallId"/>
+                    </parameter-map>
+                </method>
+            </resource>
+        </resource>
+    </resource>
+
+    <!-- MCP Health Check -->
+    
+    <resource name="health" description="MCP Server Health Check">
+        <method type="get">
+            <actions>
+                <script><![CDATA[
+                    import groovy.json.JsonBuilder
+                    
+                    def health = [
+                        status: "healthy",
+                        timestamp: ec.user.now,
+                        version: "2.0.0-MVP",
+                        server: "Moqui MCP Server v2",
+                        endpoints: [
+                            "POST /session - Create session",
+                            "POST /session/{visitId}/validate - Validate session", 
+                            "POST /session/{visitId}/terminate - Terminate session",
+                            "POST /tools/discover - Discover tools",
+                            "POST /tools/validate - Validate tool access",
+                            "POST /tools/execute - Execute service tool",
+                            "POST /tools/entity/query - Execute entity query",
+                            "GET /health - Health check"
+                        ]
+                    ]
+                    
+                    response = new JsonBuilder(health).toString()
+                ]]></script>
+            </actions>
+        </method>
+    </resource>
+
+</resource>

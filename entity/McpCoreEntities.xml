@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This software is in the public domain under CC0 1.0 Universal plus a 
+     Grant of Patent License.
+
+     To the extent possible under law, the author(s) have dedicated all
+     copyright and related and neighboring rights to this software to the
+     public domain worldwide. This software is distributed without any warranty.
+
+     You should have received a copy of the CC0 Public Domain Dedication
+     along with this software (see the LICENSE.md file). If not, see
+     <https://creativecommons.org/publicdomain/zero/1.0/>. -->
+
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-3.xsd">
+
+    <!-- Extend Visit entity for MCP-specific session tracking -->
+    <extend-entity entity-name="Visit" package="moqui.server">
+        <field name="mcpContextToken" type="text-medium"/>
+        <field name="mcpStatusId" type="id"/>
+        <field name="mcpExpiresDate" type="date-time"/>
+        <field name="mcpClientInfo" type="text-long"/>
+        <field name="mcpSessionData" type="text-very-long"/>
+        
+        <relationship type="one" related-entity-name="moqui.basic.StatusItem" short-alias="mcpStatus">
+            <key-map field-name="mcpStatusId"/>
+        </relationship>
+        
+        <index name="VISIT_MCP_TOKEN" unique="true">
+            <index-field name="mcpContextToken"/>
+        </index>
+        <index name="VISIT_MCP_USER_STATUS">
+            <index-field name="userId"/>
+            <index-field name="mcpStatusId"/>
+        </index>
+        <index name="VISIT_MCP_EXPIRE">
+            <index-field name="mcpExpiresDate"/>
+        </index>
+    </extend-entity>
+
+
+
+
+
+</entities>
