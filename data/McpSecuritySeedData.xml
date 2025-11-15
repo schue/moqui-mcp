@@ -34,6 +34,7 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="McpRestPaths" artifactName="/mcp/rpc" artifactTypeEnumId="AT_REST_PATH"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpRestPaths" artifactName="/mcp/rpc/*" artifactTypeEnumId="AT_REST_PATH"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpScreenTransitions" artifactName="component://moqui-mcp-2/screen/webroot/mcp.xml/rpc" artifactTypeEnumId="AT_XML_SCREEN_TRANS"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreenTransitions" artifactName="component://moqui-mcp-2/screen/webroot/mcp.xml" artifactTypeEnumId="AT_XML_SCREEN"/>
     
     <!-- MCP Artifact Authz -->
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>

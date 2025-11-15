@@ -11,18 +11,47 @@
      <https://creativecommons.org/publicdomain/zero/1.0/>. -->
 
 <screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
-        require-authentication="true" track-artifact-hit="false" default-menu-include="false">
+        require-authentication="false" track-artifact-hit="false" default-menu-include="false">
     
     <parameter name="jsonrpc"/>
     <parameter name="id"/>
     <parameter name="method"/>
     <parameter name="params"/>
     
-    <transition name="rpc" method="post" require-session-token="false">
-        <actions>
-            <!-- SSE Helper Functions -->
-            <script><![CDATA[
-                def handleSseStream(ec, protocolVersion) {
+
+    
+    <actions>
+        <script><![CDATA[
+            import groovy.json.JsonBuilder
+            import groovy.json.JsonSlurper
+            import java.util.UUID
+            
+            // DEBUG: Log initial request details
+            ec.logger.info("=== MCP SCREEN REQUEST START ===")
+            ec.logger.info("MCP Screen Request - Method: ${ec.web?.request?.method}, ID: ${id}")
+            ec.logger.info("MCP Screen Request - Params: ${params}")
+            ec.logger.info("MCP Screen Request - User: ${ec.user.username}, UserID: ${ec.user.userId}")
+            ec.logger.info("MCP Screen Request - Current Time: ${ec.user.getNowTimestamp()}")
+            
+            // Check MCP protocol version header
+            def protocolVersion = ec.web.request.getHeader("MCP-Protocol-Version")
+            if (!protocolVersion) {
+                protocolVersion = "2025-06-18" // Default to latest supported
+            }
+            ec.logger.info("MCP Protocol Version: ${protocolVersion}")
+            
+            // Validate HTTP method - only POST for JSON-RPC, GET for SSE streams
+            def httpMethod = ec.web?.request?.method
+            ec.logger.info("Validating HTTP method: ${httpMethod}")
+            
+            // Handle GET requests for SSE streams
+            if (httpMethod == "GET") {
+                ec.logger.info("GET request detected - checking for SSE support")
+                def acceptHeader = ec.web?.request?.getHeader("Accept")
+                ec.logger.info("GET Accept header: ${acceptHeader}")
+                
+                if (acceptHeader?.contains("text/event-stream")) {
+                    ec.logger.info("Client wants SSE stream - starting SSE")
                     // Set SSE headers
                     ec.web.response.setContentType("text/event-stream")
                     ec.web.response.setCharacterEncoding("UTF-8")
@@ -35,7 +64,7 @@
                     try {
                         // Send initial connection event
                         writer.write("event: connected\n")
-                        writer.write("data: {\"type\":\"connected\",\"timestamp\":\"${ec.user.now}\"}\n")
+                        writer.write("data: {\"type\":\"connected\",\"timestamp\":\"${ec.user.nowTimestamp}\"}\n")
                         writer.write("\n")
                         writer.flush()
                         
@@ -44,7 +73,7 @@
                         while (count < 30) { // Keep alive for ~30 seconds
                             Thread.sleep(1000)
                             writer.write("event: ping\n")
-                            writer.write("data: {\"timestamp\":\"${ec.user.now}\"}\n")
+                            writer.write("data: {\"timestamp\":\"${ec.user.nowTimestamp}\"}\n")
                             writer.write("\n")
                             writer.flush()
                             count++
@@ -55,69 +84,35 @@
                     } finally {
                         writer.close()
                     }
+                    return
+                } else {
+                    // For GET requests without SSE Accept, return 405 as expected by MCP spec
+                    ec.logger.info("GET request without SSE Accept - returning 405 Method Not Allowed")
+                    throw new org.moqui.BaseException("Method Not Allowed. Use POST for JSON-RPC requests.")
                 }
-                
-                def sendSseResponse(ec, responseObj, protocolVersion) {
-                    // Set SSE headers
-                    ec.web.response.setContentType("text/event-stream")
-                    ec.web.response.setCharacterEncoding("UTF-8")
-                    ec.web.response.setHeader("Cache-Control", "no-cache")
-                    ec.web.response.setHeader("Connection", "keep-alive")
-                    ec.web.response.setHeader("MCP-Protocol-Version", protocolVersion)
-                    
-                    def writer = ec.web.response.writer
-                    def jsonBuilder = new JsonBuilder(responseObj)
-                    
-                    try {
-                        // Send the response as SSE event
-                        writer.write("event: response\n")
-                        writer.write("data: ${jsonBuilder.toString()}\n")
-                        writer.write("\n")
-                        writer.flush()
-                        
-                    } catch (Exception e) {
-                        ec.logger.error("Error sending SSE response: ${e.message}")
-                    } finally {
-                        writer.close()
-                    }
-                }
-                
-                def sendSseError(ec, errorResponse, protocolVersion) {
-                    // Set SSE headers
-                    ec.web.response.setContentType("text/event-stream")
-                    ec.web.response.setCharacterEncoding("UTF-8")
-                    ec.web.response.setHeader("Cache-Control", "no-cache")
-                    ec.web.response.setHeader("Connection", "keep-alive")
-                    ec.web.response.setHeader("MCP-Protocol-Version", protocolVersion)
-                    
-                    def writer = ec.web.response.writer
-                    
-                    try {
-                        // Send the error as SSE event
-                        writer.write("event: error\n")
-                        writer.write("data: ${errorResponse}\n")
-                        writer.write("\n")
-                        writer.flush()
-                        
-                    } catch (Exception e) {
-                        ec.logger.error("Error sending SSE error: ${e.message}")
-                    } finally {
-                        writer.close()
-                    }
-                }
-            ]]></script>
-            <!-- Your existing MCP handling script goes here -->
+            }
+            
+            if (httpMethod != "POST") {
+                ec.logger.warn("Invalid HTTP method: ${httpMethod}, expected POST")
+                throw new org.moqui.BaseException("Method Not Allowed. Use POST for JSON-RPC requests.")
+            }
+            ec.logger.info("HTTP method validation passed")
+        ]]></script>
+    </actions>
+    
+    <transition name="rpc" method="post" require-session-token="false">
+        <actions>
             <script><![CDATA[
                 import groovy.json.JsonBuilder
                 import groovy.json.JsonSlurper
                 import java.util.UUID
                 
-                // DEBUG: Log initial request details
-                ec.logger.info("=== MCP SCREEN REQUEST START ===")
-                ec.logger.info("MCP Screen Request - Method: ${ec.web?.request?.method}, ID: ${id}")
-                ec.logger.info("MCP Screen Request - Params: ${params}")
-                ec.logger.info("MCP Screen Request - User: ${ec.user.username}, UserID: ${ec.user.userId}")
-                ec.logger.info("MCP Screen Request - Current Time: ${ec.user.getNowTimestamp()}")
+                // DEBUG: Log transition request details
+                ec.logger.info("=== MCP RPC TRANSITION START ===")
+                ec.logger.info("MCP RPC Request - ID: ${id}")
+                ec.logger.info("MCP RPC Request - Params: ${params}")
+                ec.logger.info("MCP RPC Request - User: ${ec.user.username}, UserID: ${ec.user.userId}")
+                ec.logger.info("MCP RPC Request - Current Time: ${ec.user.getNowTimestamp()}")
                 
                 // Check MCP protocol version header
                 def protocolVersion = ec.web.request.getHeader("MCP-Protocol-Version")
@@ -125,26 +120,6 @@
                     protocolVersion = "2025-06-18" // Default to latest supported
                 }
                 ec.logger.info("MCP Protocol Version: ${protocolVersion}")
-                
-                // Validate HTTP method - only POST for JSON-RPC, GET for SSE streams
-                def httpMethod = ec.web?.request?.method
-                ec.logger.info("Validating HTTP method: ${httpMethod}")
-                if (httpMethod != "POST" && httpMethod != "GET") {
-                    ec.logger.warn("Invalid HTTP method: ${httpMethod}, expected POST or GET")
-                    ec.web?.response?.setStatus(405) // Method Not Allowed
-                    ec.web?.response?.setHeader("Allow", "POST, GET")
-                    ec.web?.response?.setContentType("text/plain")
-                    ec.web?.response?.getWriter()?.write("Method Not Allowed. Use POST for JSON-RPC or GET for SSE streams.")
-                    ec.web?.response?.getWriter()?.flush()
-                    return
-                }
-                ec.logger.info("HTTP method validation passed")
-                
-                // Handle GET requests for SSE streams
-                if (httpMethod == "GET") {
-                    handleSseStream(ec, protocolVersion)
-                    return
-                }
                 
                 // Validate Content-Type header for POST requests
                 def contentType = ec.web?.request?.getContentType()
@@ -372,262 +347,89 @@
     <actions>
         <!-- SSE Helper Functions -->
         <script><![CDATA[
-            import groovy.json.JsonBuilder
-            import groovy.json.JsonSlurper
-            import java.util.UUID
-            
-            // DEBUG: Log initial request details
-            ec.logger.info("=== MCP SCREEN REQUEST START ===")
-            ec.logger.info("MCP Screen Request - Method: ${ec.web?.request?.method}, ID: ${id}")
-            ec.logger.info("MCP Screen Request - Params: ${params}")
-            ec.logger.info("MCP Screen Request - User: ${ec.user.username}, UserID: ${ec.user.userId}")
-            ec.logger.info("MCP Screen Request - Current Time: ${ec.user.getNowTimestamp()}")
-            
-            // Check MCP protocol version header
-            def protocolVersion = ec.web.request.getHeader("MCP-Protocol-Version")
-            if (!protocolVersion) {
-                protocolVersion = "2025-06-18" // Default to latest supported
-            }
-            ec.logger.info("MCP Protocol Version: ${protocolVersion}")
-            
-            // Validate HTTP method - only POST for JSON-RPC, GET for SSE streams
-            def httpMethod = ec.web?.request?.method
-            ec.logger.info("Validating HTTP method: ${httpMethod}")
-            if (httpMethod != "POST" && httpMethod != "GET") {
-                ec.logger.warn("Invalid HTTP method: ${httpMethod}, expected POST or GET")
-                ec.web?.response?.setStatus(405) // Method Not Allowed
-                ec.web?.response?.setHeader("Allow", "POST, GET")
-                ec.web?.response?.setContentType("text/plain")
-                ec.web?.response?.getWriter()?.write("Method Not Allowed. Use POST for JSON-RPC or GET for SSE streams.")
-                ec.web?.response?.getWriter()?.flush()
-                return
-            }
-            ec.logger.info("HTTP method validation passed")
-            
-            // Handle GET requests for SSE streams
-            if (httpMethod == "GET") {
-                handleSseStream(ec, protocolVersion)
-                return
-            }
-            
-            // Validate Content-Type header for POST requests
-            def contentType = ec.web?.request?.getContentType()
-            ec.logger.info("Validating Content-Type: ${contentType}")
-            if (!contentType?.contains("application/json")) {
-                ec.logger.warn("Invalid Content-Type: ${contentType}, expected application/json or application/json-rpc")
-                ec.web?.response?.setStatus(415) // Unsupported Media Type
-                ec.web?.response?.setContentType("text/plain")
-                ec.web?.response?.getWriter()?.write("Content-Type must be application/json or application/json-rpc for JSON-RPC messages")
-                ec.web?.response?.getWriter()?.flush()
-                return
-            }
-            ec.logger.info("Content-Type validation passed")
-            
-            // Validate Accept header - prioritize application/json over text/event-stream when both present
-            def acceptHeader = ec.web?.request?.getHeader("Accept")
-            ec.logger.info("Validating Accept header: ${acceptHeader}")
-            def wantsStreaming = false
-            if (acceptHeader) {
-                if (acceptHeader.contains("text/event-stream") && !acceptHeader.contains("application/json")) {
-                    wantsStreaming = true
-                }
-                // If both are present, prefer application/json (don't set wantsStreaming)
-            }
-            ec.logger.info("Client wants streaming: ${wantsStreaming} (Accept: ${acceptHeader})")
-            
-            // Validate Origin header for DNS rebinding protection
-            def originHeader = ec.web?.request?.getHeader("Origin")
-            ec.logger.info("Checking Origin header: ${originHeader}")
-            if (originHeader) {
+            def handleSseStream(ec, protocolVersion) {
+                // Set SSE headers
+                ec.web.response.setContentType("text/event-stream")
+                ec.web.response.setCharacterEncoding("UTF-8")
+                ec.web.response.setHeader("Cache-Control", "no-cache")
+                ec.web.response.setHeader("Connection", "keep-alive")
+                ec.web.response.setHeader("MCP-Protocol-Version", protocolVersion)
+                
+                def writer = ec.web.response.writer
+                
                 try {
-                    def originValid = ec.service.sync("McpServices.validate#Origin", [origin: originHeader]).isValid
-                    ec.logger.info("Origin validation result: ${originValid}")
-                    if (!originValid) {
-                        ec.logger.warn("Invalid Origin header rejected: ${originHeader}")
-                        ec.web?.response?.setStatus(403) // Forbidden
-                        ec.web?.response?.setContentType("text/plain")
-                        ec.web?.response?.getWriter()?.write("Invalid Origin header")
-                        ec.web?.response?.getWriter()?.flush()
-                        return
+                    // Send initial connection event
+                    writer.write("event: connected\n")
+                    writer.write("data: {\"type\":\"connected\",\"timestamp\":\"${ec.user.nowTimestamp}\"}\n")
+                    writer.write("\n")
+                    writer.flush()
+                    
+                    // Keep connection alive with periodic pings
+                    def count = 0
+                    while (count < 30) { // Keep alive for ~30 seconds
+                        Thread.sleep(1000)
+                        writer.write("event: ping\n")
+                        writer.write("data: {\"timestamp\":\"${ec.user.nowTimestamp}\"}\n")
+                        writer.write("\n")
+                        writer.flush()
+                        count++
                     }
+                    
                 } catch (Exception e) {
-                    ec.logger.error("Error during Origin validation", e)
-                    ec.web?.response?.setStatus(500) // Internal Server Error
-                    ec.web?.response?.setContentType("text/plain")
-                    ec.web?.response?.getWriter()?.write("Error during Origin validation: ${e.message}")
-                    ec.web?.response?.getWriter()?.flush()
-                    return
-                }
-            } else {
-                ec.logger.info("No Origin header present")
-            }
-            
-            // Set protocol version header on all responses
-            ec.web?.response?.setHeader("MCP-Protocol-Version", protocolVersion)
-            ec.logger.info("Set MCP protocol version header")
-            
-            // Handle session management
-            def sessionId = ec.web?.request?.getHeader("Mcp-Session-Id")
-            def isInitialize = (method == "initialize")
-            ec.logger.info("Session management - SessionId: ${sessionId}, IsInitialize: ${isInitialize}")
-            
-            if (!isInitialize && !sessionId) {
-                ec.logger.warn("Missing session ID for non-initialization request")
-                ec.web?.response?.setStatus(400) // Bad Request
-                ec.web?.response?.setContentType("text/plain")
-                ec.web?.response?.getWriter()?.write("Mcp-Session-Id header required for non-initialization requests")
-                ec.web?.response?.getWriter()?.flush()
-                return
-            }
-            
-            // Generate new session ID for initialization
-            if (isInitialize) {
-                def newSessionId = UUID.randomUUID().toString()
-                ec.web?.response?.setHeader("Mcp-Session-Id", newSessionId)
-                ec.logger.info("Generated new session ID: ${newSessionId}")
-            }
-            
-            // Parse JSON-RPC request body if not already in parameters
-            if (!jsonrpc && !method) {
-                def requestBody = ec.web.request.getInputStream()?.getText()
-                if (requestBody) {
-                    def jsonSlurper = new JsonSlurper()
-                    def jsonRequest = jsonSlurper.parseText(requestBody)
-                    jsonrpc = jsonRequest.jsonrpc
-                    id = jsonRequest.id
-                    method = jsonRequest.method
-                    params = jsonRequest.params
+                    ec.logger.warn("SSE stream interrupted: ${e.message}")
+                } finally {
+                    writer.close()
                 }
             }
             
-            // Validate JSON-RPC version
-            ec.logger.info("Validating JSON-RPC version: ${jsonrpc}")
-            if (jsonrpc && jsonrpc != "2.0") {
-                ec.logger.warn("Invalid JSON-RPC version: ${jsonrpc}")
-                def errorResponse = new JsonBuilder([
-                    jsonrpc: "2.0",
-                    error: [
-                        code: -32600,
-                        message: "Invalid Request: Only JSON-RPC 2.0 supported"
-                    ],
-                    id: id
-                ]).toString()
+            def sendSseResponse(ec, responseObj, protocolVersion) {
+                // Set SSE headers
+                ec.web.response.setContentType("text/event-stream")
+                ec.web.response.setCharacterEncoding("UTF-8")
+                ec.web.response.setHeader("Cache-Control", "no-cache")
+                ec.web.response.setHeader("Connection", "keep-alive")
+                ec.web.response.setHeader("MCP-Protocol-Version", protocolVersion)
                 
-                if (wantsStreaming) {
-                    sendSseError(ec, errorResponse, protocolVersion)
-                } else {
-                    ec.web.sendJsonResponse(errorResponse)
-                }
-                return
-            }
-            ec.logger.info("JSON-RPC version validation passed")
-            
-            def result = null
-            def error = null
-            
-            try {
-                // Route to appropriate MCP service using correct service names
-                def serviceName = null
-                ec.logger.info("Mapping method '${method}' to service name")
-                switch (method) {
-                    case "mcp#Ping":
-                    case "ping":
-                        serviceName = "McpServices.mcp#Ping"
-                        ec.logger.info("Mapped to service: ${serviceName}")
-                        break
-                    case "initialize":
-                    case "mcp#Initialize":
-                        serviceName = "McpServices.mcp#Initialize"
-                        ec.logger.info("Mapped to service: ${serviceName}")
-                        break
-                    case "tools/list":
-                    case "mcp#ToolsList":
-                        serviceName = "McpServices.mcp#ToolsList"
-                        ec.logger.info("Mapped to service: ${serviceName}")
-                        break
-                    case "tools/call":
-                    case "mcp#ToolsCall":
-                        serviceName = "McpServices.mcp#ToolsCall"
-                        ec.logger.info("Mapped to service: ${serviceName}")
-                        break
-                    case "resources/list":
-                    case "mcp#ResourcesList":
-                        serviceName = "McpServices.mcp#ResourcesList"
-                        ec.logger.info("Mapped to service: ${serviceName}")
-                        break
-                    case "resources/read":
-                    case "mcp#ResourcesRead":
-                        serviceName = "McpServices.mcp#ResourcesRead"
-                        ec.logger.info("Mapped to service: ${serviceName}")
-                        break
-                    default:
-                        ec.logger.warn("Unknown method: ${method}")
-                        error = [
-                            code: -32601,
-                            message: "Method not found: ${method}"
-                        ]
-                }
+                def writer = ec.web.response.writer
+                def jsonBuilder = new JsonBuilder(responseObj)
                 
-                if (serviceName && !error) {
-                    ec.logger.info("Calling service: ${serviceName} with params: ${params}")
-                    // Check if service exists before calling
-                    if (!ec.service.isServiceDefined(serviceName)) {
-                        ec.logger.error("Service not defined: ${serviceName}")
-                        error = [
-                            code: -32601,
-                            message: "Service not found: ${serviceName}"
-                        ]
-                    } else {
-                        // Call the actual MCP service
-                        def serviceStartTime = System.currentTimeMillis()
-                        result = ec.service.sync().name(serviceName).parameters(params ?: [:]).call()
-                        def serviceEndTime = System.currentTimeMillis()
-                        ec.logger.info("Service ${serviceName} completed in ${serviceEndTime - serviceStartTime}ms")
-                        ec.logger.info("Service result type: ${result?.getClass()?.getSimpleName()}")
-                        ec.logger.info("Service result: ${result}")
-                    }
+                try {
+                    // Send response as SSE event
+                    writer.write("event: response\n")
+                    writer.write("data: ${jsonBuilder.toString()}\n")
+                    writer.write("\n")
+                    writer.flush()
+                    
+                } catch (Exception e) {
+                    ec.logger.error("Error sending SSE response: ${e.message}")
+                } finally {
+                    writer.close()
                 }
+            }
+            
+            def sendSseError(ec, errorResponse, protocolVersion) {
+                // Set SSE headers
+                ec.web.response.setContentType("text/event-stream")
+                ec.web.response.setCharacterEncoding("UTF-8")
+                ec.web.response.setHeader("Cache-Control", "no-cache")
+                ec.web.response.setHeader("Connection", "keep-alive")
+                ec.web.response.setHeader("MCP-Protocol-Version", protocolVersion)
                 
-            } catch (Exception e) {
-                ec.logger.error("MCP request error for method ${method}", e)
-                ec.logger.error("Exception details: ${e.getClass().getName()}: ${e.message}")
-                ec.logger.error("Exception stack trace: ${e.getStackTrace()}")
-                error = [
-                    code: -32603,
-                    message: "Internal error: ${e.message}"
-                ]
+                def writer = ec.web.response.writer
+                
+                try {
+                    // Send error as SSE event
+                    writer.write("event: error\n")
+                    writer.write("data: ${errorResponse}\n")
+                    writer.write("\n")
+                    writer.flush()
+                    
+                } catch (Exception e) {
+                    ec.logger.error("Error sending SSE error: ${e.message}")
+                } finally {
+                    writer.close()
+                }
             }
-            
-            // Build JSON-RPC response
-            ec.logger.info("Building JSON-RPC response")
-            def responseObj = [
-                jsonrpc: "2.0",
-                id: id
-            ]
-            
-            if (error) {
-                responseObj.error = error
-                ec.logger.info("Response includes error: ${error}")
-            } else {
-                responseObj.result = result
-                ec.logger.info("Response includes result")
-            }
-            
-            def jsonResponse = new JsonBuilder(responseObj).toString()
-            ec.logger.info("Built JSON response: ${jsonResponse}")
-            ec.logger.info("JSON response length: ${jsonResponse.length()}")
-
-            // Handle both JSON-RPC 2.0 and SSE responses
-            if (wantsStreaming) {
-                ec.logger.info("Creating SSE response")
-                sendSseResponse(ec, responseObj, protocolVersion)
-            } else {
-                ec.logger.info("Creating JSON-RPC 2.0 response")
-                ec.web.sendJsonResponse(jsonResponse)
-                ec.logger.info("Sent JSON-RPC response, length: ${jsonResponse.length()}")
-            }
-            
-            ec.logger.info("=== MCP SCREEN REQUEST END ===")
         ]]></script>
     </actions>
     
