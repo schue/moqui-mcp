@@ -257,10 +257,14 @@
                 def userId = ec.user.userId
                 def userAccountId = userId ? userId : null
                 
-                // Build server capabilities
+                // Get user-specific tools and resources
+                def toolsResult = ec.service.sync().name("org.moqui.mcp.McpServices.mcp#ToolsList").parameters([:]).call()
+                def resourcesResult = ec.service.sync().name("org.moqui.mcp.McpServices.mcp#ResourcesList").parameters([:]).call()
+                
+                // Build server capabilities based on what user can access
                 def serverCapabilities = [
-                    tools: [:],
-                    resources: [:],
+                    tools: toolsResult?.result?.tools ? [listChanged: true] : [:],
+                    resources: resourcesResult?.result?.resources ? [subscribe: true, listChanged: true] : [:],
                     logging: [:]
                 ]
                 
@@ -274,8 +278,10 @@
                     protocolVersion: "2025-06-18",
                     capabilities: serverCapabilities,
                     serverInfo: serverInfo,
-                    instructions: "This server provides access to Moqui ERP services and entities through MCP. Use tools/list to discover available operations."
+                    instructions: "This server provides access to Moqui ERP services and entities through MCP. Tools and resources are filtered based on your permissions."
                 ]
+                
+                ec.logger.info("MCP Initialize for user ${userId}: ${toolsResult?.result?.tools?.size() ?: 0} tools, ${resourcesResult?.result?.resources?.size() ?: 0} resources")
             ]]></script>
         </actions>
     </service>
@@ -321,13 +327,27 @@
                             ]
                         ]
                         
+                        // Add service metadata to help LLM
+                        if (serviceInfo.verb && serviceInfo.noun) {
+                            tool.description += " (${serviceInfo.verb}:${serviceInfo.noun})"
+                        }
+                        
                         // Convert service parameters to JSON Schema
                         def inParamNames = serviceInfo.getInParameterNames()
                         for (paramName in inParamNames) {
                             def paramInfo = serviceInfo.getInParameter(paramName)
+                            def paramDesc = paramInfo.description ?: ""
+                            
+                            // Add type information to description for LLM
+                            if (!paramDesc) {
+                                paramDesc = "Parameter of type ${paramInfo.type}"
+                            } else {
+                                paramDesc += " (type: ${paramInfo.type})"
+                            }
+                            
                             tool.inputSchema.properties[paramName] = [
                                 type: convertMoquiTypeToJsonSchemaType(paramInfo.type),
-                                description: paramInfo.description ?: ""
+                                description: paramDesc
                             ]
                             
                             if (paramInfo.required) {
@@ -474,9 +494,14 @@
                         def resource = [
                             uri: "entity://${entityName}",
                             name: entityName,
-                            description: "Moqui entity: ${entityName}",
+                            description: entityInfo.description ?: "Moqui entity: ${entityName}",
                             mimeType: "application/json"
                         ]
+                        
+                        // Add entity metadata to help LLM
+                        if (entityInfo.packageName) {
+                            resource.description += " (package: ${entityInfo.packageName})"
+                        }
                         
                         availableResources << resource
                         
@@ -536,12 +561,27 @@
                 
                 def startTime = System.currentTimeMillis()
                 try {
+                    // Get entity definition for field descriptions
+                    def entityDef = ec.entity.getEntityDefinition(entityName)
+                    
                     // Query entity data (limited to prevent large responses)
                     def entityList = ec.entity.find(entityName)
                         .limit(100)
                         .list()
                     
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Build field info for LLM
+                    def fieldInfo = []
+                    entityDef.allFieldInfoList.each { field ->
+                        fieldInfo << [
+                            name: field.name,
+                            type: field.type,
+                            description: field.description ?: "",
+                            isPk: field.isPk,
+                            required: field.notNull
+                        ]
+                    }
                     
                     // Convert to MCP resource content
                     def contents = [
@@ -550,7 +590,10 @@
                             mimeType: "application/json",
                             text: new JsonBuilder([
                                 entityName: entityName,
+                                description: entityDef.description ?: "",
+                                packageName: entityDef.packageName,
                                 recordCount: entityList.size(),
+                                fields: fieldInfo,
                                 data: entityList
                             ]).toString()
                         ]
