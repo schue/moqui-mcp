@@ -39,9 +39,8 @@ class EnhancedMcpServlet extends HttpServlet {
     
     private JsonSlurper jsonSlurper = new JsonSlurper()
     
-    // Session management for SSE connections
-    private final Map<String, McpSession> sessions = new ConcurrentHashMap<>()
-    private final AtomicBoolean isClosing = new AtomicBoolean(false)
+    // Session management using dedicated session manager
+    private final McpSessionManager sessionManager = new McpSessionManager()
     
     @Override
     void init(ServletConfig config) throws ServletException {
@@ -151,7 +150,7 @@ class EnhancedMcpServlet extends HttpServlet {
     private void handleSseConnection(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec) 
             throws IOException {
         
-        if (isClosing.get()) {
+        if (sessionManager.isShuttingDown()) {
             response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Server is shutting down")
             return
         }
@@ -166,10 +165,11 @@ class EnhancedMcpServlet extends HttpServlet {
         response.setHeader("Access-Control-Allow-Origin", "*")
         
         String sessionId = UUID.randomUUID().toString()
+        String visitId = ec.web?.visitId
         
-        // Create session transport
-        McpSession session = new McpSession(sessionId, response.writer)
-        sessions.put(sessionId, session)
+        // Create Visit-based session transport
+        VisitBasedMcpSession session = new VisitBasedMcpSession(sessionId, visitId, response.writer, ec)
+        sessionManager.registerSession(session)
         
         try {
             // Send initial connection event with endpoint info
@@ -185,15 +185,16 @@ class EnhancedMcpServlet extends HttpServlet {
             
             // Keep connection alive with periodic pings
             int pingCount = 0
-            while (!response.isCommitted() && !isClosing.get() && pingCount < 60) { // 5 minutes max
+            while (!response.isCommitted() && !sessionManager.isShuttingDown() && pingCount < 60) { // 5 minutes max
                 Thread.sleep(5000) // Wait 5 seconds
                 
-                if (!response.isCommitted() && !isClosing.get()) {
-                    sendSseEvent(response.writer, "ping", groovy.json.JsonOutput.toJson([
+                if (!response.isCommitted() && !sessionManager.isShuttingDown()) {
+                    def pingMessage = new McpSchema.JSONRPCMessage([
                         type: "ping", 
                         count: pingCount, 
                         timestamp: System.currentTimeMillis()
-                    ]))
+                    ], null)
+                    session.sendMessage(pingMessage)
                     pingCount++
                 }
             }
@@ -202,12 +203,13 @@ class EnhancedMcpServlet extends HttpServlet {
             logger.warn("Enhanced SSE connection interrupted: ${e.message}")
         } finally {
             // Clean up session
-            sessions.remove(sessionId)
+            sessionManager.unregisterSession(sessionId)
             try {
-                sendSseEvent(response.writer, "close", groovy.json.JsonOutput.toJson([
+                def closeMessage = new McpSchema.JSONRPCMessage([
                     type: "disconnected", 
                     timestamp: System.currentTimeMillis()
-                ]))
+                ], null)
+                session.sendMessage(closeMessage)
             } catch (Exception e) {
                 // Ignore errors during cleanup
             }
@@ -217,31 +219,20 @@ class EnhancedMcpServlet extends HttpServlet {
     private void handleMessage(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec) 
             throws IOException {
         
-        if (isClosing.get()) {
+        if (sessionManager.isShuttingDown()) {
             response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Server is shutting down")
             return
         }
         
-        // Get session ID from request parameter
-        String sessionId = request.getParameter("sessionId")
-        if (sessionId == null) {
-            response.setContentType("application/json")
-            response.setCharacterEncoding("UTF-8")
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-            response.writer.write(groovy.json.JsonOutput.toJson([
-                error: "Session ID missing in message endpoint"
-            ]))
-            return
-        }
-        
-        // Get session from sessions map
-        McpSession session = sessions.get(sessionId)
+        // Get session from session manager
+        VisitBasedMcpSession session = sessionManager.getSession(sessionId)
         if (session == null) {
             response.setContentType("application/json")
             response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_NOT_FOUND)
             response.writer.write(groovy.json.JsonOutput.toJson([
-                error: "Session not found: " + sessionId
+                error: "Session not found: " + sessionId,
+                activeSessions: sessionManager.getActiveSessionCount()
             ]))
             return
         }
@@ -261,11 +252,9 @@ class EnhancedMcpServlet extends HttpServlet {
             // Process the method
             def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec)
             
-            // Send response via SSE to the specific session
-            sendSseEvent(session.writer, "response", groovy.json.JsonOutput.toJson([
-                id: rpcRequest.id,
-                result: result
-            ]))
+            // Send response via MCP transport to the specific session
+            def responseMessage = new McpSchema.JSONRPCMessage(result, rpcRequest.id)
+            session.sendMessage(responseMessage)
             
             response.setStatus(HttpServletResponse.SC_OK)
             
@@ -444,15 +433,12 @@ class EnhancedMcpServlet extends HttpServlet {
     @Override
     void destroy() {
         logger.info("Destroying EnhancedMcpServlet")
-        isClosing.set(true)
         
-        // Close all active sessions
-        sessions.values().each { session ->
-            try {
-                session.close()
-            } catch (Exception e) {
-                logger.warn("Error closing session: ${e.message}")
-            }
+        // Gracefully shutdown session manager
+        sessionManager.shutdownGracefully()
+        
+        super.destroy()
+    }
         }
         sessions.clear()
         
@@ -460,21 +446,16 @@ class EnhancedMcpServlet extends HttpServlet {
     }
     
     /**
-     * Simple session class for managing MCP SSE connections
+     * Broadcast message to all active sessions
      */
-    static class McpSession {
-        String sessionId
-        PrintWriter writer
-        Date createdAt
-        
-        McpSession(String sessionId, PrintWriter writer) {
-            this.sessionId = sessionId
-            this.writer = writer
-            this.createdAt = new Date()
-        }
-        
-        void close() {
-            // Session cleanup logic
-        }
+    void broadcastToAllSessions(McpSchema.JSONRPCMessage message) {
+        sessionManager.broadcast(message)
+    }
+    
+    /**
+     * Get session statistics for monitoring
+     */
+    Map getSessionStatistics() {
+        return sessionManager.getSessionStatistics()
     }
 }
