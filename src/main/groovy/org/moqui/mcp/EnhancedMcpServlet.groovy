@@ -81,8 +81,8 @@ class EnhancedMcpServlet extends HttpServlet {
     
     private JsonSlurper jsonSlurper = new JsonSlurper()
     
-    // Session management using dedicated session manager
-    private final McpSessionManager sessionManager = new McpSessionManager()
+    // Session management using Moqui's Visit system directly
+    // No need for separate session manager - Visit entity handles persistence
     
     @Override
     void init(ServletConfig config) throws ServletException {
@@ -219,11 +219,6 @@ try {
     private void handleSseConnection(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec) 
             throws IOException {
         
-        if (sessionManager.isShuttingDown()) {
-            response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Server is shutting down")
-            return
-        }
-        
         logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         
         // Enable async support for SSE
@@ -239,40 +234,45 @@ try {
         response.setHeader("Access-Control-Allow-Origin", "*")
         response.setHeader("X-Accel-Buffering", "no") // Disable nginx buffering
         
-        String sessionId = UUID.randomUUID().toString()
-        String visitId = ec.user.getVisitId()
+        // Get or create Visit (Moqui automatically creates Visit)
+        def visit = ec.user.getVisit()
+        if (!visit) {
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to create Visit")
+            return
+        }
         
         // Create Visit-based session transport
-        VisitBasedMcpSession session = new VisitBasedMcpSession(sessionId, visitId, response.writer, ec)
-        sessionManager.registerSession(session)
+        VisitBasedMcpSession session = new VisitBasedMcpSession(visit, response.writer, ec)
         
         try {
             // Send initial connection event
             def connectData = [
                 type: "connected",
-                sessionId: sessionId,
+                sessionId: visit.visitId,
                 timestamp: System.currentTimeMillis(),
                 serverInfo: [
                     name: "Moqui MCP SSE Server",
                     version: "2.0.0",
-                    protocolVersion: "2025-06-18"
+                    protocolVersion: "2025-06-18",
+                    architecture: "Visit-based sessions"
                 ]
             ]
             sendSseEvent(response.writer, "connect", groovy.json.JsonOutput.toJson(connectData), 0)
             
             // Send endpoint info for message posting
-            sendSseEvent(response.writer, "endpoint", "/mcp/message?sessionId=" + sessionId, 1)
+            sendSseEvent(response.writer, "endpoint", "/mcp/message?sessionId=" + visit.visitId, 1)
             
             // Keep connection alive with periodic pings
             int pingCount = 0
-            while (!response.isCommitted() && !sessionManager.isShuttingDown() && pingCount < 60) { // 5 minutes max
+            while (!response.isCommitted() && pingCount < 60) { // 5 minutes max
                 Thread.sleep(5000) // Wait 5 seconds
                 
-                if (!response.isCommitted() && !sessionManager.isShuttingDown()) {
+                if (!response.isCommitted()) {
                     def pingData = [
                         type: "ping",
                         timestamp: System.currentTimeMillis(),
-                        connections: sessionManager.getActiveSessionCount()
+                        sessionId: visit.visitId,
+                        architecture: "Visit-based sessions"
                     ]
                     sendSseEvent(response.writer, "ping", groovy.json.JsonOutput.toJson(pingData), pingCount + 2)
                     pingCount++
@@ -280,16 +280,16 @@ try {
             }
             
         } catch (InterruptedException e) {
-            logger.info("SSE connection interrupted for session ${sessionId}")
+            logger.info("SSE connection interrupted for session ${visit.visitId}")
             Thread.currentThread().interrupt()
         } catch (Exception e) {
             logger.warn("Enhanced SSE connection error: ${e.message}", e)
         } finally {
-            // Clean up session
-            sessionManager.unregisterSession(sessionId)
+            // Clean up session - Visit persistence handles cleanup automatically
             try {
                 def closeData = [
                     type: "disconnected", 
+                    sessionId: visit.visitId,
                     timestamp: System.currentTimeMillis()
                 ]
                 sendSseEvent(response.writer, "disconnect", groovy.json.JsonOutput.toJson(closeData), -1)
@@ -311,11 +311,6 @@ try {
     private void handleMessage(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec) 
             throws IOException {
         
-        if (sessionManager.isShuttingDown()) {
-            response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Server is shutting down")
-            return
-        }
-        
         // Get sessionId from request parameter or header
         String sessionId = request.getParameter("sessionId") ?: request.getHeader("Mcp-Session-Id")
         if (!sessionId) {
@@ -324,23 +319,41 @@ try {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.writer.write(groovy.json.JsonOutput.toJson([
                 error: "Missing sessionId parameter or header",
-                activeSessions: sessionManager.getActiveSessionCount()
+                architecture: "Visit-based sessions"
             ]))
             return
         }
         
-        // Get session from session manager
-        VisitBasedMcpSession session = sessionManager.getSession(sessionId)
-        if (session == null) {
+        // Get Visit directly - this is our session
+        def visit = ec.entity.find("moqui.server.Visit")
+            .condition("visitId", sessionId)
+            .one()
+        
+        if (!visit) {
             response.setContentType("application/json")
             response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_NOT_FOUND)
             response.writer.write(groovy.json.JsonOutput.toJson([
                 error: "Session not found: " + sessionId,
-                activeSessions: sessionManager.getActiveSessionCount()
+                architecture: "Visit-based sessions"
             ]))
             return
         }
+        
+        // Verify user has access to this Visit
+        if (visit.userId != ec.user.userId) {
+            response.setContentType("application/json")
+            response.setCharacterEncoding("UTF-8")
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN)
+            response.writer.write(groovy.json.JsonOutput.toJson([
+                error: "Access denied for session: " + sessionId,
+                architecture: "Visit-based sessions"
+            ]))
+            return
+        }
+        
+        // Create session wrapper for this Visit
+        VisitBasedMcpSession session = new VisitBasedMcpSession(visit, response.writer, ec)
         
         try {
             // Read request body
@@ -407,8 +420,8 @@ try {
                 return
             }
             
-            // Process the method
-            def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec)
+            // Process method with session context
+            def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId)
             
             // Send response via MCP transport to the specific session
             def responseMessage = new JsonRpcResponse(result, rpcRequest.id)
@@ -420,7 +433,7 @@ try {
             response.writer.write(groovy.json.JsonOutput.toJson([
                 jsonrpc: "2.0",
                 id: rpcRequest.id,
-                result: [status: "processed", sessionId: sessionId]
+                result: [status: "processed", sessionId: sessionId, architecture: "Visit-based"]
             ]))
             
         } catch (Exception e) {
@@ -518,8 +531,8 @@ try {
             return
         }
         
-        // Process MCP method using Moqui services
-        def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec)
+        // Process MCP method using Moqui services (no sessionId in direct JSON-RPC)
+        def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, null)
         
         // Build JSON-RPC response
         def rpcResponse = [
@@ -533,10 +546,13 @@ try {
         response.writer.write(groovy.json.JsonOutput.toJson(rpcResponse))
     }
     
-    private Map<String, Object> processMcpMethod(String method, Map params, ExecutionContextImpl ec) {
-        logger.info("Enhanced METHOD: ${method} with params: ${params}")
+    private Map<String, Object> processMcpMethod(String method, Map params, ExecutionContextImpl ec, String sessionId) {
+        logger.info("Enhanced METHOD: ${method} with params: ${params}, sessionId: ${sessionId}")
         
         try {
+            // Add session context to parameters for services
+            params.sessionId = sessionId
+            
             switch (method) {
                 case "initialize":
                     return callMcpService("mcp#Initialize", params, ec)
@@ -552,16 +568,16 @@ try {
                     return callMcpService("mcp#ResourcesRead", params, ec)
                 case "notifications/initialized":
                     // Handle notification initialization - return success for now
-                    return [initialized: true]
+                    return [initialized: true, sessionId: sessionId]
                 case "notifications/send":
                     // Handle notification sending - return success for now  
-                    return [sent: true]
+                    return [sent: true, sessionId: sessionId]
                 case "notifications/subscribe":
                     // Handle notification subscription - return success for now
-                    return [subscribed: true]
+                    return [subscribed: true, sessionId: sessionId]
                 case "notifications/unsubscribe":
                     // Handle notification unsubscription - return success for now
-                    return [unsubscribed: true]
+                    return [unsubscribed: true, sessionId: sessionId]
                 default:
                     throw new IllegalArgumentException("Method not found: ${method}")
             }
@@ -580,10 +596,14 @@ try {
                 .call()
             
             logger.info("Enhanced MCP service ${serviceName} result: ${result}")
-            return result.result
+            if (result == null) {
+                logger.error("Enhanced MCP service ${serviceName} returned null result")
+                return [error: "Service returned null result"]
+            }
+            return result.result ?: [error: "Service result has no 'result' field"]
         } catch (Exception e) {
             logger.error("Error calling Enhanced MCP service ${serviceName}", e)
-            throw e
+            return [error: e.message]
         }
     }
     

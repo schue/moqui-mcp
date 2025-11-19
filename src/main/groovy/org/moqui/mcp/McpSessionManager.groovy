@@ -24,8 +24,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * MCP Session Manager with SDK-style capabilities
+ * 
+ * @deprecated This class is deprecated. Use Moqui's Visit entity directly for session management.
+ * See VisitBasedMcpSession for the new Visit-based approach.
+ * 
  * Provides centralized session management, broadcasting, and graceful shutdown
  */
+@Deprecated
 class McpSessionManager {
     protected final static Logger logger = LoggerFactory.getLogger(McpSessionManager.class)
     

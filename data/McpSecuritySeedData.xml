@@ -35,6 +35,10 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.create#Entity" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.update#Entity" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.delete#Entity" artifactTypeEnumId="AT_SERVICE"/>
+    <!-- Visit Entity Access -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="moqui.server.Visit" artifactTypeEnumId="AT_ENTITY"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="create#moqui.server.Visit" artifactTypeEnumId="AT_ENTITY"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="update#moqui.server.Visit" artifactTypeEnumId="AT_ENTITY"/>
     <!-- Basic Services -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.BasicServices.get#ServerNodeInfo" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.BasicServices.get#SystemInfo" artifactTypeEnumId="AT_SERVICE"/>

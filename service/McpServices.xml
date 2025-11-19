@@ -231,9 +231,10 @@
         </actions>
     </service>
     
-    <service verb="mcp" noun="Initialize" authenticate="true" allow-remote="true" transaction-timeout="30">
+    <service verb="mcp" noun="Initialize" authenticate="true" allow-remote="true" transaction-timeout="30" authz-require="false">
         <description>Handle MCP initialize request using Moqui authentication</description>
         <in-parameters>
+            <parameter name="sessionId" required="false"/>
             <parameter name="protocolVersion" required="true"/>
             <parameter name="capabilities" type="Map"/>
             <parameter name="clientInfo" type="Map"/>
@@ -247,6 +248,82 @@
                 
                 ExecutionContext ec = context.ec
                 
+                // Get Visit (session) and validate access
+                def visit
+                if (sessionId) {
+                    // Existing session - run as ADMIN to access Visit entity
+                    ec.artifactExecution.disableAuthz()
+                    try {
+                        visit = ec.entity.find("moqui.server.Visit")
+                            .condition("visitId", sessionId)
+                            .one()
+                        
+                        if (!visit) {
+                            throw new Exception("Invalid session: ${sessionId}")
+                        }
+                        
+                        if (visit.userId != ec.user.userId) {
+                            throw new Exception("Access denied for session: ${sessionId}")
+                        }
+                    } finally {
+                        ec.artifactExecution.enableAuthz()
+                    }
+                } else {
+                    // New session - create or get current Visit
+                    if (ec.user.visitId) {
+                        ec.artifactExecution.disableAuthz()
+                        try {
+                            visit = ec.entity.find("moqui.server.Visit")
+                                .condition("visitId", ec.user.visitId)
+                                .one()
+                        } finally {
+                            ec.artifactExecution.enableAuthz()
+                        }
+                    }
+                    
+                    if (!visit) {
+                        // Create a new Visit for this MCP session - run as ADMIN
+                        ec.artifactExecution.disableAuthz()
+                        try {
+                            visit = ec.entity.makeValue("moqui.server.Visit")
+                            visit.visitId = ec.entity.sequencedIdPrimaryEd(ec.entity.getEntityDefinition("moqui.server.Visit"))
+                            visit.userId = ec.user.userId
+                            visit.visitorId = null
+                            visit.webappName = "mcp"
+                            visit.initialRequest = groovy.json.JsonOutput.toJson([mcpCreated: true, createdFor: "mcp-session"])
+                            visit.fromDate = new Timestamp(System.currentTimeMillis())
+                            visit.clientIpAddress = "127.0.0.1" // TODO: Get actual IP
+                            visit.initialUserAgent = "MCP Client"
+                            visit.sessionId = null // No HTTP session for direct API calls
+                            visit.create()
+                        } finally {
+                            ec.artifactExecution.enableAuthz()
+                        }
+                    }
+                }
+                
+                // Update Visit with MCP initialization data - run as ADMIN
+                ec.artifactExecution.disableAuthz()
+                try {
+                    def metadata = [:]
+                    try {
+                        metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
+                    } catch (Exception e) {
+                        ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
+                    }
+                    
+                    metadata.mcpInitialized = true
+                    metadata.mcpProtocolVersion = protocolVersion
+                    metadata.mcpCapabilities = capabilities
+                    metadata.mcpClientInfo = clientInfo
+                    metadata.mcpInitializedAt = System.currentTimeMillis()
+                    
+                    visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                    visit.update()
+                } finally {
+                    ec.artifactExecution.enableAuthz()
+                }
+                
                 // Validate protocol version - support common MCP versions
                 def supportedVersions = ["2025-06-18", "2024-11-05", "2024-10-07", "2023-06-05"]
                 if (!supportedVersions.contains(protocolVersion)) {
@@ -258,8 +335,8 @@
                 def userAccountId = userId ? userId : null
                 
                 // Get user-specific tools and resources
-                def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList").parameters([:]).call()
-                def resourcesResult = ec.service.sync().name("McpServices.mcp#ResourcesList").parameters([:]).call()
+                def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList").parameters([sessionId: sessionId]).call()
+                def resourcesResult = ec.service.sync().name("McpServices.mcp#ResourcesList").parameters([sessionId: sessionId]).call()
                 
                 // Build server capabilities based on what user can access
                 def serverCapabilities = [
@@ -278,17 +355,19 @@
                     protocolVersion: "2025-06-18",
                     capabilities: serverCapabilities,
                     serverInfo: serverInfo,
-                    instructions: "This server provides access to Moqui ERP services and entities through MCP. Tools and resources are filtered based on your permissions."
+                    instructions: "This server provides access to Moqui ERP services and entities through MCP. Tools and resources are filtered based on your permissions.",
+                    sessionId: visit.visitId
                 ]
                 
-                ec.logger.info("MCP Initialize for user ${userId}: ${toolsResult?.result?.tools?.size() ?: 0} tools, ${resourcesResult?.result?.resources?.size() ?: 0} resources")
+                ec.logger.info("MCP Initialize for user ${userId} (session ${sessionId}): ${toolsResult?.result?.tools?.size() ?: 0} tools, ${resourcesResult?.result?.resources?.size() ?: 0} resources")
             ]]></script>
         </actions>
     </service>
 
-    <service verb="mcp" noun="ToolsList" authenticate="true" allow-remote="true" transaction-timeout="60">
+    <service verb="mcp" noun="ToolsList" authenticate="true" allow-remote="true" transaction-timeout="60" authz-require="false">
         <description>Handle MCP tools/list request with direct Moqui service discovery</description>
         <in-parameters>
+            <parameter name="sessionId"/>
             <parameter name="cursor"/>
         </in-parameters>
         <out-parameters>
@@ -301,32 +380,40 @@
                 
                 // ec is already available from context
                 
-                // Use curated list of safe, commonly-used services plus some simple MCP-specific ones
-                def safeServiceNames = [
-                    "McpServices.mcp#Ping"
-                ]
-                
-                def availableTools = []
-                ec.logger.info("MCP ToolsList: Checking ${safeServiceNames.size()} services for user ${ec.user.userId}")
-                
-                // Convert safe services to MCP tools
-                for (serviceName in safeServiceNames) {
+                // Validate session if provided
+                if (sessionId) {
+                    def visit = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", sessionId)
+                        .one()
+                    
+                    if (!visit || visit.userId != ec.user.userId) {
+                        throw new Exception("Invalid session: ${sessionId}")
+                    }
+                    
+                    // Update session activity
+                    def metadata = [:]
                     try {
-                        def serviceDef = ec.service.getServiceDefinition(serviceName)
-                        if (!serviceDef) {
-                            ec.logger.info("MCP ToolsList: Service ${serviceName} not found")
-                            continue
-                        }
-                        
-                        // Check permission using Moqui's artifact authorization
-                        boolean hasPermission = ec.user.hasPermission(serviceName)
-                        ec.logger.info("MCP ToolsList: Service ${serviceName} hasPermission=${hasPermission}")
-                        if (!hasPermission) {
-                            continue
-                        }
-                        
+                        metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
+                    } catch (Exception e) {
+                        ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
+                    }
+                    
+                    metadata.mcpLastActivity = System.currentTimeMillis()
+                    metadata.mcpLastOperation = "tools/list"
+                    visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                    visit.update()
+                }
+                
+                // Discover all services the user has permission to access
+                def availableTools = []
+                def allServiceNames = ec.service.getKnownServiceNames()
+                ec.logger.info("MCP ToolsList: Checking ${allServiceNames.size()} services for user ${ec.user.userId}${sessionId ? ' (session: ' + sessionId + ')' : ''}")
+                
+                // Helper function to convert service to MCP tool
+                def convertServiceToTool = { serviceName ->
+                    try {
                         def serviceDefinition = ec.service.getServiceDefinition(serviceName)
-                        if (!serviceDefinition) continue
+                        if (!serviceDefinition) return null
                         
                         def serviceNode = serviceDefinition.serviceNode
                         
@@ -361,7 +448,6 @@
                             }
                             
                             // Convert Moqui type to JSON Schema type
-                            // Convert Moqui type to JSON Schema type
                             def typeMap = [
                                 "text-short": "string",
                                 "text-medium": "string", 
@@ -390,10 +476,44 @@
                             }
                         }
                         
-                        availableTools << tool
-                        
+                        return tool
                     } catch (Exception e) {
-                        ec.logger.warn("Error processing service ${serviceName}: ${e.message}")
+                        ec.logger.warn("Error converting service ${serviceName} to tool: ${e.message}")
+                        return null
+                    }
+                }
+                
+                // Add specific MCP services that should be exposed as tools
+                def mcpToolServices = ["McpServices.mcp#Ping"]
+                for (serviceName in mcpToolServices) {
+                    boolean hasPermission = ec.user.hasPermission(serviceName)
+                    ec.logger.info("MCP ToolsList: MCP service ${serviceName} hasPermission=${hasPermission}")
+                    if (!hasPermission) {
+                        continue
+                    }
+                    
+                    def tool = convertServiceToTool(serviceName)
+                    if (tool) {
+                        availableTools << tool
+                    }
+                }
+                
+                // Now add all other services the user has permission to access
+                for (serviceName in allServiceNames) {
+                    // Skip internal MCP services to avoid recursion (already handled above)
+                    if (serviceName.startsWith("McpServices.")) {
+                        continue
+                    }
+                    
+                    // Check permission using Moqui's artifact authorization
+                    boolean hasPermission = ec.user.hasPermission(serviceName)
+                    if (!hasPermission) {
+                        continue
+                    }
+                    
+                    def tool = convertServiceToTool(serviceName)
+                    if (tool) {
+                        availableTools << tool
                     }
                 }
                 
@@ -407,7 +527,7 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="ToolsCall" authenticate="true" allow-remote="true" transaction-timeout="300">
+    <service verb="mcp" noun="ToolsCall" authenticate="true" allow-remote="true" transaction-timeout="300" authz-require="false">
         <description>Handle MCP tools/call request with direct Moqui service execution</description>
         <in-parameters>
             <parameter name="name" required="true"/>
@@ -496,9 +616,10 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="ResourcesList" authenticate="true" allow-remote="true" transaction-timeout="60">
+    <service verb="mcp" noun="ResourcesList" authenticate="true" allow-remote="true" transaction-timeout="60" authz-require="false">
         <description>Handle MCP resources/list request with Moqui entity discovery</description>
         <in-parameters>
+            <parameter name="sessionId"/>
             <parameter name="cursor"/>
         </in-parameters>
         <out-parameters>
@@ -509,6 +630,30 @@
                 import org.moqui.context.ExecutionContext
                 
                 ExecutionContext ec = context.ec
+                
+                // Validate session if provided
+                if (sessionId) {
+                    def visit = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", sessionId)
+                        .one()
+                    
+                    if (!visit || visit.userId != ec.user.userId) {
+                        throw new Exception("Invalid session: ${sessionId}")
+                    }
+                    
+                    // Update session activity
+                    def metadata = [:]
+                    try {
+                        metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
+                    } catch (Exception e) {
+                        ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
+                    }
+                    
+                    metadata.mcpLastActivity = System.currentTimeMillis()
+                    metadata.mcpLastOperation = "resources/list"
+                    visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                    visit.update()
+                }
                 
                 // Use curated list of commonly used entities instead of discovering all entities
                 def safeEntityNames = [
@@ -567,9 +712,10 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="ResourcesRead" authenticate="true" allow-remote="true" transaction-timeout="120">
+    <service verb="mcp" noun="ResourcesRead" authenticate="true" allow-remote="true" transaction-timeout="120" authz-require="false">
         <description>Handle MCP resources/read request with Moqui entity queries</description>
         <in-parameters>
+            <parameter name="sessionId"/>
             <parameter name="uri" required="true"/>
         </in-parameters>
         <out-parameters>
@@ -581,6 +727,31 @@
                 import groovy.json.JsonBuilder
                 
                 ExecutionContext ec = context.ec
+                
+                // Validate session if provided
+                if (sessionId) {
+                    def visit = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", sessionId)
+                        .one()
+                    
+                    if (!visit || visit.userId != ec.user.userId) {
+                        throw new Exception("Invalid session: ${sessionId}")
+                    }
+                    
+                    // Update session activity
+                    def metadata = [:]
+                    try {
+                        metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
+                    } catch (Exception e) {
+                        ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
+                    }
+                    
+                    metadata.mcpLastActivity = System.currentTimeMillis()
+                    metadata.mcpLastOperation = "resources/read"
+                    metadata.mcpLastResource = uri
+                    visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                    visit.update()
+                }
                 
                 // Parse entity URI (format: entity://EntityName)
                 if (!uri.startsWith("entity://")) {
@@ -674,18 +845,46 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="Ping" authenticate="true" allow-remote="true" transaction-timeout="10">
+    <service verb="mcp" noun="Ping" authenticate="true" allow-remote="true" transaction-timeout="10" authz-require="false">
         <description>Handle MCP ping request for health check</description>
-        <in-parameters/>
+        <in-parameters>
+            <parameter name="sessionId"/>
+        </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
+                // Validate session if provided
+                if (sessionId) {
+                    def visit = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", sessionId)
+                        .one()
+                    
+                    if (!visit || visit.userId != ec.user.userId) {
+                        throw new Exception("Invalid session: ${sessionId}")
+                    }
+                    
+                    // Update session activity
+                    def metadata = [:]
+                    try {
+                        metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
+                    } catch (Exception e) {
+                        ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
+                    }
+                    
+                    metadata.mcpLastActivity = System.currentTimeMillis()
+                    metadata.mcpLastOperation = "ping"
+                    visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                    visit.update()
+                }
+                
                 result = [
                     timestamp: ec.user.getNowTimestamp(),
                     status: "healthy",
-                    version: "2.0.0"
+                    version: "2.0.0",
+                    sessionId: sessionId,
+                    architecture: "Visit-based sessions"
                 ]
             ]]></script>
         </actions>

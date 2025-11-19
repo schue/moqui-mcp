@@ -15,67 +15,59 @@ package org.moqui.mcp
 
 import org.moqui.context.ExecutionContext
 import org.moqui.impl.context.ExecutionContextImpl
+import org.moqui.entity.EntityValue
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * MCP Session implementation that integrates with Moqui's Visit system
- * Provides SDK-style session management while leveraging Moqui's built-in tracking
+ * MCP Session implementation that uses Moqui's Visit entity directly
+ * Eliminates custom session management by leveraging Moqui's built-in Visit system
  */
 class VisitBasedMcpSession implements MoquiMcpTransport {
     protected final static Logger logger = LoggerFactory.getLogger(VisitBasedMcpSession.class)
     
-    private final String sessionId
-    private final String visitId
+    private final EntityValue visit // The Visit entity record
     private final PrintWriter writer
     private final ExecutionContextImpl ec
     private final AtomicBoolean active = new AtomicBoolean(true)
     private final AtomicBoolean closing = new AtomicBoolean(false)
     private final AtomicLong messageCount = new AtomicLong(0)
-    private final Date createdAt
     
-    // MCP session metadata stored in Visit context
-    private final Map<String, Object> sessionMetadata = new ConcurrentHashMap<>()
-    
-    VisitBasedMcpSession(String sessionId, String visitId, PrintWriter writer, ExecutionContextImpl ec) {
-        this.sessionId = sessionId
-        this.visitId = visitId
+    VisitBasedMcpSession(EntityValue visit, PrintWriter writer, ExecutionContextImpl ec) {
+        this.visit = visit
         this.writer = writer
         this.ec = ec
-        this.createdAt = new Date()
         
-        // Initialize session metadata in Visit context
-        initializeSessionMetadata()
+        // Initialize MCP session in Visit if not already done
+        initializeMcpSession()
     }
     
-    private void initializeSessionMetadata() {
+    private void initializeMcpSession() {
         try {
-            // Store MCP session info in Visit context for persistence
-            if (visitId && ec) {
-                def visit = ec.entity.find("moqui.server.Visit").condition("visitId", visitId).one()
-                if (visit) {
-                    // Store MCP session metadata as JSON in Visit's context or a separate field
-                    sessionMetadata.put("mcpSessionId", sessionId)
-                    sessionMetadata.put("mcpCreatedAt", createdAt.time)
-                    sessionMetadata.put("mcpProtocolVersion", "2025-06-18")
-                    sessionMetadata.put("mcpTransportType", "SSE")
-                    
-                    logger.info("MCP Session ${sessionId} initialized with Visit ${visitId}")
-                }
+            def metadata = getSessionMetadata()
+            if (!metadata.mcpSession) {
+                // Mark this Visit as an MCP session
+                metadata.mcpSession = true
+                metadata.mcpProtocolVersion = "2025-06-18"
+                metadata.mcpCreatedAt = System.currentTimeMillis()
+                metadata.mcpTransportType = "SSE"
+                metadata.mcpMessageCount = 0
+                saveSessionMetadata(metadata)
+                
+                logger.info("MCP Session initialized for Visit ${visit.visitId}")
             }
         } catch (Exception e) {
-            logger.warn("Failed to initialize session metadata for Visit ${visitId}: ${e.message}")
+            logger.warn("Failed to initialize MCP session for Visit ${visit.visitId}: ${e.message}")
         }
     }
     
     @Override
     void sendMessage(JsonRpcMessage message) {
         if (!active.get() || closing.get()) {
-            logger.warn("Attempted to send message on inactive or closing session ${sessionId}")
+            logger.warn("Attempted to send message on inactive or closing session ${visit.visitId}")
             return
         }
         
@@ -88,7 +80,7 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
             updateSessionActivity()
             
         } catch (Exception e) {
-            logger.error("Failed to send message on session ${sessionId}: ${e.message}")
+            logger.error("Failed to send message on session ${visit.visitId}: ${e.message}")
             if (e.message?.contains("disconnected") || e.message?.contains("Client disconnected")) {
                 close()
             }
@@ -101,12 +93,12 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
         }
         
         closing.set(true)
-        logger.info("Gracefully closing MCP session ${sessionId}")
+        logger.info("Gracefully closing MCP session ${visit.visitId}")
         
         try {
             // Send graceful shutdown notification
             def shutdownMessage = new JsonRpcNotification("shutdown", [
-                sessionId: sessionId,
+                sessionId: visit.visitId,
                 timestamp: System.currentTimeMillis()
             ])
             sendMessage(shutdownMessage)
@@ -115,7 +107,7 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
             Thread.sleep(100)
             
         } catch (Exception e) {
-            logger.warn("Error during graceful shutdown of session ${sessionId}: ${e.message}")
+            logger.warn("Error during graceful shutdown of session ${visit.visitId}: ${e.message}")
         } finally {
             close()
         }
@@ -126,7 +118,7 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
             return // Already closed
         }
         
-        logger.info("Closing MCP session ${sessionId} (messages sent: ${messageCount.get()})")
+        logger.info("Closing MCP session ${visit.visitId} (messages sent: ${messageCount.get()})")
         
         try {
             // Update Visit with session end info
@@ -136,14 +128,14 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
             if (writer && !writer.checkError()) {
                 sendSseEvent("close", groovy.json.JsonOutput.toJson([
                     type: "disconnected",
-                    sessionId: sessionId,
+                    sessionId: visit.visitId,
                     messageCount: messageCount.get(),
                     timestamp: System.currentTimeMillis()
                 ]))
             }
             
         } catch (Exception e) {
-            logger.warn("Error during session close ${sessionId}: ${e.message}")
+            logger.warn("Error during session close ${visit.visitId}: ${e.message}")
         }
     }
     
@@ -154,11 +146,15 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
     
     @Override
     String getSessionId() {
-        return sessionId
+        return visit.visitId
     }
     
     String getVisitId() {
-        return visitId
+        return visit.visitId
+    }
+    
+    EntityValue getVisit() {
+        return visit
     }
     
     /**
@@ -166,13 +162,13 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
      */
     Map getSessionStats() {
         return [
-            sessionId: sessionId,
-            visitId: visitId,
-            createdAt: createdAt,
+            sessionId: visit.visitId,
+            visitId: visit.visitId,
+            createdAt: visit.fromDate,
             messageCount: messageCount.get(),
             active: active.get(),
             closing: closing.get(),
-            duration: System.currentTimeMillis() - createdAt.time
+            duration: System.currentTimeMillis() - visit.fromDate.time
         ]
     }
     
@@ -198,18 +194,16 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
      */
     private void updateSessionActivity() {
         try {
-            if (visitId && ec) {
+            if (visit && ec) {
                 // Update Visit with latest activity
-                ec.service.sync().name("update", "moqui.server.Visit")
-                    .parameters([
-                        visitId: visitId,
-                        thruDate: ec.user.getNowTimestamp()
-                    ])
-                    .call()
+                visit.thruDate = ec.user.getNowTimestamp()
+                visit.update()
                 
-                // Could also update a custom field for MCP-specific activity
-                sessionMetadata.put("mcpLastActivity", System.currentTimeMillis())
-                sessionMetadata.put("mcpMessageCount", messageCount.get())
+                // Update MCP-specific activity in metadata
+                def metadata = getSessionMetadata()
+                metadata.mcpLastActivity = System.currentTimeMillis()
+                metadata.mcpMessageCount = messageCount.get()
+                saveSessionMetadata(metadata)
             }
         } catch (Exception e) {
             logger.debug("Failed to update session activity: ${e.message}")
@@ -221,37 +215,57 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
      */
     private void updateSessionEnd() {
         try {
-            if (visitId && ec) {
+            if (visit && ec) {
                 // Update Visit with session end info
-                ec.service.sync().name("update", "moqui.server.Visit")
-                    .parameters([
-                        visitId: visitId,
-                        thruDate: ec.user.getNowTimestamp()
-                    ])
-                    .call()
+                visit.thruDate = ec.user.getNowTimestamp()
+                visit.update()
                 
                 // Store final session metadata
-                sessionMetadata.put("mcpEndedAt", System.currentTimeMillis())
-                sessionMetadata.put("mcpFinalMessageCount", messageCount.get())
+                def metadata = getSessionMetadata()
+                metadata.mcpEndedAt = System.currentTimeMillis()
+                metadata.mcpFinalMessageCount = messageCount.get()
+                saveSessionMetadata(metadata)
                 
-                logger.info("Updated Visit ${visitId} with MCP session end info")
+                logger.info("Updated Visit ${visit.visitId} with MCP session end info")
             }
         } catch (Exception e) {
-            logger.warn("Failed to update session end for Visit ${visitId}: ${e.message}")
+            logger.warn("Failed to update session end for Visit ${visit.visitId}: ${e.message}")
         }
     }
     
     /**
-     * Get session metadata
+     * Get session metadata from Visit's initialRequest field
      */
     Map getSessionMetadata() {
-        return new HashMap<>(sessionMetadata)
+        try {
+            def metadataJson = visit.initialRequest
+            if (metadataJson) {
+                return groovy.json.JsonSlurper().parseText(metadataJson) as Map
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to parse session metadata: ${e.message}")
+        }
+        return [:]
     }
     
     /**
      * Add custom metadata to session
      */
     void addSessionMetadata(String key, Object value) {
-        sessionMetadata.put(key, value)
+        def metadata = getSessionMetadata()
+        metadata[key] = value
+        saveSessionMetadata(metadata)
+    }
+    
+    /**
+     * Save session metadata to Visit's initialRequest field
+     */
+    private void saveSessionMetadata(Map metadata) {
+        try {
+            visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+            visit.update()
+        } catch (Exception e) {
+            logger.debug("Failed to save session metadata: ${e.message}")
+        }
     }
 }
