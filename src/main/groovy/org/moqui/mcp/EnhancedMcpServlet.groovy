@@ -646,7 +646,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
     }
     
     private Map<String, Object> processMcpMethod(String method, Map params, ExecutionContextImpl ec, String sessionId) {
-        logger.info("Enhanced METHOD: ${method} with params: ${params}, sessionId: ${sessionId}")
+        logger.info("Enhanced METHOD: ${method} with sessionId: ${sessionId}")
         
         try {
             // Ensure params is not null
@@ -693,14 +693,14 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
     }
     
     private Map<String, Object> callMcpService(String serviceName, Map params, ExecutionContextImpl ec) {
-        logger.info("Enhanced Calling MCP service: ${serviceName} with params: ${params}")
+        logger.debug("Enhanced Calling MCP service: ${serviceName} with params: ${params}")
         
         try {
             def result = ec.service.sync().name("McpServices.${serviceName}")
                 .parameters(params ?: [:])
                 .call()
             
-            logger.info("Enhanced MCP service ${serviceName} result: ${result}")
+            logger.debug("Enhanced MCP service ${serviceName} result: ${result?.result?.size() ? 'result with ' + (result.result?.tools?.size() ?: 0) + ' tools' : 'empty result'}")
             if (result == null) {
                 logger.error("Enhanced MCP service ${serviceName} returned null result")
                 return [error: "Service returned null result"]
