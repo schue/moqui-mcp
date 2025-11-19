@@ -550,6 +550,11 @@ try {
         logger.info("Enhanced METHOD: ${method} with params: ${params}, sessionId: ${sessionId}")
         
         try {
+            // Ensure params is not null
+            if (params == null) {
+                params = [:]
+            }
+            
             // Add session context to parameters for services
             params.sessionId = sessionId
             
@@ -646,8 +651,7 @@ try {
     void destroy() {
         logger.info("Destroying EnhancedMcpServlet")
         
-        // Gracefully shutdown session manager
-        sessionManager.shutdownGracefully()
+        // No session manager to shutdown - using Moqui's Visit system
         
         super.destroy()
     }
@@ -656,13 +660,15 @@ try {
      * Broadcast message to all active sessions
      */
     void broadcastToAllSessions(JsonRpcMessage message) {
-        sessionManager.broadcast(message)
+        // TODO: Implement broadcast using Moqui's Visit system if needed
+        logger.info("Broadcast to all sessions not yet implemented")
     }
     
     /**
      * Get session statistics for monitoring
      */
     Map getSessionStatistics() {
-        return sessionManager.getSessionStatistics()
+        // TODO: Implement session statistics using Moqui's Visit system if needed
+        return [activeSessions: 0, message: "Session statistics not yet implemented"]
     }
 }
