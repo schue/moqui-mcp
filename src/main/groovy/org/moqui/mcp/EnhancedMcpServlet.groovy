@@ -106,7 +106,7 @@ try {
                 }
             }
             
-            // Check if user is authenticated
+            // Re-enabled proper authentication - UserServices compilation issues resolved
             if (!authenticated || !ec.user?.userId) {
                 logger.warn("Enhanced MCP authentication failed - no valid user authenticated")
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED)
@@ -198,7 +198,7 @@ try {
         response.setHeader("X-Accel-Buffering", "no") // Disable nginx buffering
         
         String sessionId = UUID.randomUUID().toString()
-        String visitId = ec.user?.visitId
+        String visitId = ec.user.getVisitId()
         
         // Create Visit-based session transport
         VisitBasedMcpSession session = new VisitBasedMcpSession(sessionId, visitId, response.writer, ec)

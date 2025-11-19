@@ -30,7 +30,8 @@ tasks.withType(JavaCompile) { options.compilerArgs << "-proc:none" }
 tasks.withType(GroovyCompile) { options.compilerArgs << "-proc:none" }
 
 dependencies {
-    implementation project(':framework')
+    // Only compile against framework, don't include it in the component
+    compileOnly project(':framework')
 
     // Servlet API (provided by framework, but needed for compilation)
     compileOnly 'javax.servlet:javax.servlet-api:4.0.1'
@@ -47,7 +48,7 @@ jar {
     archiveBaseName = jarBaseName
 }
 task copyDependencies { doLast {
-    copy { from (configurations.runtimeClasspath - project(':framework').configurations.runtimeClasspath)
+    copy { from configurations.runtimeClasspath
         into file(projectDir.absolutePath + '/lib') }
 } }
 copyDependencies.dependsOn cleanLib

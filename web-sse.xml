@@ -7,8 +7,8 @@
     
     <!-- MCP SSE Servlet Configuration -->
     <servlet>
-        <servlet-name>McpSseServlet</servlet-name>
-        <servlet-class>org.moqui.mcp.McpSseServlet</servlet-class>
+        <servlet-name>EnhancedMcpServlet</servlet-name>
+        <servlet-class>org.moqui.mcp.EnhancedMcpServlet</servlet-class>
         
         <!-- Configuration parameters -->
         <init-param>
@@ -42,12 +42,12 @@
     
     <!-- Servlet mappings for MCP SSE endpoints -->
     <servlet-mapping>
-        <servlet-name>McpSseServlet</servlet-name>
+        <servlet-name>EnhancedMcpServlet</servlet-name>
         <url-pattern>/sse/*</url-pattern>
     </servlet-mapping>
     
     <servlet-mapping>
-        <servlet-name>McpSseServlet</servlet-name>
+        <servlet-name>EnhancedMcpServlet</servlet-name>
         <url-pattern>/mcp/message/*</url-pattern>
     </servlet-mapping>
     
