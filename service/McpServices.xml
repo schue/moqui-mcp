@@ -671,11 +671,17 @@
                 } catch (Exception e) {
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
-                    // Update audit record with error
+                     // Update audit record with error
                     artifactHit.runningTimeMillis = executionTime
                     artifactHit.wasError = "Y"
                     artifactHit.errorMessage = e.message
-                    artifactHit.update()
+                    
+                    ec.artifactExecution.disableAuthz()
+                    try {
+                        artifactHit.update()
+                    } finally {
+                        ec.artifactExecution.enableAuthz()
+                    }
                     
                     result = [
                         content: [
@@ -942,11 +948,17 @@
                     
                     result = [contents: contents]
                     
-                    // Update audit record
-                    artifactHit.runningTimeMillis = executionTime
-                    artifactHit.wasError = "N"
-                    artifactHit.outputSize = new JsonBuilder(result).toString().length()
-                    artifactHit.update()
+                     // Update audit record
+                     artifactHit.runningTimeMillis = executionTime
+                     artifactHit.wasError = "N"
+                     artifactHit.outputSize = new JsonBuilder(result).toString().length()
+                     
+                     ec.artifactExecution.disableAuthz()
+                     try {
+                         artifactHit.update()
+                     } finally {
+                         ec.artifactExecution.enableAuthz()
+                     }
                     
                 } catch (Exception e) {
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
