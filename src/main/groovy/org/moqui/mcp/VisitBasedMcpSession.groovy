@@ -73,7 +73,7 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
     }
     
     @Override
-    void sendMessage(McpSchema.JSONRPCMessage message) {
+    void sendMessage(JsonRpcMessage message) {
         if (!active.get() || closing.get()) {
             logger.warn("Attempted to send message on inactive or closing session ${sessionId}")
             return
@@ -95,7 +95,6 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
         }
     }
     
-    @Override
     void closeGracefully() {
         if (!active.compareAndSet(true, false)) {
             return // Already closed
@@ -106,11 +105,10 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
         
         try {
             // Send graceful shutdown notification
-            def shutdownMessage = new McpSchema.JSONRPCMessage([
-                type: "shutdown",
+            def shutdownMessage = new JsonRpcNotification("shutdown", [
                 sessionId: sessionId,
                 timestamp: System.currentTimeMillis()
-            ], null)
+            ])
             sendMessage(shutdownMessage)
             
             // Give some time for message to be sent
@@ -123,7 +121,6 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
         }
     }
     
-    @Override
     void close() {
         if (!active.compareAndSet(true, false)) {
             return // Already closed
@@ -160,7 +157,6 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
         return sessionId
     }
     
-    @Override
     String getVisitId() {
         return visitId
     }

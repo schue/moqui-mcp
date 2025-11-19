@@ -258,15 +258,18 @@ class ServiceBasedMcpServlet extends HttpServlet {
             
             logger.info("Service-Based MCP Message authenticated user: ${ec.user?.username}, userId: ${ec.user?.userId}")
             
-            // If no user authenticated, try to authenticate as admin for MCP requests
+            // Require authentication - do not fallback to admin
             if (!ec.user?.userId) {
-                logger.info("No user authenticated, attempting admin login for Service-Based MCP")
-                try {
-                    ec.user.loginUser("admin", "admin")
-                    logger.info("Service-Based MCP Admin login successful, user: ${ec.user?.username}")
-                } catch (Exception e) {
-                    logger.warn("Service-Based MCP Admin login failed: ${e.message}")
-                }
+                logger.warn("Service-Based MCP Request denied - no authenticated user")
+                // Handle error directly without sendError to avoid Moqui error screen interference
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED)
+                response.setContentType("application/json")
+                response.writer.write(groovy.json.JsonOutput.toJson([
+                    jsonrpc: "2.0",
+                    error: [code: -32000, message: "Authentication required. Please provide valid credentials."],
+                    id: null
+                ]))
+                return
             }
             
             // Handle different HTTP methods
@@ -435,15 +438,18 @@ class ServiceBasedMcpServlet extends HttpServlet {
             // Initialize web facade for authentication
             ec.initWebFacade(webappName, request, response)
             
-            // If no user authenticated, try to authenticate as admin for MCP requests
+            // Require authentication - do not fallback to admin
             if (!ec.user?.userId) {
-                logger.info("No user authenticated, attempting admin login for Legacy MCP")
-                try {
-                    ec.user.loginUser("admin", "admin")
-                    logger.info("Legacy MCP Admin login successful, user: ${ec.user?.username}")
-                } catch (Exception e) {
-                    logger.warn("Legacy MCP Admin login failed: ${e.message}")
-                }
+                logger.warn("Legacy MCP Request denied - no authenticated user")
+                // Handle error directly without sendError to avoid Moqui error screen interference
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED)
+                response.setContentType("application/json")
+                response.writer.write(groovy.json.JsonOutput.toJson([
+                    jsonrpc: "2.0",
+                    error: [code: -32000, message: "Authentication required. Please provide valid credentials."],
+                    id: null
+                ]))
+                return
             }
             
             // Read and parse JSON-RPC request (same as POST handling)

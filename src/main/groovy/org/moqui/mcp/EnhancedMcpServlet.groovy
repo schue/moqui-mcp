@@ -14,6 +14,7 @@
 package org.moqui.mcp
 
 import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
 import org.moqui.impl.context.ExecutionContextFactoryImpl
 import org.moqui.context.ArtifactAuthorizationException
 import org.moqui.context.ArtifactTarpitException
@@ -29,6 +30,47 @@ import javax.servlet.http.HttpServletResponse
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.UUID
+
+/**
+ * Simple JSON-RPC Message classes for MCP compatibility
+ */
+class JsonRpcMessage {
+    String jsonrpc = "2.0"
+}
+
+class JsonRpcResponse extends JsonRpcMessage {
+    Object id
+    Object result
+    Map error
+    
+    JsonRpcResponse(Object result, Object id) {
+        this.result = result
+        this.id = id
+    }
+    
+    JsonRpcResponse(Map error, Object id) {
+        this.error = error
+        this.id = id
+    }
+    
+    String toJson() {
+        return JsonOutput.toJson(this)
+    }
+}
+
+class JsonRpcNotification extends JsonRpcMessage {
+    String method
+    Object params
+    
+    JsonRpcNotification(String method, Object params = null) {
+        this.method = method
+        this.params = params
+    }
+    
+    String toJson() {
+        return JsonOutput.toJson(this)
+    }
+}
 
 /**
  * Enhanced MCP Servlet with proper SSE handling inspired by HttpServletSseServerTransportProvider
@@ -369,7 +411,7 @@ try {
             def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec)
             
             // Send response via MCP transport to the specific session
-            def responseMessage = new McpSchema.JSONRPCMessage(result, rpcRequest.id)
+            def responseMessage = new JsonRpcResponse(result, rpcRequest.id)
             session.sendMessage(responseMessage)
             
             response.setContentType("application/json")
@@ -593,7 +635,7 @@ try {
     /**
      * Broadcast message to all active sessions
      */
-    void broadcastToAllSessions(McpSchema.JSONRPCMessage message) {
+    void broadcastToAllSessions(JsonRpcMessage message) {
         sessionManager.broadcast(message)
     }
     

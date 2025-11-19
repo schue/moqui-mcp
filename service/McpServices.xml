@@ -231,7 +231,7 @@
         </actions>
     </service>
     
-    <service verb="mcp" noun="Initialize" authenticate="false" allow-remote="true" transaction-timeout="30">
+    <service verb="mcp" noun="Initialize" authenticate="true" allow-remote="true" transaction-timeout="30">
         <description>Handle MCP initialize request using Moqui authentication</description>
         <in-parameters>
             <parameter name="protocolVersion" required="true"/>
@@ -318,14 +318,12 @@
                             continue
                         }
                         
-                        // TODO: Fix permission check - temporarily bypass for testing
-                        boolean hasPermission = true
-                        ec.logger.info("MCP ToolsList: Service ${serviceName} bypassing permission check for testing")
-                        // boolean hasPermission = ec.user.hasPermission(serviceName)
-                        // ec.logger.info("MCP ToolsList: Service ${serviceName} hasPermission=${hasPermission}")
-                        // if (!hasPermission) {
-                        //     continue
-                        // }
+                        // Check permission using Moqui's artifact authorization
+                        boolean hasPermission = ec.user.hasPermission(serviceName)
+                        ec.logger.info("MCP ToolsList: Service ${serviceName} hasPermission=${hasPermission}")
+                        if (!hasPermission) {
+                            continue
+                        }
                         
                         def serviceDefinition = ec.service.getServiceDefinition(serviceName)
                         if (!serviceDefinition) continue
@@ -363,6 +361,7 @@
                             }
                             
                             // Convert Moqui type to JSON Schema type
+                            // Convert Moqui type to JSON Schema type
                             def typeMap = [
                                 "text-short": "string",
                                 "text-medium": "string", 
@@ -379,14 +378,14 @@
                                 "boolean": "boolean",
                                 "text-indicator": "boolean"
                             ]
-                            def jsonSchemaType = typeMap[paramInfo.type] ?: "string"
+                            def jsonSchemaType = typeMap[paramType] ?: "string"
                             
                             tool.inputSchema.properties[paramName] = [
                                 type: jsonSchemaType,
                                 description: paramDesc
                             ]
                             
-                            if (paramInfo.required) {
+                            if (paramNode?.attribute('required') == "true") {
                                 tool.inputSchema.required << paramName
                             }
                         }
@@ -815,17 +814,7 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="Ping" authenticate="false" allow-remote="true" transaction-timeout="30">
-        <description>Simple ping service for MCP testing</description>
-        <out-parameters>
-            <parameter name="message" type="String"/>
-        </out-parameters>
-        <actions>
-            <script><![CDATA[
-                result = [message: "MCP ping successful at ${new Date()}"]
-            ]]></script>
-        </actions>
-    </service>
+
 
     <!-- NOTE: handle#McpRequest service removed - functionality moved to screen/webapp.xml for unified handling -->
 

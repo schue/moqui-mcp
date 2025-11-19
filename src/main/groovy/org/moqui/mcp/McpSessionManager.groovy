@@ -58,12 +58,11 @@ class McpSessionManager {
         logger.info("Registered MCP session ${session.sessionId} (total: ${sessions.size()})")
         
         // Send welcome message to new session
-        def welcomeMessage = new McpSchema.JSONRPCMessage([
-            type: "welcome",
+        def welcomeMessage = new JsonRpcNotification("welcome", [
             sessionId: session.sessionId,
             totalSessions: sessions.size(),
             timestamp: System.currentTimeMillis()
-        ], null)
+        ])
         session.sendMessage(welcomeMessage)
     }
     
@@ -87,7 +86,7 @@ class McpSessionManager {
     /**
      * Broadcast message to all active sessions
      */
-    void broadcast(McpSchema.JSONRPCMessage message) {
+    void broadcast(JsonRpcMessage message) {
         if (isShuttingDown.get()) {
             logger.warn("Rejecting broadcast during shutdown")
             return
@@ -121,7 +120,7 @@ class McpSessionManager {
     /**
      * Send message to specific session
      */
-    boolean sendToSession(String sessionId, McpSchema.JSONRPCMessage message) {
+    boolean sendToSession(String sessionId, JsonRpcMessage message) {
         def session = sessions.get(sessionId)
         if (!session) {
             return false
@@ -181,11 +180,10 @@ class McpSessionManager {
         logger.info("Initiating graceful MCP session manager shutdown")
         
         // Send shutdown notification to all sessions
-        def shutdownMessage = new McpSchema.JSONRPCMessage([
-            type: "server_shutdown",
+        def shutdownMessage = new JsonRpcNotification("server_shutdown", [
             message: "Server is shutting down gracefully",
             timestamp: System.currentTimeMillis()
-        ], null)
+        ])
         broadcast(shutdownMessage)
         
         // Give sessions time to receive shutdown message

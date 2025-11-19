@@ -21,18 +21,9 @@
 
     <!-- Service-Based MCP Servlet Configuration -->
     <servlet>
-        <servlet-name>ServiceBasedMcpServlet</servlet-name>
-        <servlet-class>org.moqui.mcp.ServiceBasedMcpServlet</servlet-class>
+        <servlet-name>EnhancedMcpServlet</servlet-name>
+        <servlet-class>org.moqui.mcp.EnhancedMcpServlet</servlet-class>
         
-        <!-- Configuration Parameters -->
-        <init-param>
-            <param-name>sseEndpoint</param-name>
-            <param-value>/sse</param-value>
-        </init-param>
-        <init-param>
-            <param-name>messageEndpoint</param-name>
-            <param-value>/mcp/message</param-value>
-        </init-param>
         <init-param>
             <param-name>keepAliveIntervalSeconds</param-name>
             <param-value>30</param-value>
@@ -49,20 +40,9 @@
         <load-on-startup>5</load-on-startup>
     </servlet>
     
-    <!-- Servlet Mappings -->
     <servlet-mapping>
-        <servlet-name>ServiceBasedMcpServlet</servlet-name>
-        <url-pattern>/sse/*</url-pattern>
-    </servlet-mapping>
-    
-    <servlet-mapping>
-        <servlet-name>ServiceBasedMcpServlet</servlet-name>
-        <url-pattern>/mcp/message/*</url-pattern>
-    </servlet-mapping>
-    
-    <servlet-mapping>
-        <servlet-name>ServiceBasedMcpServlet</servlet-name>
-        <url-pattern>/rpc/*</url-pattern>
+        <servlet-name>EnhancedMcpServlet</servlet-name>
+        <url-pattern>/mcp/*</url-pattern>
     </servlet-mapping>
     
     <!-- Session Configuration -->

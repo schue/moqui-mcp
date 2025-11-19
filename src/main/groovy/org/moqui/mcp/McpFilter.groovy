@@ -23,7 +23,7 @@ import javax.servlet.http.HttpServletResponse
 class McpFilter implements Filter {
     protected final static Logger logger = LoggerFactory.getLogger(McpFilter.class)
     
-    private MoquiMcpServlet mcpServlet = new MoquiMcpServlet()
+    private EnhancedMcpServlet mcpServlet = new EnhancedMcpServlet()
     
     @Override
     void init(FilterConfig filterConfig) throws ServletException {
