@@ -14,10 +14,12 @@
 package org.moqui.mcp
 
 import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
 import org.moqui.impl.context.ExecutionContextFactoryImpl
 import org.moqui.context.ArtifactAuthorizationException
 import org.moqui.context.ArtifactTarpitException
 import org.moqui.impl.context.ExecutionContextImpl
+import org.moqui.entity.EntityValue
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
@@ -42,22 +44,22 @@ import java.util.concurrent.TimeUnit
  * - Adding SSE support for real-time bidirectional communication
  * - Providing better session management and error handling
  * - Supporting async operations for scalability
+ * - Using Visit-based persistence for session management
  */
 class ServiceBasedMcpServlet extends HttpServlet {
     protected final static Logger logger = LoggerFactory.getLogger(ServiceBasedMcpServlet.class)
     
     private JsonSlurper jsonSlurper = new JsonSlurper()
     
-    // Session management for SSE connections
-    private final Map<String, AsyncContext> sseConnections = new ConcurrentHashMap<>()
-    private final Map<String, String> sessionClients = new ConcurrentHashMap<>()
+    // Session management using Visit-based persistence
+    private final Map<String, VisitBasedMcpSession> activeSessions = new ConcurrentHashMap<>()
     
     // Executor for async operations and keep-alive pings
     private ScheduledExecutorService executorService
     
     // Configuration
     private String sseEndpoint = "/sse"
-    private String messageEndpoint = "/mcp/message"
+    private String messageEndpoint = "/message"
     private int keepAliveIntervalSeconds = 30
     private int maxConnections = 100
     
@@ -103,16 +105,15 @@ class ServiceBasedMcpServlet extends HttpServlet {
             }
         }
         
-        // Close all SSE connections
-        sseConnections.values().each { asyncContext ->
+        // Close all active sessions
+        activeSessions.values().each { session ->
             try {
-                asyncContext.complete()
+                session.closeGracefully()
             } catch (Exception e) {
-                logger.warn("Error closing SSE connection: ${e.message}")
+                logger.warn("Error closing MCP session: ${e.message}")
             }
         }
-        sseConnections.clear()
-        sessionClients.clear()
+        activeSessions.clear()
         
         logger.info("ServiceBasedMcpServlet destroyed")
     }
@@ -135,16 +136,25 @@ class ServiceBasedMcpServlet extends HttpServlet {
         // Handle CORS
         if (handleCors(request, response, webappName, ecfi)) return
         
-        String pathInfo = request.getPathInfo()
+        String requestURI = request.getRequestURI()
+        String method = request.getMethod()
         
-        // Route based on endpoint
-        if (pathInfo?.startsWith(sseEndpoint)) {
+        logger.info("ServiceBasedMcpServlet routing: method=${method}, requestURI=${requestURI}, sseEndpoint=${sseEndpoint}, messageEndpoint=${messageEndpoint}")
+        
+        // Route based on HTTP method and URI pattern (like EnhancedMcpServlet)
+        if ("GET".equals(method) && requestURI.endsWith("/sse")) {
             handleSseConnection(request, response, ecfi, webappName)
-        } else if (pathInfo?.startsWith(messageEndpoint)) {
+        } else if ("POST".equals(method) && requestURI.endsWith("/message")) {
             handleMessage(request, response, ecfi, webappName)
+        } else if ("POST".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
+            // Handle POST requests to /mcp for JSON-RPC
+            handleLegacyRpc(request, response, ecfi, webappName)
+        } else if ("GET".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
+            // Handle GET requests to /mcp - SSE fallback for server info
+            handleSseConnection(request, response, ecfi, webappName)
         } else {
             // Legacy support for /rpc endpoint
-            if (pathInfo?.startsWith("/rpc")) {
+            if (requestURI.startsWith("/rpc")) {
                 handleLegacyRpc(request, response, ecfi, webappName)
             } else {
                 response.sendError(HttpServletResponse.SC_NOT_FOUND, "MCP endpoint not found")
@@ -159,72 +169,87 @@ class ServiceBasedMcpServlet extends HttpServlet {
         logger.info("New SSE connection request from ${request.remoteAddr}")
         
         // Check connection limit
-        if (sseConnections.size() >= maxConnections) {
+        if (activeSessions.size() >= maxConnections) {
             response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, 
                 "Too many SSE connections")
             return
         }
         
-        // Set SSE headers
+        // Get ExecutionContext for this request
+        ExecutionContextImpl ec = ecfi.getEci()
+        
+        // Initialize web facade to create Visit
+        ec.initWebFacade(webappName, request, response)
+        
+        // Set SSE headers (matching EnhancedMcpServlet)
         response.setContentType("text/event-stream")
         response.setCharacterEncoding("UTF-8")
-        response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate")
-        response.setHeader("Pragma", "no-cache")
-        response.setHeader("Expires", "0")
+        response.setHeader("Cache-Control", "no-cache")
         response.setHeader("Connection", "keep-alive")
+        response.setHeader("Access-Control-Allow-Origin", "*")
+        response.setHeader("X-Accel-Buffering", "no") // Disable nginx buffering
         
-        // Generate session ID
-        String sessionId = generateSessionId()
+        // Get or create Visit (Moqui automatically creates Visit)
+        def visit = ec.user.getVisit()
+        if (!visit) {
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to create Visit")
+            return
+        }
         
-        // Store client info
-        String userAgent = request.getHeader("User-Agent") ?: "Unknown"
-        sessionClients.put(sessionId, userAgent)
+        // Create Visit-based session transport
+        VisitBasedMcpSession session = new VisitBasedMcpSession(visit, response.writer, ec)
+        activeSessions.put(visit.visitId, session)
         
         // Enable async support
-        AsyncContext asyncContext = request.startAsync(request, response)
-        asyncContext.setTimeout(0) // No timeout
-        sseConnections.put(sessionId, asyncContext)
+        AsyncContext asyncContext = null
+        if (request.isAsyncSupported()) {
+            asyncContext = request.startAsync(request, response)
+            asyncContext.setTimeout(0) // No timeout
+            logger.info("Service-Based SSE async context created for session ${visit.visitId}")
+        } else {
+            logger.warn("Service-Based SSE async not supported, falling back to blocking mode for session ${visit.visitId}")
+        }
         
-        logger.info("SSE connection established: ${sessionId} from ${userAgent}")
+        logger.info("Service-Based SSE connection established: ${visit.visitId} from ${request.remoteAddr}")
         
-        // Send initial connection event
-        sendSseEvent(sessionId, "connect", [
+        // Send initial connection event (matching EnhancedMcpServlet format)
+        def connectData = [
             type: "connected",
-            sessionId: sessionId,
+            sessionId: visit.visitId,
             timestamp: System.currentTimeMillis(),
             serverInfo: [
                 name: "Moqui Service-Based MCP Server",
                 version: "2.1.0",
                 protocolVersion: "2025-06-18",
-                endpoints: [
-                    sse: sseEndpoint,
-                    message: messageEndpoint
-                ],
-                architecture: "Service-based - all business logic delegated to McpServices.xml"
+                architecture: "Service-based with Visit persistence"
             ]
-        ])
+        ]
+        sendSseEvent(response.writer, "connect", groovy.json.JsonOutput.toJson(connectData), 0)
+        
+        // Send endpoint info for message posting
+        sendSseEvent(response.writer, "endpoint", "/mcp/message?sessionId=" + visit.visitId, 1)
         
         // Set up connection close handling
         asyncContext.addListener(new AsyncListener() {
             @Override
             void onComplete(AsyncEvent event) throws IOException {
-                sseConnections.remove(sessionId)
-                sessionClients.remove(sessionId)
-                logger.info("SSE connection completed: ${sessionId}")
+                activeSessions.remove(visit.visitId)
+                session.close()
+                logger.info("Service-Based SSE connection completed: ${visit.visitId}")
             }
             
             @Override
             void onTimeout(AsyncEvent event) throws IOException {
-                sseConnections.remove(sessionId)
-                sessionClients.remove(sessionId)
-                logger.info("SSE connection timeout: ${sessionId}")
+                activeSessions.remove(visit.visitId)
+                session.close()
+                logger.info("Service-Based SSE connection timeout: ${visit.visitId}")
             }
             
             @Override
             void onError(AsyncEvent event) throws IOException {
-                sseConnections.remove(sessionId)
-                sessionClients.remove(sessionId)
-                logger.warn("SSE connection error: ${sessionId} - ${event.throwable?.message}")
+                activeSessions.remove(visit.visitId)
+                session.close()
+                logger.warn("Service-Based SSE connection error: ${visit.visitId} - ${event.throwable?.message}")
             }
             
             @Override
@@ -312,7 +337,12 @@ class ServiceBasedMcpServlet extends HttpServlet {
         
         // If client wants SSE and has sessionId, this is a subscription request
         if (acceptHeader?.contains("text/event-stream") && sessionId) {
-            if (sseConnections.containsKey(sessionId)) {
+            // Get Visit directly - this is our session (like EnhancedMcpServlet)
+            def visit = ec.entity.find("moqui.server.Visit")
+                .condition("visitId", sessionId)
+                .one()
+            
+            if (visit) {
                 response.setContentType("text/event-stream")
                 response.setCharacterEncoding("UTF-8")
                 response.setHeader("Cache-Control", "no-cache")
@@ -320,7 +350,7 @@ class ServiceBasedMcpServlet extends HttpServlet {
                 
                 // Send subscription confirmation
                 response.writer.write("event: subscribed\n")
-                response.writer.write("data: {\"type\":\"subscribed\",\"sessionId\":\"${sessionId}\",\"timestamp\":\"${System.currentTimeMillis()}\",\"architecture\":\"Service-based\"}\n\n")
+                response.writer.write("data: {\"type\":\"subscribed\",\"sessionId\":\"${sessionId}\",\"timestamp\":\"${System.currentTimeMillis()}\",\"architecture\":\"Service-based with Visit persistence\"}\n\n")
                 response.writer.flush()
             } else {
                 response.sendError(HttpServletResponse.SC_NOT_FOUND, "Session not found")
@@ -335,10 +365,10 @@ class ServiceBasedMcpServlet extends HttpServlet {
                     name: "Moqui Service-Based MCP Server",
                     version: "2.1.0",
                     protocolVersion: "2025-06-18",
-                    architecture: "Service-based - all business logic delegated to McpServices.xml"
+                    architecture: "Service-based with Visit persistence"
                 ],
                 connections: [
-                    active: sseConnections.size(),
+                    active: activeSessions.size(),
                     max: maxConnections
                 ],
                 endpoints: [
@@ -574,7 +604,8 @@ class ServiceBasedMcpServlet extends HttpServlet {
         
         logger.info("Service-Based Subscription request: sessionId=${sessionId}, eventType=${eventType}")
         
-        if (!sessionId || !sseConnections.containsKey(sessionId)) {
+        VisitBasedMcpSession session = activeSessions.get(sessionId)
+        if (!sessionId || !session || !session.isActive()) {
             throw new IllegalArgumentException("Invalid or expired session")
         }
         
@@ -582,13 +613,14 @@ class ServiceBasedMcpServlet extends HttpServlet {
         // For now, just confirm subscription
         
         // Send subscription confirmation via SSE
-        sendSseEvent(sessionId, "subscribed", [
+        def subscriptionData = [
             type: "subscription_confirmed",
             sessionId: sessionId,
             eventType: eventType,
             timestamp: System.currentTimeMillis(),
-            architecture: "Service-based via McpServices.xml"
-        ])
+            architecture: "Service-based with Visit persistence"
+        ]
+        session.sendMessage(new JsonRpcNotification("subscribed", subscriptionData))
         
         return [
             subscribed: true,
@@ -612,42 +644,54 @@ class ServiceBasedMcpServlet extends HttpServlet {
         response.writer.write(groovy.json.JsonOutput.toJson(errorResponse))
     }
     
-    private void sendSseEvent(String sessionId, String eventType, Map data) {
-        AsyncContext asyncContext = sseConnections.get(sessionId)
-        if (!asyncContext) {
-            logger.debug("SSE connection not found for session: ${sessionId}")
-            return
-        }
-        
-        try {
-            HttpServletResponse response = asyncContext.getResponse()
-            response.writer.write("event: ${eventType}\n")
-            response.writer.write("data: ${groovy.json.JsonOutput.toJson(data)}\n\n")
-            response.writer.flush()
-        } catch (Exception e) {
-            logger.warn("Failed to send SSE event to ${sessionId}: ${e.message}")
-            // Remove broken connection
-            sseConnections.remove(sessionId)
-            sessionClients.remove(sessionId)
+    private void broadcastSseEvent(String eventType, Map data) {
+        activeSessions.keySet().each { sessionId ->
+            VisitBasedMcpSession session = activeSessions.get(sessionId)
+            if (session && session.isActive()) {
+                try {
+                    session.sendMessage(new JsonRpcNotification(eventType, data))
+                } catch (Exception e) {
+                    logger.warn("Failed to send broadcast event to ${sessionId}: ${e.message}")
+                    activeSessions.remove(sessionId)
+                }
+            }
         }
     }
     
-    private void broadcastSseEvent(String eventType, Map data) {
-        sseConnections.keySet().each { sessionId ->
-            sendSseEvent(sessionId, eventType, data)
+    private void sendSseEvent(PrintWriter writer, String eventType, String data, long eventId = -1) throws IOException {
+        try {
+            if (eventId >= 0) {
+                writer.write("id: " + eventId + "\n")
+            }
+            writer.write("event: " + eventType + "\n")
+            writer.write("data: " + data + "\n\n")
+            writer.flush()
+            
+            if (writer.checkError()) {
+                throw new IOException("Client disconnected")
+            }
+        } catch (Exception e) {
+            throw new IOException("Failed to send SSE event: " + e.message, e)
         }
     }
     
     private void startKeepAliveTask() {
         executorService.scheduleWithFixedDelay({
             try {
-                sseConnections.keySet().each { sessionId ->
-                    sendSseEvent(sessionId, "ping", [
-                        type: "ping",
-                        timestamp: System.currentTimeMillis(),
-                        connections: sseConnections.size(),
-                        architecture: "Service-based via McpServices.xml"
-                    ])
+                activeSessions.keySet().each { sessionId ->
+                    VisitBasedMcpSession session = activeSessions.get(sessionId)
+                    if (session && session.isActive()) {
+                        def pingData = [
+                            type: "ping",
+                            timestamp: System.currentTimeMillis(),
+                            connections: activeSessions.size(),
+                            architecture: "Service-based with Visit persistence"
+                        ]
+                        session.sendMessage(new JsonRpcNotification("ping", pingData))
+                    } else {
+                        // Remove inactive session
+                        activeSessions.remove(sessionId)
+                    }
                 }
             } catch (Exception e) {
                 logger.warn("Error in Service-Based keep-alive task: ${e.message}")
@@ -655,9 +699,7 @@ class ServiceBasedMcpServlet extends HttpServlet {
         }, keepAliveIntervalSeconds, keepAliveIntervalSeconds, TimeUnit.SECONDS)
     }
     
-    private String generateSessionId() {
-        return UUID.randomUUID().toString()
-    }
+
     
     // CORS handling based on MoquiServlet pattern
     private static boolean handleCors(HttpServletRequest request, HttpServletResponse response, String webappName, ExecutionContextFactoryImpl ecfi) {
