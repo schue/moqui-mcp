@@ -531,8 +531,20 @@ try {
             return
         }
         
-        // Process MCP method using Moqui services (no sessionId in direct JSON-RPC)
-        def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, null)
+        // Try to get session ID from cookie
+        String sessionId = null
+        def cookies = request.getCookies()
+        if (cookies) {
+            for (cookie in cookies) {
+                if ("MCP-SESSION".equals(cookie.getName())) {
+                    sessionId = cookie.getValue()
+                    break
+                }
+            }
+        }
+        
+        // Process MCP method using Moqui services with session ID if available
+        def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId)
         
         // Build JSON-RPC response
         def rpcResponse = [
@@ -543,6 +555,12 @@ try {
         
         response.setContentType("application/json")
         response.setCharacterEncoding("UTF-8")
+        
+        // Set session cookie if result contains sessionId
+        if (rpcResponse.result?.sessionId) {
+            response.setHeader("Set-Cookie", "MCP-SESSION=${rpcResponse.result.sessionId}; Path=/; HttpOnly; SameSite=Lax")
+        }
+        
         response.writer.write(groovy.json.JsonOutput.toJson(rpcResponse))
     }
     
