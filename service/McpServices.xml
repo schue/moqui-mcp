@@ -258,8 +258,8 @@
                 def userAccountId = userId ? userId : null
                 
                 // Get user-specific tools and resources
-                def toolsResult = ec.service.sync().name("org.moqui.mcp.McpServices.mcp#ToolsList").parameters([:]).call()
-                def resourcesResult = ec.service.sync().name("org.moqui.mcp.McpServices.mcp#ResourcesList").parameters([:]).call()
+                def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList").parameters([:]).call()
+                def resourcesResult = ec.service.sync().name("McpServices.mcp#ResourcesList").parameters([:]).call()
                 
                 // Build server capabilities based on what user can access
                 def serverCapabilities = [

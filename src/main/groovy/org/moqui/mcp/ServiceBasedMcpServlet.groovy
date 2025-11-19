@@ -22,7 +22,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 import javax.servlet.AsyncContext
-import javax.servlet.AsyncContextListener
+import javax.servlet.AsyncListener
 import javax.servlet.AsyncEvent
 import javax.servlet.ServletConfig
 import javax.servlet.ServletException
@@ -205,7 +205,7 @@ class ServiceBasedMcpServlet extends HttpServlet {
         ])
         
         // Set up connection close handling
-        asyncContext.addListener(new AsyncContextListener() {
+        asyncContext.addListener(new AsyncListener() {
             @Override
             void onComplete(AsyncEvent event) throws IOException {
                 sseConnections.remove(sessionId)

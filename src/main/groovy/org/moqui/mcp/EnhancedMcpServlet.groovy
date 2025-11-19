@@ -82,21 +82,42 @@ class EnhancedMcpServlet extends HttpServlet {
         
         ExecutionContextImpl ec = ecfi.getEci()
         
-        try {
-            // Initialize web facade for authentication
-            ec.initWebFacade(webappName, request, response)
+try {
+            // Handle Basic Authentication directly without triggering screen system
+            String authzHeader = request.getHeader("Authorization")
+            boolean authenticated = false
             
-            logger.info("Enhanced MCP Request authenticated user: ${ec.user?.username}, userId: ${ec.user?.userId}")
-            
-            // If no user authenticated, try to authenticate as admin for MCP requests
-            if (!ec.user?.userId) {
-                logger.info("No user authenticated, attempting admin login for Enhanced MCP")
-                try {
-                    ec.user.loginUser("admin", "admin")
-                    logger.info("Enhanced MCP Admin login successful, user: ${ec.user?.username}")
-                } catch (Exception e) {
-                    logger.warn("Enhanced MCP Admin login failed: ${e.message}")
+            if (authzHeader != null && authzHeader.length() > 6 && authzHeader.startsWith("Basic ")) {
+                String basicAuthEncoded = authzHeader.substring(6).trim()
+                String basicAuthAsString = new String(basicAuthEncoded.decodeBase64())
+                int indexOfColon = basicAuthAsString.indexOf(":")
+                if (indexOfColon > 0) {
+                    String username = basicAuthAsString.substring(0, indexOfColon)
+                    String password = basicAuthAsString.substring(indexOfColon + 1)
+                    try {
+                        ec.user.loginUser(username, password)
+                        authenticated = true
+                        logger.info("Enhanced MCP Basic auth successful for user: ${ec.user?.username}")
+                    } catch (Exception e) {
+                        logger.warn("Enhanced MCP Basic auth failed for user ${username}: ${e.message}")
+                    }
+                } else {
+                    logger.warn("Enhanced MCP got bad Basic auth credentials string")
                 }
+            }
+            
+            // Check if user is authenticated
+            if (!authenticated || !ec.user?.userId) {
+                logger.warn("Enhanced MCP authentication failed - no valid user authenticated")
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED)
+                response.setContentType("application/json")
+                response.setHeader("WWW-Authenticate", "Basic realm=\"Moqui MCP\"")
+                response.writer.write(groovy.json.JsonOutput.toJson([
+                    jsonrpc: "2.0",
+                    error: [code: -32003, message: "Authentication required. Use Basic auth with valid Moqui credentials."],
+                    id: null
+                ]))
+                return
             }
             
             // Route based on request method and path
@@ -107,6 +128,12 @@ class EnhancedMcpServlet extends HttpServlet {
                 handleSseConnection(request, response, ec)
             } else if ("POST".equals(method) && requestURI.endsWith("/message")) {
                 handleMessage(request, response, ec)
+            } else if ("POST".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
+                // Handle POST requests to /mcp for JSON-RPC
+                handleJsonRpc(request, response, ec)
+            } else if ("GET".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
+                // Handle GET requests to /mcp - maybe for server info or SSE fallback
+                handleSseConnection(request, response, ec)
             } else {
                 // Fallback to JSON-RPC handling
                 handleJsonRpc(request, response, ec)
@@ -157,31 +184,42 @@ class EnhancedMcpServlet extends HttpServlet {
         
         logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         
+        // Enable async support for SSE
+        if (request.isAsyncSupported()) {
+            request.startAsync()
+        }
+        
         // Set SSE headers
         response.setContentType("text/event-stream")
         response.setCharacterEncoding("UTF-8")
         response.setHeader("Cache-Control", "no-cache")
         response.setHeader("Connection", "keep-alive")
         response.setHeader("Access-Control-Allow-Origin", "*")
+        response.setHeader("X-Accel-Buffering", "no") // Disable nginx buffering
         
         String sessionId = UUID.randomUUID().toString()
-        String visitId = ec.web?.visitId
+        String visitId = ec.user?.visitId
         
         // Create Visit-based session transport
         VisitBasedMcpSession session = new VisitBasedMcpSession(sessionId, visitId, response.writer, ec)
         sessionManager.registerSession(session)
         
         try {
-            // Send initial connection event with endpoint info
-            sendSseEvent(response.writer, "endpoint", "/mcp-sse/message?sessionId=" + sessionId)
+            // Send initial connection event
+            def connectData = [
+                type: "connected",
+                sessionId: sessionId,
+                timestamp: System.currentTimeMillis(),
+                serverInfo: [
+                    name: "Moqui MCP SSE Server",
+                    version: "2.0.0",
+                    protocolVersion: "2025-06-18"
+                ]
+            ]
+            sendSseEvent(response.writer, "connect", groovy.json.JsonOutput.toJson(connectData), 0)
             
-            // Send initial resources list
-            def resourcesResult = processMcpMethod("resources/list", [:], ec)
-            sendSseEvent(response.writer, "resources", groovy.json.JsonOutput.toJson(resourcesResult))
-            
-            // Send initial tools list
-            def toolsResult = processMcpMethod("tools/list", [:], ec)
-            sendSseEvent(response.writer, "tools", groovy.json.JsonOutput.toJson(toolsResult))
+            // Send endpoint info for message posting
+            sendSseEvent(response.writer, "endpoint", "/mcp/message?sessionId=" + sessionId, 1)
             
             // Keep connection alive with periodic pings
             int pingCount = 0
@@ -189,29 +227,41 @@ class EnhancedMcpServlet extends HttpServlet {
                 Thread.sleep(5000) // Wait 5 seconds
                 
                 if (!response.isCommitted() && !sessionManager.isShuttingDown()) {
-                    def pingMessage = new McpSchema.JSONRPCMessage([
-                        type: "ping", 
-                        count: pingCount, 
-                        timestamp: System.currentTimeMillis()
-                    ], null)
-                    session.sendMessage(pingMessage)
+                    def pingData = [
+                        type: "ping",
+                        timestamp: System.currentTimeMillis(),
+                        connections: sessionManager.getActiveSessionCount()
+                    ]
+                    sendSseEvent(response.writer, "ping", groovy.json.JsonOutput.toJson(pingData), pingCount + 2)
                     pingCount++
                 }
             }
             
+        } catch (InterruptedException e) {
+            logger.info("SSE connection interrupted for session ${sessionId}")
+            Thread.currentThread().interrupt()
         } catch (Exception e) {
-            logger.warn("Enhanced SSE connection interrupted: ${e.message}")
+            logger.warn("Enhanced SSE connection error: ${e.message}", e)
         } finally {
             // Clean up session
             sessionManager.unregisterSession(sessionId)
             try {
-                def closeMessage = new McpSchema.JSONRPCMessage([
+                def closeData = [
                     type: "disconnected", 
                     timestamp: System.currentTimeMillis()
-                ], null)
-                session.sendMessage(closeMessage)
+                ]
+                sendSseEvent(response.writer, "disconnect", groovy.json.JsonOutput.toJson(closeData), -1)
             } catch (Exception e) {
                 // Ignore errors during cleanup
+            }
+            
+            // Complete async context if available
+            if (request.isAsyncStarted()) {
+                try {
+                    request.getAsyncContext().complete()
+                } catch (Exception e) {
+                    logger.debug("Error completing async context: ${e.message}")
+                }
             }
         }
     }
@@ -221,6 +271,19 @@ class EnhancedMcpServlet extends HttpServlet {
         
         if (sessionManager.isShuttingDown()) {
             response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Server is shutting down")
+            return
+        }
+        
+        // Get sessionId from request parameter or header
+        String sessionId = request.getParameter("sessionId") ?: request.getHeader("Mcp-Session-Id")
+        if (!sessionId) {
+            response.setContentType("application/json")
+            response.setCharacterEncoding("UTF-8")
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
+            response.writer.write(groovy.json.JsonOutput.toJson([
+                error: "Missing sessionId parameter or header",
+                activeSessions: sessionManager.getActiveSessionCount()
+            ]))
             return
         }
         
@@ -239,15 +302,68 @@ class EnhancedMcpServlet extends HttpServlet {
         
         try {
             // Read request body
-            BufferedReader reader = request.getReader()
             StringBuilder body = new StringBuilder()
-            String line
-            while ((line = reader.readLine()) != null) {
-                body.append(line)
+            try {
+                BufferedReader reader = request.getReader()
+                String line
+                while ((line = reader.readLine()) != null) {
+                    body.append(line)
+                }
+            } catch (IOException e) {
+                logger.error("Failed to read request body: ${e.message}")
+                response.setContentType("application/json")
+                response.setCharacterEncoding("UTF-8")
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
+                response.writer.write(groovy.json.JsonOutput.toJson([
+                    jsonrpc: "2.0",
+                    error: [code: -32700, message: "Failed to read request body: " + e.message],
+                    id: null
+                ]))
+                return
+            }
+            
+            String requestBody = body.toString()
+            if (!requestBody.trim()) {
+                response.setContentType("application/json")
+                response.setCharacterEncoding("UTF-8")
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
+                response.writer.write(groovy.json.JsonOutput.toJson([
+                    jsonrpc: "2.0",
+                    error: [code: -32602, message: "Empty request body"],
+                    id: null
+                ]))
+                return
             }
             
             // Parse JSON-RPC message
-            def rpcRequest = jsonSlurper.parseText(body.toString())
+            def rpcRequest
+            try {
+                rpcRequest = jsonSlurper.parseText(requestBody)
+            } catch (Exception e) {
+                logger.error("Failed to parse JSON-RPC message: ${e.message}")
+                response.setContentType("application/json")
+                response.setCharacterEncoding("UTF-8")
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
+                response.writer.write(groovy.json.JsonOutput.toJson([
+                    jsonrpc: "2.0",
+                    error: [code: -32700, message: "Invalid JSON: " + e.message],
+                    id: null
+                ]))
+                return
+            }
+            
+            // Validate JSON-RPC 2.0 structure
+            if (!rpcRequest?.jsonrpc || rpcRequest.jsonrpc != "2.0" || !rpcRequest?.method) {
+                response.setContentType("application/json")
+                response.setCharacterEncoding("UTF-8")
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
+                response.writer.write(groovy.json.JsonOutput.toJson([
+                    jsonrpc: "2.0",
+                    error: [code: -32600, message: "Invalid JSON-RPC 2.0 request"],
+                    id: rpcRequest?.id ?: null
+                ]))
+                return
+            }
             
             // Process the method
             def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec)
@@ -256,15 +372,24 @@ class EnhancedMcpServlet extends HttpServlet {
             def responseMessage = new McpSchema.JSONRPCMessage(result, rpcRequest.id)
             session.sendMessage(responseMessage)
             
+            response.setContentType("application/json")
+            response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_OK)
+            response.writer.write(groovy.json.JsonOutput.toJson([
+                jsonrpc: "2.0",
+                id: rpcRequest.id,
+                result: [status: "processed", sessionId: sessionId]
+            ]))
             
         } catch (Exception e) {
-            logger.error("Error processing message: ${e.message}")
+            logger.error("Error processing message for session ${sessionId}: ${e.message}", e)
             response.setContentType("application/json")
             response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
             response.writer.write(groovy.json.JsonOutput.toJson([
-                error: e.message
+                jsonrpc: "2.0",
+                error: [code: -32603, message: "Internal error: " + e.message],
+                id: null
             ]))
         }
     }
@@ -368,21 +493,39 @@ class EnhancedMcpServlet extends HttpServlet {
     
     private Map<String, Object> processMcpMethod(String method, Map params, ExecutionContextImpl ec) {
         logger.info("Enhanced METHOD: ${method} with params: ${params}")
-        switch (method) {
-            case "initialize":
-                return callMcpService("mcp#Initialize", params, ec)
-            case "ping":
-                return callMcpService("mcp#Ping", params, ec)
-            case "tools/list":
-                return callMcpService("mcp#ToolsList", params, ec)
-            case "tools/call":
-                return callMcpService("mcp#ToolsCall", params, ec)
-            case "resources/list":
-                return callMcpService("mcp#ResourcesList", params, ec)
-            case "resources/read":
-                return callMcpService("mcp#ResourcesRead", params, ec)
-            default:
-                throw new IllegalArgumentException("Unknown MCP method: ${method}")
+        
+        try {
+            switch (method) {
+                case "initialize":
+                    return callMcpService("mcp#Initialize", params, ec)
+                case "ping":
+                    return callMcpService("mcp#Ping", params, ec)
+                case "tools/list":
+                    return callMcpService("mcp#ToolsList", params, ec)
+                case "tools/call":
+                    return callMcpService("mcp#ToolsCall", params, ec)
+                case "resources/list":
+                    return callMcpService("mcp#ResourcesList", params, ec)
+                case "resources/read":
+                    return callMcpService("mcp#ResourcesRead", params, ec)
+                case "notifications/initialized":
+                    // Handle notification initialization - return success for now
+                    return [initialized: true]
+                case "notifications/send":
+                    // Handle notification sending - return success for now  
+                    return [sent: true]
+                case "notifications/subscribe":
+                    // Handle notification subscription - return success for now
+                    return [subscribed: true]
+                case "notifications/unsubscribe":
+                    // Handle notification unsubscription - return success for now
+                    return [unsubscribed: true]
+                default:
+                    throw new IllegalArgumentException("Method not found: ${method}")
+            }
+        } catch (Exception e) {
+            logger.error("Error processing MCP method ${method}: ${e.message}", e)
+            throw e
         }
     }
     
@@ -390,7 +533,7 @@ class EnhancedMcpServlet extends HttpServlet {
         logger.info("Enhanced Calling MCP service: ${serviceName} with params: ${params}")
         
         try {
-            def result = ec.service.sync().name("org.moqui.mcp.McpServices.${serviceName}")
+            def result = ec.service.sync().name("McpServices.${serviceName}")
                 .parameters(params ?: [:])
                 .call()
             
@@ -402,13 +545,20 @@ class EnhancedMcpServlet extends HttpServlet {
         }
     }
     
-    private void sendSseEvent(PrintWriter writer, String eventType, String data) throws IOException {
-        writer.write("event: " + eventType + "\n")
-        writer.write("data: " + data + "\n\n")
-        writer.flush()
-        
-        if (writer.checkError()) {
-            throw new IOException("Client disconnected")
+    private void sendSseEvent(PrintWriter writer, String eventType, String data, long eventId = -1) throws IOException {
+        try {
+            if (eventId >= 0) {
+                writer.write("id: " + eventId + "\n")
+            }
+            writer.write("event: " + eventType + "\n")
+            writer.write("data: " + data + "\n\n")
+            writer.flush()
+            
+            if (writer.checkError()) {
+                throw new IOException("Client disconnected")
+            }
+        } catch (Exception e) {
+            throw new IOException("Failed to send SSE event: " + e.message, e)
         }
     }
     
@@ -436,11 +586,6 @@ class EnhancedMcpServlet extends HttpServlet {
         
         // Gracefully shutdown session manager
         sessionManager.shutdownGracefully()
-        
-        super.destroy()
-    }
-        }
-        sessions.clear()
         
         super.destroy()
     }

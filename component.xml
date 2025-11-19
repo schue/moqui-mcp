@@ -11,52 +11,13 @@
      <https://creativecommons.org/publicdomain/zero/1.0/>. -->
 
 <component xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/component-definition-3.xsd"
-         name="moqui-mcp-2">
-
-
-    
-    <!-- MCP SDK dependencies -->
-    <dependency>
-        <groupId>io.modelcontextprotocol.sdk</groupId>
-        <artifactId>mcp</artifactId>
-        <version>0.16.0</version>
-    </dependency>
-    <dependency>
-        <groupId>io.modelcontextprotocol.sdk</groupId>
-        <artifactId>mcp-core</artifactId>
-        <version>0.16.0</version>
-    </dependency>
-    <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-databind</artifactId>
-        <version>2.15.2</version>
-    </dependency>
-    <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-core</artifactId>
-        <version>2.15.2</version>
-    </dependency>
-    <dependency>
-        <groupId>io.projectreactor</groupId>
-        <artifactId>reactor-core</artifactId>
-        <version>3.5.10</version>
-    </dependency>
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/moqui-conf-3.xsd"
+          name="moqui-mcp-2" version="1.0.0">
 
     <entity-factory load-path="entity/" />
     <service-factory load-path="service/" />
-    <!-- <screen-factory load-path="screen/" /> -->
     
     <!-- Load seed data -->
     <entity-factory load-data="data/McpSecuritySeedData.xml" />
-    
-    <!-- Register MCP filter
-    <webapp-list>
-        <webapp name="webroot">
-            <filter name="McpFilter" class="org.moqui.mcp.McpFilter">
-                <url-pattern>/mcpservlet/*</url-pattern>
-            </filter>
-        </webapp>
-    </webapp-list> -->
 
 </component>
