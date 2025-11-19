@@ -30,6 +30,14 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#ToolsCall" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#ResourcesList" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#ResourcesRead" artifactTypeEnumId="AT_SERVICE"/>
+    <!-- Entity Services -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.find#Entity" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.create#Entity" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.update#Entity" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.delete#Entity" artifactTypeEnumId="AT_SERVICE"/>
+    <!-- Basic Services -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.BasicServices.get#ServerNodeInfo" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.BasicServices.get#SystemInfo" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpRestPaths" artifactName="/mcp" artifactTypeEnumId="AT_REST_PATH"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpRestPaths" artifactName="/mcp/*" artifactTypeEnumId="AT_REST_PATH"/>
     
@@ -49,5 +57,10 @@
     <!-- Add existing demo users to MCP user group for testing -->
     <moqui.security.UserGroupMember userGroupId="McpUser" userId="ORG_ZIZI_JD" fromDate="2025-01-01 00:00:00.000"/>
     <moqui.security.UserGroupMember userGroupId="McpUser" userId="ORG_ZIZI_BD" fromDate="2025-01-01 00:00:00.000"/>
+    
+    <!-- Add MCP users to ADMIN group for full access during testing -->
+    <moqui.security.UserGroupMember userGroupId="ADMIN" userId="MCP_USER" fromDate="2025-01-01 00:00:00.000"/>
+    <moqui.security.UserGroupMember userGroupId="ADMIN" userId="ORG_ZIZI_JD" fromDate="2025-01-01 00:00:00.000"/>
+    <moqui.security.UserGroupMember userGroupId="ADMIN" userId="ORG_ZIZI_BD" fromDate="2025-01-01 00:00:00.000"/>
 
 </entity-facade-xml>
