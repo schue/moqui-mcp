@@ -330,8 +330,11 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             ]
             sendSseEvent(response.writer, "connect", groovy.json.JsonOutput.toJson(connectData), 0)
             
-            // Send endpoint info for message posting
-            sendSseEvent(response.writer, "endpoint", "/mcp/message?sessionId=" + visit.visitId, 1)
+            // Set MCP session ID header per specification
+            response.setHeader("Mcp-Session-Id", visit.visitId.toString())
+            
+            // Send endpoint info for message posting (for compatibility)
+            sendSseEvent(response.writer, "endpoint", "/mcp", 1)
             
             // Keep connection alive with periodic pings
             int pingCount = 0
@@ -539,6 +542,11 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         
         logger.info("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}, Content-Type: ${contentType}")
         
+        // Log request body for debugging (be careful with this in production)
+        if (requestBody?.length() > 0) {
+            logger.info("MCP JSON-RPC request body: ${requestBody}")
+        }
+        
         // Handle POST requests for JSON-RPC
         if (!"POST".equals(method)) {
             response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED)
@@ -612,17 +620,8 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             return
         }
         
-        // Try to get session ID from cookie
-        String sessionId = null
-        def cookies = request.getCookies()
-        if (cookies) {
-            for (cookie in cookies) {
-                if ("MCP-SESSION".equals(cookie.getName())) {
-                    sessionId = cookie.getValue()
-                    break
-                }
-            }
-        }
+        // Get session ID from Mcp-Session-Id header per MCP specification
+        String sessionId = request.getHeader("Mcp-Session-Id")
         
         // Process MCP method using Moqui services with session ID if available
         def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId)
