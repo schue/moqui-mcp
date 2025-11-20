@@ -16,7 +16,7 @@
     <!-- MCP Services using Moqui's built-in JSON-RPC support -->
     
     
-    <service verb="mcp" noun="Initialize" authenticate="true" allow-remote="true" transaction-timeout="30" authz-require="false">
+    <service verb="mcp" noun="Initialize" authenticate="true" allow-remote="true" transaction-timeout="30">
         <description>Handle MCP initialize request using Moqui authentication</description>
         <in-parameters>
             <parameter name="sessionId" required="false"/>
@@ -30,69 +30,68 @@
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
+                import org.moqui.impl.context.UserFacadeImpl.UserInfo
                 
                 ExecutionContext ec = context.ec
+                
+                // Permissions are handled by Moqui's artifact authorization system
+                // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
                 
                 // Get Visit (session) and validate access
                 def visit
                 if (sessionId) {
-                    // Existing session - run as ADMIN to access Visit entity
-                    ec.artifactExecution.disableAuthz()
-                    try {
-                        visit = ec.entity.find("moqui.server.Visit")
-                            .condition("visitId", sessionId)
-                            .one()
-                        
-                        if (!visit) {
-                            throw new Exception("Invalid session: ${sessionId}")
-                        }
-                        
-                        if (visit.userId != ec.user.userId) {
-                            throw new Exception("Access denied for session: ${sessionId}")
-                        }
-                    } finally {
-                        ec.artifactExecution.enableAuthz()
+                    // Existing session - user can access their own visits
+                    visit = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", sessionId)
+                        .one()
+                    
+                    if (!visit) {
+                        throw new Exception("Invalid session: ${sessionId}")
+                    }
+                    
+                    if (visit.userId != ec.user.userId) {
+                        throw new Exception("Access denied for session: ${sessionId}")
                     }
                 } else {
                     // New session - create or get current Visit
                     if (ec.user.visitId) {
-                        ec.artifactExecution.disableAuthz()
-                        try {
-                            visit = ec.entity.find("moqui.server.Visit")
-                                .condition("visitId", ec.user.visitId)
-                                .one()
-                        } finally {
-                            ec.artifactExecution.enableAuthz()
-                        }
+                        visit = ec.entity.find("moqui.server.Visit")
+                            .condition("visitId", ec.user.visitId)
+                            .one()
                     }
                     
                     if (!visit) {
-                        // Create a new Visit for this MCP session - run as ADMIN
-                        // but set userId to the actual authenticated user passed from servlet
+                        // Create a new Visit for this MCP session for the actual authenticated user
                         String actualUserId = parameters.actualUserId ?: ec.user.userId
                         logger.info("Creating Visit - actualUserId: ${actualUserId}")
-                        ec.artifactExecution.disableAuthz()
+                        
+                        // Use pushUser for admin-level Visit creation if needed
+                        UserInfo adminUserInfo = null
                         try {
+                            adminUserInfo = ec.user.pushUser("ADMIN")
                             visit = ec.entity.makeValue("moqui.server.Visit")
-                                visit.visitId = ec.entity.sequencedIdPrimaryEd(ec.entity.getEntityDefinition("moqui.server.Visit"))
-                                visit.userId = "ADMIN" // Use ADMIN for privileged MCP access pattern
-                                visit.visitorId = null
-                                visit.webappName = "mcp"
-                                visit.initialRequest = groovy.json.JsonOutput.toJson([mcpCreated: true, createdFor: "mcp-session"])
-                                visit.fromDate = new Timestamp(System.currentTimeMillis())
-                                visit.clientIpAddress = "127.0.0.1" // TODO: Get actual IP
-                                visit.initialUserAgent = "MCP Client"
-                                visit.sessionId = null // No HTTP session for direct API calls
-                                visit.create()
+                            visit.visitId = ec.entity.sequencedIdPrimaryEd(ec.entity.getEntityDefinition("moqui.server.Visit"))
+                            visit.userId = actualUserId // Use actual user, not ADMIN
+                            visit.visitorId = null
+                            visit.webappName = "mcp"
+                            visit.initialRequest = groovy.json.JsonOutput.toJson([mcpCreated: true, createdFor: "mcp-session"])
+                            visit.fromDate = new Timestamp(System.currentTimeMillis())
+                            visit.clientIpAddress = "127.0.0.1" // TODO: Get actual IP
+                            visit.initialUserAgent = "MCP Client"
+                            visit.sessionId = null // No HTTP session for direct API calls
+                            visit.create()
                         } finally {
-                            ec.artifactExecution.enableAuthz()
+                            if (adminUserInfo != null) {
+                                ec.user.popUser()
+                            }
                         }
                     }
                 }
                 
-                // Update Visit with MCP initialization data - run as ADMIN
-                ec.artifactExecution.disableAuthz()
+                // Update Visit with MCP initialization data
+                UserInfo adminUserInfo = null
                 try {
+                    adminUserInfo = ec.user.pushUser("ADMIN")
                     def metadata = [:]
                     try {
                         metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
@@ -109,7 +108,9 @@
                     visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                     visit.update()
                 } finally {
-                    ec.artifactExecution.enableAuthz()
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
+                    }
                 }
                 
                 // Validate protocol version - support common MCP versions
@@ -152,7 +153,7 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="ToolsList" authenticate="true" allow-remote="true" transaction-timeout="60" authz-require="false">
+    <service verb="mcp" noun="ToolsList" authenticate="true" allow-remote="true" transaction-timeout="60">
         <description>Handle MCP tools/list request with admin discovery but user permission filtering</description>
         <in-parameters>
             <parameter name="sessionId"/>
@@ -168,40 +169,26 @@
                 
                 ExecutionContext ec = context.ec
                 
-                // Store original user context before switching to admin for discovery
-                def originalUserId = ec.user.userId
-                def originalUsername = ec.user.username
+                // Permissions are handled by Moqui's artifact authorization system
+                // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
                 
-                // Validate session if provided (run as original user for security)
+               // Permissions are handled by Moqui's artifact authorization system
+                // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
+                
+                // Validate session if provided
                 if (sessionId) {
-                    def visit = null
-                    // Temporarily disable authz to access Visit entity for session validation
-                    ec.artifactExecution.disableAuthz()
-                    try {
-                        visit = ec.entity.find("moqui.server.Visit")
-                            .condition("visitId", sessionId)
-                            .one()
-                    } finally {
-                        ec.artifactExecution.enableAuthz()
-                    }
+                    def visit = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", sessionId)
+                        .one()
                     
-                    // Validate session - allow special MCP case where Visit was created with ADMIN but accessed by MCP_USER
-                    boolean sessionValid = false
-                    if (visit) {
-                        if (visit.userId == originalUserId) {
-                            sessionValid = true
-                        } else if (visit.userId == "ADMIN" && (originalUserId == "MCP_USER" || originalUserId == "MCP_BUSINESS")) {
-                            // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER or MCP_BUSINESS
-                            sessionValid = true
-                            ec.logger.info("Allowing MCP service access: Visit created with ADMIN, accessed by ${originalUserId}")
-                        }
-                    }
-                    
-                    if (!sessionValid) {
+                    if (!visit || visit.userId != ec.user.userId) {
                         throw new Exception("Invalid session: ${sessionId}")
                     }
-                    
-                    // Update session activity
+                }
+                
+                /*
+                // Update session activity
+                if (sessionId && visit) {
                     def metadata = [:]
                     try {
                         metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
@@ -212,23 +199,75 @@
                     metadata.mcpLastActivity = System.currentTimeMillis()
                     metadata.mcpLastOperation = "tools/list"
                     
-                    // Update Visit with authz disabled
-                    ec.artifactExecution.disableAuthz()
+                    // Update Visit - need admin context for Visit updates
+                    adminUserInfo = null
                     try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                         visit.update()
                     } finally {
-                        ec.artifactExecution.enableAuthz()
+                        if (adminUserInfo != null) {
+                            ec.user.popUser()
+                        }
+                    }
+                }
+                */
+                
+                // Store original user context before switching to ADMIN
+                def originalUsername = ec.user.username
+                def originalUserId = ec.user.userId
+                def userGroups = ec.user.getUserGroupIdSet().collect { it }
+                
+                // Get user's accessible services in a single query for efficiency
+                def userAccessibleServices = null as Set<String>
+                adminUserInfo = null
+                try {
+                    adminUserInfo = ec.user.pushUser("ADMIN")
+                    def artifactGroupMembers = ec.entity.find("moqui.security.ArtifactGroupMember")
+                        .condition("artifactTypeEnumId", "AT_SERVICE")
+                        .condition("userGroupId", userGroups)
+                        .selectField("artifactName")
+                        .distinct(true)
+                        .list()
+                    userAccessibleServices = artifactGroupMembers.collect { it.artifactName } as Set<String>
+                } finally {
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
                     }
                 }
                 
+                // Helper function to check if user has permission to a service
+                def userHasPermission = { serviceName ->
+                    // Use pre-computed accessible services set for O(1) lookup
+                    return userAccessibleServices != null && userAccessibleServices.contains(serviceName.toString())
+                }
+                
                 // Switch to admin context for service discovery (to access all service definitions)
-                ec.user.internalLoginUser("admin")
+                adminUserInfo = ec.user.pushUser("ADMIN")
                 
                 try {
                     def availableTools = []
-                    def allServiceNames = ec.service.getKnownServiceNames()
-                    ec.logger.info("MCP ToolsList: Admin discovered ${allServiceNames.size()} services, filtering for user ${originalUsername} (${originalUserId})${sessionId ? ' (session: ' + sessionId + ')' : ''}")
+                    
+                    // Get only services user has access to via artifact groups
+                    def accessibleServiceNames = []
+                    for (serviceName in userAccessibleServices) {
+                        // Handle wildcard patterns like "McpServices.*"
+                        if (serviceName.contains("*")) {
+                            def pattern = serviceName.replace("*", ".*")
+                            def allServiceNames = ec.service.getKnownServiceNames()
+                            def matchingServices = allServiceNames.findAll { it.matches(pattern) }
+                            // Only add services that actually exist
+                            accessibleServiceNames.addAll(matchingServices.findAll { ec.service.isServiceDefined(it) })
+                        } else {
+                            // Only add if service actually exists
+                            if (ec.service.isServiceDefined(serviceName)) {
+                                accessibleServiceNames << serviceName
+                            }
+                        }
+                    }
+                    accessibleServiceNames = accessibleServiceNames.unique()
+                    
+                    ec.logger.info("MCP ToolsList: Found ${accessibleServiceNames.size()} accessible services for user ${originalUsername} (${originalUserId})${sessionId ? ' (session: ' + sessionId + ')' : ''}")
                     
                     // Helper function to convert service to MCP tool
                     def convertServiceToTool = { serviceName ->
@@ -305,60 +344,8 @@
                         }
                     }
                     
-                    // Get user's accessible services in a single query for efficiency
-                    def userAccessibleServices = null as Set<String>
-                    if (originalUsername != "mcp-user" && originalUsername != "mcp-business") {
-                        // Query ArtifactGroupMembers directly to get all services user can access
-                        ec.artifactExecution.disableAuthz()
-                        try {
-                            def artifactGroupMembers = ec.entity.find("moqui.security.ArtifactGroupMember")
-                                .condition("artifactTypeEnumId", "AT_SERVICE")
-                                .condition("userGroupId", ec.user.getUserGroups().collect { it.userGroupId })
-                                .selectFields("artifactName")
-                                .distinct()
-                                .list()
-                            userAccessibleServices = artifactGroupMembers.collect { it.artifactName } as Set<String>
-                        } finally {
-                            ec.artifactExecution.enableAuthz()
-                        }
-                    }
-                    
-                    // Helper function to check if original user has permission to a service
-                    def userHasPermission = { serviceName ->
-                        // Grant all permissions to mcp-user and mcp-business for business toolkit
-                        if (originalUsername == "mcp-user" || originalUsername == "mcp-business") {
-                            return true
-                        }
-                        
-                        // Use pre-computed accessible services set for O(1) lookup
-                        return userAccessibleServices != null && userAccessibleServices.contains(serviceName.toString())
-                    }
-                    
-                    // Add specific MCP services that should be exposed as tools
-                    def mcpToolServices = ["McpServices.mcp#Ping"]
-                    for (serviceName in mcpToolServices) {
-                        boolean hasPermission = userHasPermission(serviceName)
-                        ec.logger.info("MCP ToolsList: MCP service ${serviceName} userHasPermission=${hasPermission}")
-                        if (!hasPermission) {
-                            continue
-                        }
-                        
-                        def tool = convertServiceToTool(serviceName)
-                        if (tool) {
-                            availableTools << tool
-                        }
-                    }
-                    
-                    // Now add all other services the user has permission to access
-                    for (serviceName in allServiceNames) {
-                        // Permissions system already controls access, no need for artificial exclusions
-                        
-                        // Check permission using original user context
-                        boolean hasPermission = userHasPermission(serviceName)
-                        if (!hasPermission) {
-                            continue
-                        }
-                        
+                    // Add all accessible services as tools
+                    for (serviceName in accessibleServiceNames) {
                         def tool = convertServiceToTool(serviceName)
                         if (tool) {
                             availableTools << tool
@@ -394,13 +381,15 @@
                     
                 } finally {
                     // Always restore original user context
-                    ec.user.internalLoginUser(originalUsername)
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
+                    }
                 }
             ]]></script>
         </actions>
     </service>
 
-    <service verb="mcp" noun="ToolsCall" authenticate="true" allow-remote="true" transaction-timeout="300" authz-require="false">
+    <service verb="mcp" noun="ToolsCall" authenticate="true" allow-remote="true" transaction-timeout="300">
         <description>Handle MCP tools/call request with direct Moqui service execution</description>
         <in-parameters>
             <parameter name="name" required="true"/>
@@ -427,13 +416,16 @@
                 // Validate session if provided
                 if (sessionId) {
                     def visit = null
-                    ec.artifactExecution.disableAuthz()
+                    UserInfo adminUserInfo = null
                     try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
                         visit = ec.entity.find("moqui.server.Visit")
                             .condition("visitId", sessionId)
                             .one()
                     } finally {
-                        ec.artifactExecution.enableAuthz()
+                        if (adminUserInfo != null) {
+                                ec.user.popUser()
+                            }
                     }
                     
                     // Validate session - allow special MCP case where Visit was created with ADMIN but accessed by MCP_USER or MCP_BUSINESS
@@ -452,19 +444,24 @@
                     }
                 }
                 
-                // Note: Permission checking handled by elevated execution pattern
-                // MCP services run with ADMIN privileges but audit as MCP_USER
+                // Check permission using current user context (not elevated)
+                if (!ec.user.hasPermission("service:${name}".toString())) {
+                    throw new Exception("Permission denied for service: ${name}")
+                }
                 
                 def startTime = System.currentTimeMillis()
                 try {
                     // Execute service with elevated privileges for system access
-                    // but maintain audit context with actual user (MCP_USER)
+                    // but maintain audit context with actual user
                     def serviceResult
-                    ec.artifactExecution.disableAuthz()
+                    UserInfo adminUserInfo = null
                     try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
                         serviceResult = ec.service.sync().name(name).parameters(arguments ?: [:]).call()
                     } finally {
-                        ec.artifactExecution.enableAuthz()
+                        if (adminUserInfo != null) {
+                                ec.user.popUser()
+                            }
                     }
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
@@ -497,13 +494,15 @@
                     ec.logger.error("MCP tool execution error", e)
                 } finally {
                     // Always restore original user context
-                    ec.user.internalLoginUser(originalUsername)
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
+                    }
                 }
             ]]></script>
         </actions>
     </service>
 
-    <service verb="mcp" noun="ResourcesList" authenticate="true" allow-remote="true" transaction-timeout="60" authz-require="false">
+    <service verb="mcp" noun="ResourcesList" authenticate="true" allow-remote="true" transaction-timeout="60">
         <description>Handle MCP resources/list request with Moqui entity discovery</description>
         <in-parameters>
             <parameter name="sessionId"/>
@@ -515,34 +514,29 @@
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
+                import org.moqui.impl.context.UserFacadeImpl.UserInfo
                 
                 ExecutionContext ec = context.ec
                 
+                // Permissions are handled by Moqui's artifact authorization system
+                // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
+                
                 // Validate session if provided
                 if (sessionId) {
-                    def visit = null
-                    ec.artifactExecution.disableAuthz()
-                    try {
-                        visit = ec.entity.find("moqui.server.Visit")
-                            .condition("visitId", sessionId)
-                            .one()
-                    } finally {
-                        ec.artifactExecution.enableAuthz()
-                    }
+                    def visit = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", sessionId)
+                        .one()
                     
-                    // Validate session - allow special MCP case where Visit was created with ADMIN but accessed by MCP_USER or MCP_BUSINESS
-                    boolean sessionValid = false
-                    if (visit) {
-                        if (visit.userId == ec.user.userId) {
-                            sessionValid = true
-                        } else if (visit.userId == "ADMIN" && (ec.user.userId == "MCP_USER" || ec.user.userId == "MCP_BUSINESS")) {
-                            // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER or MCP_BUSINESS
-                            sessionValid = true
-                            ec.logger.info("Allowing MCP service access: Visit created with ADMIN, accessed by ${ec.user.userId}")
-                        }
+                    if (!visit || visit.userId != ec.user.userId) {
+                        throw new Exception("Invalid session: ${sessionId}")
                     }
-                    
-                    if (!sessionValid) {
+                }
+                
+                // Build list of available entities as resources
+                def resources = []
+                
+                UserInfo adminUserInfo = null
+                try {
                         throw new Exception("Invalid session: ${sessionId}")
                     }
                     
@@ -557,17 +551,18 @@
                     metadata.mcpLastActivity = System.currentTimeMillis()
                     metadata.mcpLastOperation = "resources/list"
                     
-                    ec.artifactExecution.disableAuthz()
+                    // Update Visit - need admin context for Visit updates
+                    UserInfo adminUserInfo = null
                     try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                         visit.update()
                     } finally {
-                        ec.artifactExecution.enableAuthz()
+                        if (adminUserInfo != null) {
+                            ec.user.popUser()
+                        }
                     }
                 }
-                
-                // Store original username for permission checks
-                def originalUsername = ec.user.username
                 
                 // Use curated list of commonly used entities instead of discovering all entities
                 def availableResources = []
@@ -577,32 +572,30 @@
                 // Get all entity names and filter by permissions (no hardcoded list)
                 def allEntityNames = ec.entity.getAllEntityNames()
                 
+                // Store original username for permission checks
+                def originalUsername = ec.user.username
+                
                 // Get user's accessible entities in a single query for efficiency
                 def userAccessibleEntities = null as Set<String>
-                if (originalUsername != "mcp-user" && originalUsername != "mcp-business") {
-                    // Query ArtifactGroupMembers directly to get all entities user can access
-                    ec.artifactExecution.disableAuthz()
-                    try {
-                        def artifactGroupMembers = ec.entity.find("moqui.security.ArtifactGroupMember")
-                            .condition("artifactTypeEnumId", "AT_ENTITY")
-                            .condition("userGroupId", ec.user.getUserGroups().collect { it.userGroupId })
-                            .selectFields("artifactName")
-                            .distinct()
-                            .list()
-                        userAccessibleEntities = artifactGroupMembers.collect { it.artifactName } as Set<String>
-                    } finally {
-                        ec.artifactExecution.enableAuthz()
+                // Query ArtifactGroupMembers directly to get all entities user can access
+                UserInfo adminUserInfo = null
+                try {
+                    adminUserInfo = ec.user.pushUser("ADMIN")
+                    def artifactGroupMembers = ec.entity.find("moqui.security.ArtifactGroupMember")
+                        .condition("artifactTypeEnumId", "AT_ENTITY")
+                        .condition("userGroupId", ec.user.getUserGroupsIdSet().collect { it.userGroupId })
+                        .selectFields("artifactName")
+                        .distinct(true)
+                        .list()
+                    userAccessibleEntities = artifactGroupMembers.collect { it.artifactName } as Set<String>
+                } finally {
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
                     }
                 }
                 
-                // Helper function to check if original user has permission to an entity
+                // Helper function to check if user has permission to an entity
                 def userHasEntityPermission = { entityName ->
-                    // For MCP users, trust Moqui's artifact security system
-                    // The MCP_BUSINESS group has proper entity permissions through McpBusinessServices artifact group
-                    if (originalUsername == "mcp-user" || originalUsername == "mcp-business") {
-                        return true
-                    }
-                    
                     // Use pre-computed accessible entities set for O(1) lookup
                     return userAccessibleEntities != null && userAccessibleEntities.contains(entityName.toString())
                 }
@@ -625,7 +618,7 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="ResourcesRead" authenticate="true" allow-remote="true" transaction-timeout="120" authz-require="false">
+    <service verb="mcp" noun="ResourcesRead" authenticate="true" allow-remote="true" transaction-timeout="120">
         <description>Handle MCP resources/read request with Moqui entity queries</description>
         <in-parameters>
             <parameter name="sessionId"/>
@@ -644,13 +637,16 @@
                 // Validate session if provided
                 if (sessionId) {
                     def visit = null
-                    ec.artifactExecution.disableAuthz()
+                    UserInfo adminUserInfo = null
                     try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
                         visit = ec.entity.find("moqui.server.Visit")
                             .condition("visitId", sessionId)
                             .one()
                     } finally {
-                        ec.artifactExecution.enableAuthz()
+                        if (adminUserInfo != null) {
+                                ec.user.popUser()
+                            }
                     }
                     
                     if (!visit || visit.userId != ec.user.userId) {
@@ -669,12 +665,15 @@
                     metadata.mcpLastOperation = "resources/read"
                     metadata.mcpLastResource = uri
                     
-                    ec.artifactExecution.disableAuthz()
+                    UserInfo adminUserInfo = null
                     try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                         visit.update()
                     } finally {
-                        ec.artifactExecution.enableAuthz()
+                        if (adminUserInfo != null) {
+                                ec.user.popUser()
+                            }
                     }
                 }
                 
@@ -690,10 +689,7 @@
                     throw new Exception("Entity not found: ${entityName}")
                 }
                 
-                // Check permission
-                if (false && ec.user.username != "mcp-user" && !ec.user.hasPermission("entity:${entityName}".toString())) {
-                    throw new Exception("Permission denied for entity: ${entityName}")
-                }
+                // Permission checking is handled by Moqui's artifact authorization system through artifact groups
                 
                  def startTime = System.currentTimeMillis()
                  try {
@@ -749,7 +745,7 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="Ping" authenticate="true" allow-remote="true" transaction-timeout="10" authz-require="false">
+    <service verb="mcp" noun="Ping" authenticate="true" allow-remote="true" transaction-timeout="10">
         <description>Handle MCP ping request for health check</description>
         <in-parameters>
             <parameter name="sessionId"/>
@@ -758,18 +754,15 @@
             <parameter name="result" type="Map"/>
         </out-parameters>
         <actions>
-            <script><![CDATA[
+          <script><![CDATA[
+                // Permissions are handled by Moqui's artifact authorization system
+                // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
+                
                 // Validate session if provided
                 if (sessionId) {
-                    def visit = null
-                    ec.artifactExecution.disableAuthz()
-                    try {
-                        visit = ec.entity.find("moqui.server.Visit")
-                            .condition("visitId", sessionId)
-                            .one()
-                    } finally {
-                        ec.artifactExecution.enableAuthz()
-                    }
+                    def visit = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", sessionId)
+                        .one()
                     
                     if (!visit || visit.userId != ec.user.userId) {
                         throw new Exception("Invalid session: ${sessionId}")
@@ -786,12 +779,43 @@
                     metadata.mcpLastActivity = System.currentTimeMillis()
                     metadata.mcpLastOperation = "ping"
                     
-                    ec.artifactExecution.disableAuthz()
+                    // Update Visit - need admin context for Visit updates
+                    UserInfo adminUserInfo = null
                     try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                         visit.update()
                     } finally {
-                        ec.artifactExecution.enableAuthz()
+                        if (adminUserInfo != null) {
+                            ec.user.popUser()
+                        }
+                    }
+                }
+                    
+                    if (!visit || visit.userId != ec.user.userId) {
+                        throw new Exception("Invalid session: ${sessionId}")
+                    }
+                    
+                    // Update session activity
+                    def metadata = [:]
+                    try {
+                        metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
+                    } catch (Exception e) {
+                        ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
+                    }
+                    
+                    metadata.mcpLastActivity = System.currentTimeMillis()
+                    metadata.mcpLastOperation = "ping"
+                    
+                    UserInfo adminUserInfo = null
+                    try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
+                        visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                        visit.update()
+                    } finally {
+                        if (adminUserInfo != null) {
+                                ec.user.popUser()
+                            }
                     }
                 }
                 
@@ -817,6 +841,7 @@
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
+                import org.moqui.impl.context.UserFacadeImpl.UserInfo
                 
                 ExecutionContext ec = context.ec
                 
@@ -854,6 +879,7 @@
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
+                import org.moqui.impl.context.UserFacadeImpl.UserInfo
                 
                 ExecutionContext ec = context.ec
                 
@@ -946,6 +972,7 @@
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
+                import org.moqui.impl.context.UserFacadeImpl.UserInfo
                 
                 ExecutionContext ec = context.ec
                 

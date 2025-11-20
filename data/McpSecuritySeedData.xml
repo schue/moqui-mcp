@@ -44,9 +44,10 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="McpServices.list#Products" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.ledger.LedgerServices.find#GlAccount" artifactTypeEnumId="AT_SERVICE"/>
     <!-- Entity Services -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.find#Map" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="create#moqui.server.Visit" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="update#moqui.server.Visit" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.find#Entity" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.create#Entity" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.update#Entity" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.delete#Entity" artifactTypeEnumId="AT_SERVICE"/>
     
     <!-- Essential Business Entities -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.order.OrderHeader" artifactTypeEnumId="AT_ENTITY"/>
@@ -91,9 +92,4 @@
     <!-- Add existing demo users to MCP business group for focused testing -->
     <moqui.security.UserGroupMember userGroupId="MCP_BUSINESS" userId="ORG_ZIZI_JD" fromDate="2025-01-01 00:00:00.000"/>
     <moqui.security.UserGroupMember userGroupId="MCP_BUSINESS" userId="ORG_ZIZI_BD" fromDate="2025-01-01 00:00:00.000"/>
-    
-    <!-- Keep ADMIN access for system operations -->
-    <moqui.security.UserGroupMember userGroupId="ADMIN" userId="MCP_USER" fromDate="2025-01-01 00:00:00.000"/>
-    <moqui.security.UserGroupMember userGroupId="ADMIN" userId="MCP_BUSINESS" fromDate="2025-01-01 00:00:00.000"/>
-
 </entity-facade-xml>

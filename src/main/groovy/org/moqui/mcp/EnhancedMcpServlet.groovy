@@ -416,29 +416,18 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             return
         }
         
-        // Verify user has access to this Visit - more permissive for testing
+        // Verify user has access to this Visit - rely on Moqui security
         logger.info("Session validation: visit.userId=${visit.userId}, ec.user.userId=${ec.user.userId}, ec.user.username=${ec.user.username}")
-        logger.info("DEBUG2: visit.userId exists=${visit.userId != null}, ec.user.userId exists=${ec.user.userId != null}, notEqual=${visit.userId?.toString() != ec.user.userId?.toString()}")
         if (visit.userId && ec.user.userId && visit.userId.toString() != ec.user.userId.toString()) {
-            logger.warn("Visit userId ${visit.userId} doesn't match current user userId ${ec.user.userId}")
-            
-            // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER or MCP_BUSINESS
-            boolean specialMcpCase = visit.userId == "ADMIN" && (ec.user.userId == "MCP_USER" || ec.user.userId == "MCP_BUSINESS")
-            logger.info("DEBUG: visit.userId='${visit.userId}' (class: ${visit.userId?.class?.name}), ec.user.userId='${ec.user.userId}' (class: ${ec.user.userId?.class?.name}), specialMcpCase=${specialMcpCase}")
-            if (specialMcpCase) {
-                logger.info("Allowing MCP service access: Visit created with ADMIN, accessed by ${ec.user.userId}")
-            } else if (visit.userCreated == "Y" && ec.user.username) {
-                logger.info("Allowing access for user ${ec.user.username} to Visit ${sessionId}")
-            } else {
-                response.setContentType("application/json")
-                response.setCharacterEncoding("UTF-8")
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN)
-                response.writer.write(groovy.json.JsonOutput.toJson([
-                    error: "Access denied for session: " + sessionId + " (visit.userId=${visit.userId}, ec.user.userId=${ec.user.userId})",
-                    architecture: "Visit-based sessions"
-                ]))
-                return
-            }
+            logger.warn("Visit userId ${visit.userId} doesn't match current user userId ${ec.user.userId} - access denied")
+            response.setContentType("application/json")
+            response.setCharacterEncoding("UTF-8")
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN)
+            response.writer.write(groovy.json.JsonOutput.toJson([
+                error: "Access denied for session: " + sessionId + " (visit.userId=${visit.userId}, ec.user.userId=${ec.user.userId})",
+                architecture: "Visit-based sessions"
+            ]))
+            return
         }
         
         // Create session wrapper for this Visit
@@ -689,18 +678,8 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 // Allow access if:
                 // 1. Visit userId matches current user, OR
                 // 2. Visit was created with ADMIN (for privileged access) but current user is MCP_USER (actual authenticated user)
-                boolean accessAllowed = false
-                if (visit.userId && ec.user.userId) {
-                    if (visit.userId.toString() == ec.user.userId.toString()) {
-                        accessAllowed = true
-                    } else if (visit.userId.toString() == "ADMIN" && (ec.user.userId.toString() == "MCP_USER" || ec.user.userId.toString() == "MCP_BUSINESS")) {
-                        // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER or MCP_BUSINESS
-                        accessAllowed = true
-                        logger.info("Allowing MCP privileged access: Visit created with ADMIN, accessed by ${ec.user.userId}")
-                    }
-                }
-                
-                if (!accessAllowed) {
+                // Rely on Moqui security - only allow access if visit and current user match
+                if (!visit.userId || !ec.user.userId || visit.userId.toString() != ec.user.userId.toString()) {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN)
                     response.setContentType("application/json")
                     response.writer.write(groovy.json.JsonOutput.toJson([
