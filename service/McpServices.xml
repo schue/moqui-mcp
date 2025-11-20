@@ -670,81 +670,56 @@
                     throw new Exception("Permission denied for entity: ${entityName}")
                 }
                 
-                def startTime = System.currentTimeMillis()
-                try {
-                    // Get entity definition for field descriptions
-                    def entityInfoList = ec.entity.getAllEntityInfo(0, false)
-                    def entityDef = entityInfoList.find { it.entityName == entityName }
-                    if (!entityDef) {
-                        throw new Exception("Entity not found: ${entityName}")
-                    }
-                    
-                    // Query entity data (limited to prevent large responses)
-                    def entityList = ec.entity.find(entityName)
-                        .limit(100)
-                        .list()
-                    
-                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-                    
-                    // Build field info for LLM
-                    def fieldInfo = []
-                    entityDef.allFieldInfoList.each { field ->
-                        fieldInfo << [
-                            name: field.name,
-                            type: field.type,
-                            description: field.description ?: "",
-                            isPk: field.isPk,
-                            required: field.notNull
-                        ]
-                    }
-                    
-                    // Convert to MCP resource content
-                    def contents = [
-                        [
-                            uri: uri,
-                            mimeType: "application/json",
-                            text: new JsonBuilder([
-                                entityName: entityName,
-                                description: entityDef.description ?: "",
-                                packageName: entityDef.packageName,
-                                recordCount: entityList.size(),
-                                fields: fieldInfo,
-                                data: entityList
-                            ]).toString()
-                        ]
-                    ]
-                    
-                    result = [contents: contents]
-                    
-                     // Update audit record
-                     artifactHit.runningTimeMillis = executionTime
-                     artifactHit.wasError = "N"
-                     artifactHit.outputSize = new JsonBuilder(result).toString().length()
-                     
-                     ec.artifactExecution.disableAuthz()
-                     try {
-                         artifactHit.update()
-                     } finally {
-                         ec.artifactExecution.enableAuthz()
-                     }
-                    
-                } catch (Exception e) {
-                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-                    
-                     // Update audit record with error
-                     artifactHit.runningTimeMillis = executionTime
-                     artifactHit.wasError = "Y"
-                     artifactHit.errorMessage = e.message
-                     
-                     ec.artifactExecution.disableAuthz()
-                     try {
-                         artifactHit.update()
-                     } finally {
-                         ec.artifactExecution.enableAuthz()
+                 def startTime = System.currentTimeMillis()
+                 try {
+                     // Get entity definition for field descriptions
+                     def entityInfoList = ec.entity.getAllEntityInfo(0, false)
+                     def entityDef = entityInfoList.find { it.entityName == entityName }
+                     if (!entityDef) {
+                         throw new Exception("Entity not found: ${entityName}")
                      }
                      
+                     // Query entity data (limited to prevent large responses)
+                     def entityList = ec.entity.find(entityName)
+                         .limit(100)
+                         .list()
+                     
+                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                     
+                     // Build field info for LLM
+                     def fieldInfo = []
+                     entityDef.allFieldInfoList.each { field ->
+                         fieldInfo << [
+                             name: field.name,
+                             type: field.type,
+                             description: field.description ?: "",
+                             isPk: field.isPk,
+                             required: field.notNull
+                         ]
+                     }
+                     
+                     // Convert to MCP resource content
+                     def contents = [
+                         [
+                             uri: uri,
+                             mimeType: "application/json",
+                             text: new JsonBuilder([
+                                 entityName: entityName,
+                                 description: entityDef.description ?: "",
+                                 packageName: entityDef.packageName,
+                                 recordCount: entityList.size(),
+                                 fields: fieldInfo,
+                                 data: entityList
+                             ]).toString()
+                         ]
+                     ]
+                     
+                     result = [contents: contents]
+                     
+                 } catch (Exception e) {
+                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                      throw new Exception("Error reading resource ${uri}: ${e.message}")
-                }
+                 }
             ]]></script>
         </actions>
     </service>
