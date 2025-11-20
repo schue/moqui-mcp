@@ -110,6 +110,26 @@ try {
             String authzHeader = request.getHeader("Authorization")
             boolean authenticated = false
             
+            // Read request body early before any other processing can consume it
+            String requestBody = null
+            if ("POST".equals(request.getMethod())) {
+                try {
+                    logger.info("Early reading request body, content length: ${request.getContentLength()}")
+                    BufferedReader reader = request.getReader()
+                    StringBuilder body = new StringBuilder()
+                    String line
+                    int lineCount = 0
+                    while ((line = reader.readLine()) != null) {
+                        body.append(line)
+                        lineCount++
+                    }
+                    requestBody = body.toString()
+                    logger.info("Early read ${lineCount} lines, request body length: ${requestBody.length()}")
+                } catch (Exception e) {
+                    logger.error("Failed to read request body early: ${e.message}")
+                }
+            }
+            
             if (authzHeader != null && authzHeader.length() > 6 && authzHeader.startsWith("Basic ")) {
                 String basicAuthEncoded = authzHeader.substring(6).trim()
                 String basicAuthAsString = new String(basicAuthEncoded.decodeBase64())
@@ -146,6 +166,7 @@ try {
             // Route based on request method and path
             String requestURI = request.getRequestURI()
             String method = request.getMethod()
+            logger.info("Enhanced MCP Request: ${method} ${requestURI} - Content-Length: ${request.getContentLength()}")
             
             if ("GET".equals(method) && requestURI.endsWith("/sse")) {
                 handleSseConnection(request, response, ec, webappName)
@@ -153,13 +174,13 @@ try {
                 handleMessage(request, response, ec)
             } else if ("POST".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle POST requests to /mcp for JSON-RPC
-                handleJsonRpc(request, response, ec, webappName)
+                handleJsonRpc(request, response, ec, webappName, requestBody)
             } else if ("GET".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle GET requests to /mcp - maybe for server info or SSE fallback
                 handleSseConnection(request, response, ec, webappName)
             } else {
                 // Fallback to JSON-RPC handling
-                handleJsonRpc(request, response, ec, webappName)
+                handleJsonRpc(request, response, ec, webappName, requestBody)
             }
             
         } catch (ArtifactAuthorizationException e) {
@@ -510,7 +531,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         }
     }
     
-    private void handleJsonRpc(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec, String webappName) 
+    private void handleJsonRpc(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec, String webappName, String requestBody) 
             throws IOException {
         
         // Initialize web facade for proper session management (like SSE connections)
@@ -529,7 +550,6 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         
         logger.info("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}, Content-Type: ${contentType}")
         
-        // Handle POST requests for JSON-RPC
         if (!"POST".equals(method)) {
             response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED)
             response.setContentType("application/json")
@@ -541,28 +561,29 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             return
         }
         
-        // Read and parse JSON-RPC request
-        String requestBody
-        try {
-            BufferedReader reader = request.getReader()
-            StringBuilder body = new StringBuilder()
-            String line
-            while ((line = reader.readLine()) != null) {
-                body.append(line)
-            }
-            requestBody = body.toString()
-            
-        } catch (IOException e) {
-            logger.error("Failed to read request body: ${e.message}")
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
+        // Use pre-read request body
+        logger.info("Using pre-read request body, length: ${requestBody?.length()}")
+        
+        String jsonMethod = request.getMethod()
+        String jsonAcceptHeader = request.getHeader("Accept")
+        String jsonContentType = request.getContentType()
+        
+        logger.info("Enhanced MCP JSON-RPC Request: ${jsonMethod} ${request.requestURI} - Accept: ${jsonAcceptHeader}, Content-Type: ${jsonContentType}")
+        
+        // Handle POST requests for JSON-RPC
+        if (!"POST".equals(jsonMethod)) {
+            response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED)
             response.setContentType("application/json")
             response.writer.write(groovy.json.JsonOutput.toJson([
                 jsonrpc: "2.0",
-                error: [code: -32700, message: "Failed to read request body: " + e.message],
+                error: [code: -32601, message: "Method Not Allowed. Use POST for JSON-RPC or GET /mcp-sse/sse for SSE."],
                 id: null
             ]))
             return
         }
+        
+        // Use pre-read request body
+        logger.info("Using pre-read request body, length: ${requestBody?.length()}")
         
         if (!requestBody) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
@@ -622,6 +643,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         
         // Get session ID from Mcp-Session-Id header per MCP specification
         String sessionId = request.getHeader("Mcp-Session-Id")
+        logger.info("Session ID from header: '${sessionId}', method: '${rpcRequest.method}'")
         
         // Validate session ID for non-initialize requests per MCP spec
         if (!sessionId && rpcRequest.method != "initialize") {
@@ -655,7 +677,23 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 }
                 
                 // Verify user has access to this Visit
-                if (visit.userId && ec.user.userId && visit.userId.toString() != ec.user.userId.toString()) {
+                logger.info("Session access check - visit.userId: ${visit.userId}, ec.user.userId: ${ec.user.userId}")
+                
+                // Allow access if:
+                // 1. Visit userId matches current user, OR
+                // 2. Visit was created with ADMIN (for privileged access) but current user is MCP_USER (actual authenticated user)
+                boolean accessAllowed = false
+                if (visit.userId && ec.user.userId) {
+                    if (visit.userId.toString() == ec.user.userId.toString()) {
+                        accessAllowed = true
+                    } else if (visit.userId.toString() == "ADMIN" && ec.user.userId.toString() == "MCP_USER") {
+                        // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER
+                        accessAllowed = true
+                        logger.info("Allowing MCP privileged access: Visit created with ADMIN, accessed by MCP_USER")
+                    }
+                }
+                
+                if (!accessAllowed) {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN)
                     response.setContentType("application/json")
                     response.writer.write(groovy.json.JsonOutput.toJson([
@@ -718,6 +756,9 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             
             switch (method) {
                 case "initialize":
+                    // Capture actual authenticated user ID before service elevation
+                    params.actualUserId = ec.user.userId
+                    logger.info("Initialize - actualUserId: ${params.actualUserId}")
                     return callMcpService("mcp#Initialize", params, ec)
                 case "ping":
                     // Simple ping for testing - bypass service for now

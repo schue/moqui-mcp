@@ -283,19 +283,22 @@
                     
                     if (!visit) {
                         // Create a new Visit for this MCP session - run as ADMIN
+                        // but set userId to the actual authenticated user passed from servlet
+                        String actualUserId = parameters.actualUserId ?: ec.user.userId
+                        logger.info("Creating Visit - actualUserId: ${actualUserId}")
                         ec.artifactExecution.disableAuthz()
                         try {
                             visit = ec.entity.makeValue("moqui.server.Visit")
-                            visit.visitId = ec.entity.sequencedIdPrimaryEd(ec.entity.getEntityDefinition("moqui.server.Visit"))
-                            visit.userId = ec.user.userId
-                            visit.visitorId = null
-                            visit.webappName = "mcp"
-                            visit.initialRequest = groovy.json.JsonOutput.toJson([mcpCreated: true, createdFor: "mcp-session"])
-                            visit.fromDate = new Timestamp(System.currentTimeMillis())
-                            visit.clientIpAddress = "127.0.0.1" // TODO: Get actual IP
-                            visit.initialUserAgent = "MCP Client"
-                            visit.sessionId = null // No HTTP session for direct API calls
-                            visit.create()
+                                visit.visitId = ec.entity.sequencedIdPrimaryEd(ec.entity.getEntityDefinition("moqui.server.Visit"))
+                                visit.userId = actualUserId // Use actual authenticated user, not ADMIN
+                                visit.visitorId = null
+                                visit.webappName = "mcp"
+                                visit.initialRequest = groovy.json.JsonOutput.toJson([mcpCreated: true, createdFor: "mcp-session"])
+                                visit.fromDate = new Timestamp(System.currentTimeMillis())
+                                visit.clientIpAddress = "127.0.0.1" // TODO: Get actual IP
+                                visit.initialUserAgent = "MCP Client"
+                                visit.sessionId = null // No HTTP session for direct API calls
+                                visit.create()
                         } finally {
                             ec.artifactExecution.enableAuthz()
                         }
@@ -397,7 +400,19 @@
                         ec.artifactExecution.enableAuthz()
                     }
                     
-                    if (!visit || visit.userId != originalUserId) {
+                    // Validate session - allow special MCP case where Visit was created with ADMIN but accessed by MCP_USER
+                    boolean sessionValid = false
+                    if (visit) {
+                        if (visit.userId == originalUserId) {
+                            sessionValid = true
+                        } else if (visit.userId == "ADMIN" && originalUserId == "MCP_USER") {
+                            // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER
+                            sessionValid = true
+                            ec.logger.info("Allowing MCP service access: Visit created with ADMIN, accessed by MCP_USER")
+                        }
+                    }
+                    
+                    if (!sessionValid) {
                         throw new Exception("Invalid session: ${sessionId}")
                     }
                     
