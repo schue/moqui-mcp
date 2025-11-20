@@ -513,6 +513,16 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
     private void handleJsonRpc(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec) 
             throws IOException {
         
+        // Initialize web facade for proper session management (like SSE connections)
+        // This prevents the null user loop by ensuring HTTP session is properly linked
+        try {
+            ec.initWebFacade(webappName, request, response)
+            logger.debug("JSON-RPC web facade initialized for user: ${ec.user?.username}")
+        } catch (Exception e) {
+            logger.warn("JSON-RPC web facade initialization failed: ${e.message}")
+            // Continue anyway - we may still have basic user context from auth
+        }
+        
         String method = request.getMethod()
         String acceptHeader = request.getHeader("Accept")
         String contentType = request.getContentType()
