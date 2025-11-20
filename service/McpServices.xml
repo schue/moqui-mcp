@@ -554,10 +554,7 @@
                     
                     // Now add all other services the user has permission to access
                     for (serviceName in allServiceNames) {
-                        // Skip internal MCP services to avoid recursion (already handled above)
-                        if (serviceName.startsWith("McpServices.")) {
-                            continue
-                        }
+                        // Permissions system already controls access, no need for artificial exclusions
                         
                         // Check permission using original user context
                         boolean hasPermission = userHasPermission(serviceName)
