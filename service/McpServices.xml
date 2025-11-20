@@ -43,6 +43,7 @@
                     // Existing session - user can access their own visits
                     visit = ec.entity.find("moqui.server.Visit")
                         .condition("visitId", sessionId)
+                        .disableAuthz()
                         .one()
                     
                     if (!visit) {
@@ -57,6 +58,7 @@
                     if (ec.user.visitId) {
                         visit = ec.entity.find("moqui.server.Visit")
                             .condition("visitId", ec.user.visitId)
+                            .disableAuthz()
                             .one()
                     }
                     
@@ -79,7 +81,7 @@
                             visit.clientIpAddress = "127.0.0.1" // TODO: Get actual IP
                             visit.initialUserAgent = "MCP Client"
                             visit.sessionId = null // No HTTP session for direct API calls
-                            visit.create()
+                            visit.disableAuthz().create()
                         } finally {
                             if (adminUserInfo != null) {
                                 ec.user.popUser()
@@ -106,7 +108,9 @@
                     metadata.mcpInitializedAt = System.currentTimeMillis()
                     
                     visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                    ec.artifactExecution.disableAuthz()
                     visit.update()
+                    ec.artifactExecution.enableAuthz()
                 } finally {
                     if (adminUserInfo != null) {
                         ec.user.popUser()
@@ -172,13 +176,11 @@
                 // Permissions are handled by Moqui's artifact authorization system
                 // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
                 
-               // Permissions are handled by Moqui's artifact authorization system
-                // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
-                
                 // Validate session if provided
                 if (sessionId) {
                     def visit = ec.entity.find("moqui.server.Visit")
                         .condition("visitId", sessionId)
+                        .disableAuthz()
                         .one()
                     
                     if (!visit || visit.userId != ec.user.userId) {
@@ -204,7 +206,9 @@
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                        ec.artifactExecution.disableAuthz()
                         visit.update()
+                        ec.artifactExecution.enableAuthz()
                     } finally {
                         if (adminUserInfo != null) {
                             ec.user.popUser()
@@ -218,18 +222,18 @@
                 def originalUserId = ec.user.userId
                 def userGroups = ec.user.getUserGroupIdSet().collect { it }
                 
-                // Get user's accessible services in a single query for efficiency
+                // Get user's accessible services using Moqui's optimized ArtifactAuthzCheckView
                 def userAccessibleServices = null as Set<String>
                 adminUserInfo = null
                 try {
                     adminUserInfo = ec.user.pushUser("ADMIN")
-                    def artifactGroupMembers = ec.entity.find("moqui.security.ArtifactGroupMember")
-                        .condition("artifactTypeEnumId", "AT_SERVICE")
+                    def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
                         .condition("userGroupId", userGroups)
-                        .selectField("artifactName")
-                        .distinct(true)
+                        .condition("artifactTypeEnumId", "AT_SERVICE")
+                        .useCache(true)
+                        .disableAuthz()
                         .list()
-                    userAccessibleServices = artifactGroupMembers.collect { it.artifactName } as Set<String>
+                    userAccessibleServices = aacvList.collect { it.artifactName } as Set<String>
                 } finally {
                     if (adminUserInfo != null) {
                         ec.user.popUser()
@@ -444,11 +448,6 @@
                     }
                 }
                 
-                // Check permission using current user context (not elevated)
-                if (!ec.user.hasPermission("service:${name}".toString())) {
-                    throw new Exception("Permission denied for service: ${name}")
-                }
-                
                 def startTime = System.currentTimeMillis()
                 try {
                     // Execute service with elevated privileges for system access
@@ -456,7 +455,6 @@
                     def serviceResult
                     UserInfo adminUserInfo = null
                     try {
-                        adminUserInfo = ec.user.pushUser("ADMIN")
                         serviceResult = ec.service.sync().name(name).parameters(arguments ?: [:]).call()
                     } finally {
                         if (adminUserInfo != null) {
@@ -556,7 +554,9 @@
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                        ec.artifactExecution.disableAuthz()
                         visit.update()
+                        ec.artifactExecution.enableAuthz()
                     } finally {
                         if (adminUserInfo != null) {
                             ec.user.popUser()
@@ -564,31 +564,33 @@
                     }
                 }
                 
+                // Store original user context before switching to ADMIN
+                def originalUsername = ec.user.username
+                def originalUserId = ec.user.userId
+                def userGroups = ec.user.getUserGroupIdSet().collect { it }
+                
                 // Use curated list of commonly used entities instead of discovering all entities
                 def availableResources = []
                 
                 ec.logger.info("MCP ResourcesList: Starting permissions-based entity discovery")
                 
-                // Get all entity names and filter by permissions (no hardcoded list)
-                def allEntityNames = ec.entity.getAllEntityNames()
-                
-                // Store original username for permission checks
-                def originalUsername = ec.user.username
-                
-                // Get user's accessible entities using Moqui's built-in permission checking
+                // Get user's accessible entities using Moqui's optimized ArtifactAuthzCheckView
                 def userAccessibleEntities = null as Set<String>
-                
-                // Get all entity names and filter using Moqui's permission system
-                def allEntityNames = ec.entity.getAllEntityNames()
-                userAccessibleEntities = []
-                
-                for (entityName in allEntityNames) {
-                    // Use Moqui's built-in permission checking
-                    if (ec.user.hasPermission("entity:${entityName}".toString())) {
-                        userAccessibleEntities << entityName
+                adminUserInfo = null
+                try {
+                    adminUserInfo = ec.user.pushUser("ADMIN")
+                    def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
+                        .condition("userGroupId", userGroups)
+                        .condition("artifactTypeEnumId", "AT_ENTITY")
+                        .useCache(true)
+                        .disableAuthz()
+                        .list()
+                    userAccessibleEntities = aacvList.collect { it.artifactName } as Set<String>
+                } finally {
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
                     }
                 }
-                userAccessibleEntities = userAccessibleEntities as Set<String>
                 
                 // Helper function to check if user has permission to an entity
                 def userHasEntityPermission = { entityName ->
@@ -665,7 +667,9 @@
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                        ec.artifactExecution.disableAuthz()
                         visit.update()
+                        ec.artifactExecution.enableAuthz()
                     } finally {
                         if (adminUserInfo != null) {
                                 ec.user.popUser()
@@ -780,7 +784,9 @@
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                        ec.artifactExecution.disableAuthz()
                         visit.update()
+                        ec.artifactExecution.enableAuthz()
                     } finally {
                         if (adminUserInfo != null) {
                             ec.user.popUser()
@@ -807,7 +813,9 @@
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                        ec.artifactExecution.disableAuthz()
                         visit.update()
+                        ec.artifactExecution.enableAuthz()
                     } finally {
                         if (adminUserInfo != null) {
                                 ec.user.popUser()
