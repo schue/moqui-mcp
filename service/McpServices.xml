@@ -1183,6 +1183,48 @@
 
 
 
+    <service verb="list" noun="Products" authenticate="true" allow-remote="true" transaction-timeout="30">
+        <description>List products with basic information for MCP business toolkit</description>
+        <in-parameters>
+            <parameter name="productCategoryId" required="false"/>
+            <parameter name="ownerPartyId" required="false"/>
+            <parameter name="pageSize" type="Integer" default="20"/>
+            <parameter name="pageIndex" type="Integer" default="0"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="products" type="List"/>
+            <parameter name="totalCount" type="Integer"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                def entityFind = ec.entity.find("mantle.product.Product")
+                
+                // Apply filters if provided
+                if (productCategoryId) {
+                    entityFind.condition("productCategoryId", productCategoryId)
+                }
+                if (ownerPartyId) {
+                    entityFind.condition("ownerPartyId", ownerPartyId)
+                }
+                
+                // Get total count
+                totalCount = entityFind.count()
+                
+                // Apply pagination
+                entityFind.orderBy("productName").limit(pageSize).offset(pageIndex * pageSize)
+                
+                // Get product list with basic fields
+                products = entityFind.selectFields(["productId", "productName", "description", "productTypeId", 
+                                                   "productCategoryId", "ownerPartyId", "internalName"]).list()
+                
+            ]]></script>
+        </actions>
+    </service>
+
     <!-- NOTE: handle#McpRequest service removed - functionality moved to screen/webapp.xml for unified handling -->
 
 </services>

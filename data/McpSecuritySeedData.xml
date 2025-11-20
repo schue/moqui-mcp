@@ -40,6 +40,8 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="org.moqui.impl.BasicServices.send#Email" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="org.moqui.impl.BasicServices.create#CommunicationEvent" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.product.ProductServices.find#ProductByIdValue" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.product.AssetServices.get#AvailableInventory" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="McpServices.list#Products" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.ledger.LedgerServices.find#GlAccount" artifactTypeEnumId="AT_SERVICE"/>
     <!-- Entity Services -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.find#Entity" artifactTypeEnumId="AT_SERVICE"/>
