@@ -326,10 +326,11 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                     architecture: "Visit-based sessions with connection registry"
                 ]
             ]
-            sendSseEvent(response.writer, "connect", groovy.json.JsonOutput.toJson(connectData), 0)
             
-            // Set MCP session ID header per specification
+            // Set MCP session ID header per specification BEFORE sending any data
             response.setHeader("Mcp-Session-Id", visit.visitId.toString())
+            
+            sendSseEvent(response.writer, "connect", groovy.json.JsonOutput.toJson(connectData), 0)
             
             // Send endpoint info for message posting (for compatibility)
             sendSseEvent(response.writer, "endpoint", "/mcp", 1)
@@ -417,10 +418,16 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         
         // Verify user has access to this Visit - more permissive for testing
         logger.info("Session validation: visit.userId=${visit.userId}, ec.user.userId=${ec.user.userId}, ec.user.username=${ec.user.username}")
+        logger.info("DEBUG2: visit.userId exists=${visit.userId != null}, ec.user.userId exists=${ec.user.userId != null}, notEqual=${visit.userId?.toString() != ec.user.userId?.toString()}")
         if (visit.userId && ec.user.userId && visit.userId.toString() != ec.user.userId.toString()) {
             logger.warn("Visit userId ${visit.userId} doesn't match current user userId ${ec.user.userId}")
-            // For now, allow access if username matches (more permissive)
-            if (visit.userCreated == "Y" && ec.user.username) {
+            
+            // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER or MCP_BUSINESS
+            boolean specialMcpCase = visit.userId == "ADMIN" && (ec.user.userId == "MCP_USER" || ec.user.userId == "MCP_BUSINESS")
+            logger.info("DEBUG: visit.userId='${visit.userId}' (class: ${visit.userId?.class?.name}), ec.user.userId='${ec.user.userId}' (class: ${ec.user.userId?.class?.name}), specialMcpCase=${specialMcpCase}")
+            if (specialMcpCase) {
+                logger.info("Allowing MCP service access: Visit created with ADMIN, accessed by ${ec.user.userId}")
+            } else if (visit.userCreated == "Y" && ec.user.username) {
                 logger.info("Allowing access for user ${ec.user.username} to Visit ${sessionId}")
             } else {
                 response.setContentType("application/json")
@@ -686,10 +693,10 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 if (visit.userId && ec.user.userId) {
                     if (visit.userId.toString() == ec.user.userId.toString()) {
                         accessAllowed = true
-                    } else if (visit.userId.toString() == "ADMIN" && ec.user.userId.toString() == "MCP_USER") {
-                        // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER
+                    } else if (visit.userId.toString() == "ADMIN" && (ec.user.userId.toString() == "MCP_USER" || ec.user.userId.toString() == "MCP_BUSINESS")) {
+                        // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER or MCP_BUSINESS
                         accessAllowed = true
-                        logger.info("Allowing MCP privileged access: Visit created with ADMIN, accessed by MCP_USER")
+                        logger.info("Allowing MCP privileged access: Visit created with ADMIN, accessed by ${ec.user.userId}")
                     }
                 }
                 

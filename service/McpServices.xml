@@ -405,10 +405,10 @@
                     if (visit) {
                         if (visit.userId == originalUserId) {
                             sessionValid = true
-                        } else if (visit.userId == "ADMIN" && originalUserId == "MCP_USER") {
-                            // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER
+                        } else if (visit.userId == "ADMIN" && (originalUserId == "MCP_USER" || originalUserId == "MCP_BUSINESS")) {
+                            // Special case: MCP services run with ADMIN privileges but authenticate as MCP_USER or MCP_BUSINESS
                             sessionValid = true
-                            ec.logger.info("Allowing MCP service access: Visit created with ADMIN, accessed by MCP_USER")
+                            ec.logger.info("Allowing MCP service access: Visit created with ADMIN, accessed by ${originalUserId}")
                         }
                     }
                     
@@ -522,8 +522,8 @@
                     
                     // Helper function to check if original user has permission to a service
                     def userHasPermission = { serviceName ->
-                        // For now, grant all permissions to mcp-user for testing
-                        if (originalUsername == "mcp-user") {
+                        // Grant all permissions to mcp-user and mcp-business for business toolkit
+                        if (originalUsername == "mcp-user" || originalUsername == "mcp-business") {
                             return true
                         }
                         
