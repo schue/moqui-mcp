@@ -32,46 +32,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.UUID
 
-/**
- * Simple JSON-RPC Message classes for MCP compatibility
- */
-class JsonRpcMessage {
-    String jsonrpc = "2.0"
-}
 
-class JsonRpcResponse extends JsonRpcMessage {
-    Object id
-    Object result
-    Map error
-    
-    JsonRpcResponse(Object result, Object id) {
-        this.result = result
-        this.id = id
-    }
-    
-    JsonRpcResponse(Map error, Object id) {
-        this.error = error
-        this.id = id
-    }
-    
-    String toJson() {
-        return JsonOutput.toJson(this)
-    }
-}
-
-class JsonRpcNotification extends JsonRpcMessage {
-    String method
-    Object params
-    
-    JsonRpcNotification(String method, Object params = null) {
-        this.method = method
-        this.params = params
-    }
-    
-    String toJson() {
-        return JsonOutput.toJson(this)
-    }
-}
 
 /**
  * Enhanced MCP Servlet with proper SSE handling inspired by HttpServletSseServerTransportProvider
@@ -88,12 +49,28 @@ class EnhancedMcpServlet extends HttpServlet {
     // Session management using Moqui's Visit system directly
     // No need for separate session manager - Visit entity handles persistence
     
+    // Configuration parameters
+    private String sseEndpoint = "/sse"
+    private String messageEndpoint = "/message"
+    private int keepAliveIntervalSeconds = 30
+    private int maxConnections = 100
+    
     @Override
     void init(ServletConfig config) throws ServletException {
         super.init(config)
+        
+        // Read configuration from servlet init parameters
+        sseEndpoint = config.getInitParameter("sseEndpoint") ?: sseEndpoint
+        messageEndpoint = config.getInitParameter("messageEndpoint") ?: messageEndpoint
+        keepAliveIntervalSeconds = config.getInitParameter("keepAliveIntervalSeconds")?.toInteger() ?: keepAliveIntervalSeconds
+        maxConnections = config.getInitParameter("maxConnections")?.toInteger() ?: maxConnections
+        
         String webappName = config.getInitParameter("moqui-name") ?: 
             config.getServletContext().getInitParameter("moqui-name")
+        
         logger.info("EnhancedMcpServlet initialized for webapp ${webappName}")
+        logger.info("SSE endpoint: ${sseEndpoint}, Message endpoint: ${messageEndpoint}")
+        logger.info("Keep-alive interval: ${keepAliveIntervalSeconds}s, Max connections: ${maxConnections}")
     }
     
     @Override
@@ -542,11 +519,6 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         
         logger.info("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}, Content-Type: ${contentType}")
         
-        // Log request body for debugging (be careful with this in production)
-        if (requestBody?.length() > 0) {
-            logger.info("MCP JSON-RPC request body: ${requestBody}")
-        }
-        
         // Handle POST requests for JSON-RPC
         if (!"POST".equals(method)) {
             response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED)
@@ -591,6 +563,11 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 id: null
             ]))
             return
+        }
+        
+        // Log request body for debugging (be careful with this in production)
+        if (requestBody.length() > 0) {
+            logger.info("MCP JSON-RPC request body: ${requestBody}")
         }
         
         def rpcRequest
@@ -777,21 +754,51 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             
             logger.info("Broadcasting to ${mcpVisits.size()} MCP visits, ${activeConnections.size()} active connections")
             
+            int successCount = 0
+            int failureCount = 0
+            
             // Send to active connections (transient)
             mcpVisits.each { visit ->
                 PrintWriter writer = activeConnections.get(visit.visitId)
                 if (writer && !writer.checkError()) {
                     try {
                         sendSseEvent(writer, "broadcast", message.toJson())
+                        successCount++
                     } catch (Exception e) {
                         logger.warn("Failed to send broadcast to ${visit.visitId}: ${e.message}")
                         // Remove broken connection
                         activeConnections.remove(visit.visitId)
+                        failureCount++
                     }
+                } else {
+                    // No active connection for this visit
+                    failureCount++
                 }
             }
+            
+            logger.info("Broadcast completed: ${successCount} successful, ${failureCount} failed")
+            
         } catch (Exception e) {
             logger.error("Error broadcasting to all sessions: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Send SSE event to specific session (helper method)
+     */
+    void sendToSession(String sessionId, JsonRpcMessage message) {
+        try {
+            PrintWriter writer = activeConnections.get(sessionId)
+            if (writer && !writer.checkError()) {
+                sendSseEvent(writer, "message", message.toJson())
+                logger.debug("Sent message to session ${sessionId}")
+            } else {
+                logger.warn("No active connection for session ${sessionId}")
+            }
+        } catch (Exception e) {
+            logger.error("Error sending message to session ${sessionId}: ${e.message}", e)
+            // Remove broken connection
+            activeConnections.remove(sessionId)
         }
     }
     
@@ -808,12 +815,22 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             return [
                 totalMcpVisits: mcpVisits.size(),
                 activeConnections: activeConnections.size(),
+                maxConnections: maxConnections,
                 architecture: "Visit-based sessions with connection registry",
-                message: "Enhanced MCP with session tracking"
+                message: "Enhanced MCP with session tracking",
+                endpoints: [
+                    sse: sseEndpoint,
+                    message: messageEndpoint
+                ],
+                keepAliveInterval: keepAliveIntervalSeconds
             ]
         } catch (Exception e) {
             logger.error("Error getting session statistics: ${e.message}", e)
-            return [activeSessions: activeConnections.size(), error: e.message]
+            return [
+                activeConnections: activeConnections.size(), 
+                maxConnections: maxConnections,
+                error: e.message
+            ]
         }
     }
 }
