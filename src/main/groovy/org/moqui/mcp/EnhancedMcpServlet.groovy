@@ -724,6 +724,11 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         // Process MCP method using Moqui services with session ID if available
         def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId)
         
+        // Set Mcp-Session-Id header BEFORE any response data (per MCP 2025-06-18 spec)
+        if (result?.sessionId) {
+            response.setHeader("Mcp-Session-Id", result.sessionId)
+        }
+        
         // Build JSON-RPC response
         def rpcResponse = [
             jsonrpc: "2.0",
@@ -733,11 +738,6 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         
         response.setContentType("application/json")
         response.setCharacterEncoding("UTF-8")
-        
-        // Set Mcp-Session-Id header if result contains sessionId (per MCP 2025-06-18 spec)
-        if (rpcResponse.result?.sessionId) {
-            response.setHeader("Mcp-Session-Id", rpcResponse.result.sessionId)
-        }
         
         response.writer.write(groovy.json.JsonOutput.toJson(rpcResponse))
     }
