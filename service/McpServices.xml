@@ -575,24 +575,20 @@
                 // Store original username for permission checks
                 def originalUsername = ec.user.username
                 
-                // Get user's accessible entities in a single query for efficiency
+                // Get user's accessible entities using Moqui's built-in permission checking
                 def userAccessibleEntities = null as Set<String>
-                // Query ArtifactGroupMembers directly to get all entities user can access
-                UserInfo adminUserInfo = null
-                try {
-                    adminUserInfo = ec.user.pushUser("ADMIN")
-                    def artifactGroupMembers = ec.entity.find("moqui.security.ArtifactGroupMember")
-                        .condition("artifactTypeEnumId", "AT_ENTITY")
-                        .condition("userGroupId", ec.user.getUserGroupsIdSet().collect { it.userGroupId })
-                        .selectFields("artifactName")
-                        .distinct(true)
-                        .list()
-                    userAccessibleEntities = artifactGroupMembers.collect { it.artifactName } as Set<String>
-                } finally {
-                    if (adminUserInfo != null) {
-                        ec.user.popUser()
+                
+                // Get all entity names and filter using Moqui's permission system
+                def allEntityNames = ec.entity.getAllEntityNames()
+                userAccessibleEntities = []
+                
+                for (entityName in allEntityNames) {
+                    // Use Moqui's built-in permission checking
+                    if (ec.user.hasPermission("entity:${entityName}".toString())) {
+                        userAccessibleEntities << entityName
                     }
                 }
+                userAccessibleEntities = userAccessibleEntities as Set<String>
                 
                 // Helper function to check if user has permission to an entity
                 def userHasEntityPermission = { entityName ->
