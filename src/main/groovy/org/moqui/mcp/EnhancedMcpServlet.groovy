@@ -597,8 +597,33 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             return
         }
         
+        // Validate MCP protocol version per specification
+        String protocolVersion = request.getHeader("MCP-Protocol-Version")
+        if (protocolVersion && protocolVersion != "2025-06-18") {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
+            response.setContentType("application/json")
+            response.writer.write(groovy.json.JsonOutput.toJson([
+                jsonrpc: "2.0",
+                error: [code: -32600, message: "Unsupported MCP protocol version: ${protocolVersion}. Supported: 2025-06-18"],
+                id: null
+            ]))
+            return
+        }
+        
         // Get session ID from Mcp-Session-Id header per MCP specification
         String sessionId = request.getHeader("Mcp-Session-Id")
+        
+        // Validate session ID for non-initialize requests per MCP spec
+        if (!sessionId && rpcRequest.method != "initialize") {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
+            response.setContentType("application/json")
+            response.writer.write(groovy.json.JsonOutput.toJson([
+                jsonrpc: "2.0",
+                error: [code: -32600, message: "Mcp-Session-Id header required for non-initialize requests"],
+                id: rpcRequest.id
+            ]))
+            return
+        }
         
         // Process MCP method using Moqui services with session ID if available
         def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId)
@@ -613,9 +638,9 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         response.setContentType("application/json")
         response.setCharacterEncoding("UTF-8")
         
-        // Set session cookie if result contains sessionId
+        // Set Mcp-Session-Id header if result contains sessionId (per MCP 2025-06-18 spec)
         if (rpcResponse.result?.sessionId) {
-            response.setHeader("Set-Cookie", "MCP-SESSION=${rpcResponse.result.sessionId}; Path=/; HttpOnly; SameSite=Lax")
+            response.setHeader("Mcp-Session-Id", rpcResponse.result.sessionId)
         }
         
         response.writer.write(groovy.json.JsonOutput.toJson(rpcResponse))
