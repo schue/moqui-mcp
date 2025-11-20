@@ -153,13 +153,13 @@ try {
                 handleMessage(request, response, ec)
             } else if ("POST".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle POST requests to /mcp for JSON-RPC
-                handleJsonRpc(request, response, ec)
+                handleJsonRpc(request, response, ec, webappName)
             } else if ("GET".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle GET requests to /mcp - maybe for server info or SSE fallback
                 handleSseConnection(request, response, ec, webappName)
             } else {
                 // Fallback to JSON-RPC handling
-                handleJsonRpc(request, response, ec)
+                handleJsonRpc(request, response, ec, webappName)
             }
             
         } catch (ArtifactAuthorizationException e) {
@@ -510,7 +510,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         }
     }
     
-    private void handleJsonRpc(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec) 
+    private void handleJsonRpc(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec, String webappName) 
             throws IOException {
         
         // Initialize web facade for proper session management (like SSE connections)
@@ -633,6 +633,54 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 id: rpcRequest.id
             ]))
             return
+        }
+        
+        // For existing sessions, set visit ID in HTTP session before web facade initialization
+        // This ensures Moqui picks up the existing Visit when initWebFacade() is called
+        if (sessionId && rpcRequest.method != "initialize") {
+            try {
+                def visit = ec.entity.find("moqui.server.Visit")
+                    .condition("visitId", sessionId)
+                    .one()
+                
+                if (!visit) {
+                    response.setStatus(HttpServletResponse.SC_NOT_FOUND)
+                    response.setContentType("application/json")
+                    response.writer.write(groovy.json.JsonOutput.toJson([
+                        jsonrpc: "2.0",
+                        error: [code: -32600, message: "Session not found: ${sessionId}"],
+                        id: rpcRequest.id
+                    ]))
+                    return
+                }
+                
+                // Verify user has access to this Visit
+                if (visit.userId && ec.user.userId && visit.userId.toString() != ec.user.userId.toString()) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN)
+                    response.setContentType("application/json")
+                    response.writer.write(groovy.json.JsonOutput.toJson([
+                        jsonrpc: "2.0",
+                        error: [code: -32600, message: "Access denied for session: ${sessionId}"],
+                        id: rpcRequest.id
+                    ]))
+                    return
+                }
+                
+                // Set visit ID in HTTP session so Moqui web facade initialization picks it up
+                request.session.setAttribute("moqui.visitId", sessionId)
+                logger.info("Set existing Visit ${sessionId} in HTTP session for user ${ec.user.username}")
+                
+            } catch (Exception e) {
+                logger.error("Error finding session ${sessionId}: ${e.message}")
+                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
+                response.setContentType("application/json")
+                response.writer.write(groovy.json.JsonOutput.toJson([
+                    jsonrpc: "2.0",
+                    error: [code: -32603, message: "Session lookup error: ${e.message}"],
+                    id: rpcRequest.id
+                ]))
+                return
+            }
         }
         
         // Process MCP method using Moqui services with session ID if available
