@@ -305,6 +305,24 @@
                         }
                     }
                     
+                    // Get user's accessible services in a single query for efficiency
+                    def userAccessibleServices = null as Set<String>
+                    if (originalUsername != "mcp-user" && originalUsername != "mcp-business") {
+                        // Query ArtifactGroupMembers directly to get all services user can access
+                        ec.artifactExecution.disableAuthz()
+                        try {
+                            def artifactGroupMembers = ec.entity.find("moqui.security.ArtifactGroupMember")
+                                .condition("artifactTypeEnumId", "AT_SERVICE")
+                                .condition("userGroupId", ec.user.getUserGroups().collect { it.userGroupId })
+                                .selectFields("artifactName")
+                                .distinct()
+                                .list()
+                            userAccessibleServices = artifactGroupMembers.collect { it.artifactName } as Set<String>
+                        } finally {
+                            ec.artifactExecution.enableAuthz()
+                        }
+                    }
+                    
                     // Helper function to check if original user has permission to a service
                     def userHasPermission = { serviceName ->
                         // Grant all permissions to mcp-user and mcp-business for business toolkit
@@ -312,14 +330,8 @@
                             return true
                         }
                         
-                        // Temporarily switch back to original user to check permissions
-                        ec.user.internalLoginUser(originalUsername)
-                        try {
-                            return ec.user.hasPermission(serviceName.toString())
-                        } finally {
-                            // Switch back to admin for continued discovery
-                            ec.user.internalLoginUser("admin")
-                        }
+                        // Use pre-computed accessible services set for O(1) lookup
+                        return userAccessibleServices != null && userAccessibleServices.contains(serviceName.toString())
                     }
                     
                     // Add specific MCP services that should be exposed as tools
@@ -565,6 +577,24 @@
                 // Get all entity names and filter by permissions (no hardcoded list)
                 def allEntityNames = ec.entity.getAllEntityNames()
                 
+                // Get user's accessible entities in a single query for efficiency
+                def userAccessibleEntities = null as Set<String>
+                if (originalUsername != "mcp-user" && originalUsername != "mcp-business") {
+                    // Query ArtifactGroupMembers directly to get all entities user can access
+                    ec.artifactExecution.disableAuthz()
+                    try {
+                        def artifactGroupMembers = ec.entity.find("moqui.security.ArtifactGroupMember")
+                            .condition("artifactTypeEnumId", "AT_ENTITY")
+                            .condition("userGroupId", ec.user.getUserGroups().collect { it.userGroupId })
+                            .selectFields("artifactName")
+                            .distinct()
+                            .list()
+                        userAccessibleEntities = artifactGroupMembers.collect { it.artifactName } as Set<String>
+                    } finally {
+                        ec.artifactExecution.enableAuthz()
+                    }
+                }
+                
                 // Helper function to check if original user has permission to an entity
                 def userHasEntityPermission = { entityName ->
                     // For MCP users, trust Moqui's artifact security system
@@ -573,13 +603,8 @@
                         return true
                     }
                     
-                    // For other users, check permissions normally
-                    ec.user.internalLoginUser(originalUsername)
-                    try {
-                        return ec.user.hasPermission(entityName.toString())
-                    } finally {
-                        ec.user.internalLoginUser("admin")
-                    }
+                    // Use pre-computed accessible entities set for O(1) lookup
+                    return userAccessibleEntities != null && userAccessibleEntities.contains(entityName.toString())
                 }
                 
                 // Add all permitted entities - let Moqui artifact security handle filtering
