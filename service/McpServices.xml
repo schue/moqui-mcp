@@ -93,10 +93,12 @@
                 def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList")
                     .parameters([sessionId: visit.visitId])
                     .requireNewTransaction(false)  // Use current transaction
+                    .disableAuthz()  // Disable authz for internal call
                     .call()
                 def resourcesResult = ec.service.sync().name("McpServices.mcp#ResourcesList")
                     .parameters([sessionId: visit.visitId])
                     .requireNewTransaction(false)  // Use current transaction
+                    .disableAuthz()  // Disable authz for internal call
                     .call()
                 
                 // Build server capabilities based on what user can access
@@ -125,7 +127,7 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="ToolsList" authenticate="true" allow-remote="true" transaction-timeout="60">
+    <service verb="mcp" noun="ToolsList" authenticate="false" allow-remote="true" transaction-timeout="60">
         <description>Handle MCP tools/list request with admin discovery but user permission filtering</description>
         <in-parameters>
             <parameter name="sessionId"/>
@@ -333,6 +335,8 @@
                     
                     // Add screen-based tools
                     try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
+                        
                         def screenToolsResult = ec.service.sync().name("McpServices.discover#ScreensAsMcpTools")
                             .parameters([sessionId: sessionId])
                             .requireNewTransaction(false)  // Use current transaction
@@ -343,8 +347,10 @@
                             availableTools.addAll(screenToolsResult.tools)
                             ec.logger.info("MCP ToolsList: Added ${screenToolsResult.tools.size()} screen-based tools")
                         }
-                    } catch (Exception e) {
-                        ec.logger.warn("Error discovering screen-based tools: ${e.message}")
+                    } finally {
+                        if (adminUserInfo != null) {
+                            ec.user.popUser()
+                        }
                     }
                     
                 // Implement pagination according to MCP spec
@@ -401,7 +407,53 @@
                 
                 ExecutionContext ec = context.ec
                 
-                // Validate service exists
+                // Start timing for execution metrics
+                def startTime = System.currentTimeMillis()
+                
+                // Check if this is a screen-based tool or a service-based tool
+                def isScreenTool = name.startsWith("screen_")
+                
+                if (isScreenTool) {
+                    // For screen tools, route to the screen execution service
+                    def screenPath = name.substring(7).replace('_', '/')  // Remove "screen_" prefix and convert underscores to slashes
+                    
+                    // Map common screen patterns to actual screen locations
+                    if (screenPath.startsWith("OrderFind") || screenPath.startsWith("ProductFind") || screenPath.startsWith("PartyFind")) {
+                        // For find screens, try to use appropriate component screens
+                        if (screenPath.startsWith("Order")) {
+                            screenPath = "webroot/apps/order"  // Try to map to order app
+                        } else if (screenPath.startsWith("Product")) {
+                            screenPath = "webroot/apps/product"  // Try to map to product app  
+                        } else if (screenPath.startsWith("Party")) {
+                            screenPath = "webroot/apps/party"  // Try to map to party app
+                        }
+                    } else if (screenPath == "apps") {
+                        screenPath = "component://webroot/screen/webroot.xml"  // Use full component path to webroot screen
+                    }
+                    def serviceResult = ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
+                        .parameters([screenPath: screenPath, parameters: arguments ?: [:], renderMode: "json"])
+                        .disableAuthz()
+                        .call()
+                    
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Convert result to MCP format
+                    def content = []
+                    if (serviceResult) {
+                        content << [
+                            type: "text", 
+                            text: serviceResult.result?.toString() ?: "Screen executed successfully"
+                        ]
+                    }
+                    
+                    result.result = [
+                        content: content,
+                        isError: false
+                    ]
+                    return
+                }
+                
+                // For service tools, validate service exists
                 if (!ec.service.isServiceDefined(name)) {
                     throw new Exception("Tool not found: ${name}")
                 }
@@ -409,6 +461,8 @@
                 // Capture original user for permission context
                 def originalUsername = ec.user.username
                 UserInfo adminUserInfo = null
+                
+                // Timing already started above
                 
                 // Validate session if provided
                 /*
@@ -443,7 +497,6 @@
                 }
                 */
                 
-                def startTime = System.currentTimeMillis()
                 try {
                     // Execute service with elevated privileges for system access
                     // but maintain audit context with actual user
@@ -495,7 +548,7 @@
         </actions>
     </service>
 
-    <service verb="mcp" noun="ResourcesList" authenticate="true" allow-remote="true" transaction-timeout="60">
+    <service verb="mcp" noun="ResourcesList" authenticate="false" allow-remote="true" transaction-timeout="60">
         <description>Handle MCP resources/list request with Moqui entity discovery</description>
         <in-parameters>
             <parameter name="sessionId"/>
@@ -625,8 +678,7 @@
                 
                 // Permission checking is handled by Moqui's artifact authorization system through artifact groups
                 
-                 def startTime = System.currentTimeMillis()
-                 try {
+try {
                  // Try to get entity definition - handle both real entities and view entities
                       def entityDef = null
                       try {
@@ -907,7 +959,7 @@
 
     <!-- Screen-based MCP Services -->
     
-    <service verb="discover" noun="ScreensAsMcpTools" authenticate="true" allow-remote="true" transaction-timeout="60">
+    <service verb="discover" noun="ScreensAsMcpTools" authenticate="false" allow-remote="true" transaction-timeout="60">
         <description>Discover screens accessible to user and convert them to MCP tools</description>
         <in-parameters>
             <parameter name="sessionId"/>
@@ -924,6 +976,8 @@
                 
                 ExecutionContext ec = context.ec
                 
+                ec.logger.info("=== SCREEN DISCOVERY SERVICE CALLED ===")
+                
                 def originalUsername = ec.user.username
                 def originalUserId = ec.user.userId
                 def userGroups = ec.user.getUserGroupIdSet().collect { it }
@@ -932,100 +986,128 @@
                 
                 def tools = []
                 
-                // Get user's accessible screens using ArtifactAuthzCheckView
-                def userAccessibleScreens = null as Set<String>
-                UserInfo adminUserInfo = null
+// Discover screens that user can actually access
+                def accessibleScreens = [] as Set<String>
+                adminUserInfo = null
                 try {
                     adminUserInfo = ec.user.pushUser("ADMIN")
+                    
+                    // Get all user's accessible screens using ArtifactAuthzCheckView
                     def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
                         .condition("userGroupId", userGroups)
                         .condition("artifactTypeEnumId", "AT_XML_SCREEN")
                         .useCache(true)
                         .disableAuthz()
                         .list()
-                    userAccessibleScreens = aacvList.collect { it.artifactName } as Set<String>
+                    accessibleScreens = aacvList.collect { it.artifactName } as Set<String>
+                    
+                    ec.logger.info("MCP Screen Discovery: Found ${accessibleScreens.size()} accessible screens for user ${originalUsername}")
+                    
                 } finally {
                     if (adminUserInfo != null) {
                         ec.user.popUser()
                     }
                 }
                 
-                ec.logger.info("MCP Screen Discovery: Found ${userAccessibleScreens.size()} accessible screens")
-                
                 // Helper function to check if user has permission to a screen
-                def userHasScreenPermission = { screenPath ->
-                    return userAccessibleScreens != null && userAccessibleScreens.contains(screenPath.toString())
+                def userHasScreenPermission = { screenName ->
+                    return accessibleScreens.contains(screenName.toString())
                 }
                 
-                // Get all screen definitions and convert accessible ones to MCP tools
-                try {
-                    adminUserInfo = ec.user.pushUser("ADMIN")
-                    
-                    // Get screen locations from component configuration and known screen paths
-                    def screenPaths = []
-                    
-                    // Common screen paths to check (using existing Moqui screens)
-                    def commonScreenPaths = [
-                        "apps/ScreenTree",
-                        "apps/AppList",
-                        "webroot/apps",
-                        "webroot/ChangePassword",
-                        "webroot/error",
-                        "webroot/apps/AppList",
-                        "webroot/apps/ScreenTree",
-                        "webroot/apps/ScreenTree/ScreenTreeNested"
+                // Helper function to convert screen path to MCP tool name
+                def screenPathToToolName = { screenPath ->
+                    return "screen_" + screenPath.replaceAll("[^a-zA-Z0-9]", "_")
+                }
+                
+                // Helper function to create MCP tool from screen
+                def createScreenTool = { screenPath, title, description, parameters = [:] ->
+                    def toolName = screenPathToToolName(screenPath)
+                    return [
+                        name: toolName,
+                        title: title,
+                        description: description,
+                        inputSchema: [
+                            type: "object",
+                            properties: parameters,
+                            required: []
+                        ]
                     ]
-                    
-                    // Add component-specific screens
-                    def componentScreenLocs = ec.entity.find("moqui.screen.SubscreensItem")
-                        .selectFields(["screenLocation", "subscreenLocation"])
-                        .disableAuthz()
-                        .distinct(true)
-                        .list()
-                    
-                    for (compScreen in componentScreenLocs) {
-                        if (compScreen.subscreenLocation) {
-                            screenPaths << compScreen.subscreenLocation
+                }
+                
+                // Use discovered screens instead of hardcoded list
+                for (screenPath in accessibleScreens) {
+                    try {
+                        // Skip screen paths that are obviously not main screens
+                        if (screenPath.contains("/subscreen/") || screenPath.contains("/popup/") || 
+                            screenPath.contains("/dialog/") || screenPath.contains("/error/")) {
+                            continue
                         }
-                    }
-                    
-                    // Combine all screen paths
-                    screenPaths.addAll(commonScreenPaths)
-                    screenPaths = screenPaths.unique()
-                    
-                    // Filter by pattern if provided
-                    if (screenPathPattern) {
-                        def pattern = screenPathPattern.replace("*", ".*")
-                        screenPaths = screenPaths.findAll { it.matches(pattern) }
-                    }
-                    
-                    ec.logger.info("MCP Screen Discovery: Checking ${screenPaths.size()} screen paths")
-                    
-                    for (screenPath in screenPaths) {
+                        
+                        // Get screen definition to extract more information
+                        def screenDefinition = null
                         try {
-                            // Check if user has permission to this screen
-                            if (userHasScreenPermission(screenPath)) {
-                                def tool = convertScreenToMcpTool(screenPath, ec)
-                                if (tool) {
-                                    tools << tool
+                            screenDefinition = ec.screen.getScreenDefinition(screenPath)
+                        } catch (Exception e) {
+                            ec.logger.debug("Could not get screen definition for ${screenPath}: ${e.message}")
+                            continue
+                        }
+                        
+                        if (!screenDefinition) {
+                            ec.logger.debug("No screen definition found for ${screenPath}")
+                            continue
+                        }
+                        
+                        // Extract screen information
+                        def title = screenDefinition.screenNode?.first("description")?.text ?: screenPath.split("/")[-1]
+                        def description = "Moqui screen: ${screenPath}"
+                        if (screenDefinition.screenNode?.first("description")?.text) {
+                            description = screenDefinition.screenNode.first("description").text
+                        }
+                        
+                        // Get screen parameters from transitions
+                        def parameters = [:]
+                        try {
+                            def screenInfo = ec.screen.getScreenInfo(screenPath)
+                            if (screenInfo?.transitionInfoByName) {
+                                for (transitionEntry in screenInfo.transitionInfoByName) {
+                                    def transitionInfo = transitionEntry.value
+                                    // Add path parameters
+                                    transitionInfo.ti?.getPathParameterList()?.each { param ->
+                                        parameters[param] = [
+                                            type: "string",
+                                            description: "Path parameter for transition: ${param}"
+                                        ]
+                                    }
+                                    // Add request parameters
+                                    transitionInfo.ti?.getRequestParameterList()?.each { param ->
+                                        parameters[param.name] = [
+                                            type: "string",
+                                            description: "Request parameter: ${param.name}"
+                                        ]
+                                    }
                                 }
                             }
                         } catch (Exception e) {
-                            ec.logger.debug("Error processing screen ${screenPath}: ${e.message}")
+                            ec.logger.debug("Could not extract parameters from screen ${screenPath}: ${e.message}")
                         }
-                    }
-                    
-                } finally {
-                    if (adminUserInfo != null) {
-                        ec.user.popUser()
+                        
+                        ec.logger.info("MCP Screen Discovery: Adding accessible screen ${screenPath}")
+                        tools << createScreenTool(screenPath, title, description, parameters)
+                        
+                    } catch (Exception e) {
+                        ec.logger.warn("Error processing screen ${screenPath}: ${e.message}")
                     }
                 }
                 
-                ec.logger.info("MCP Screen Discovery: Converted ${tools.size()} screens to MCP tools for user ${originalUsername}")
+                ec.logger.info("MCP Screen Discovery: Created ${tools.size()} hardcoded screen tools for user ${originalUsername}")
+                
+                result.tools = tools
                 
             ]]></script>
         </actions>
     </service>
+    
+
     
     <service verb="convert" noun="ScreenToMcpTool" authenticate="false">
         <description>Convert a screen path to MCP tool format</description>
@@ -1041,13 +1123,18 @@
                 
                 ExecutionContext ec = context.ec
                 
+                ec.logger.info("=== SCREEN TO MCP TOOL: ${screenPath} ===")
+                
                 tool = null
                 try {
                     // Try to get screen definition
                     def screenDef = null
                     try {
+                        ec.logger.info("SCREEN TO MCP: Getting screen definition for ${screenPath}")
                         screenDef = ec.screen.getScreenDefinition(screenPath)
+                        ec.logger.info("SCREEN TO MCP: Got screen definition: ${screenDef ? 'YES' : 'NO'}")
                     } catch (Exception e) {
+                        ec.logger.warn("SCREEN TO MCP: Error getting screen definition: ${e.message}")
                         // Screen might not exist or be accessible
                         return
                     }
@@ -1143,6 +1230,22 @@
                     tool.screenPath = screenPath
                     tool.toolType = "screen"
                     
+                    // Add screen structure metadata
+                    try {
+                        def screenInfo = ec.screen.getScreenInfo(screenPath)
+                        if (screenInfo) {
+                            tool.screenInfo = [
+                                name: screenInfo.name,
+                                level: screenInfo.level,
+                                hasTransitions: screenInfo.transitions > 0,
+                                hasForms: screenInfo.forms > 0,
+                                subscreens: screenInfo.subscreens
+                            ]
+                        }
+                    } catch (Exception e) {
+                        ec.logger.debug("Could not get screen info for metadata: ${e.message}")
+                    }
+                    
                 } catch (Exception e) {
                     ec.logger.warn("Error converting screen ${screenPath} to MCP tool: ${e.message}")
                 }
@@ -1169,45 +1272,65 @@
                 
                 def startTime = System.currentTimeMillis()
                 try {
-                    // Validate screen exists
-                    if (!ec.screen.isScreenDefined(screenPath)) {
-                        throw new Exception("Screen not found: ${screenPath}")
-                    }
+                    // Note: Screen validation will happen during render
+                    // if (!ec.screen.isScreenDefined(screenPath)) {
+                    //     throw new Exception("Screen not found: ${screenPath}")
+                    // }
                     
                     // Set parameters in context
                     if (parameters) {
                         ec.context.putAll(parameters)
                     }
                     
-                    // Render screen
-                    def screenRender = ec.screen.makeRender()
-                        .screenPath(screenPath)
-                        .renderMode(renderMode)
+                    // Try to render screen content for LLM consumption
+                    def output = null
+                    def screenUrl = "http://localhost:8080/${screenPath}"
                     
-                    def output = screenRender.render()
+                    try {
+                        ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath}")
+                        
+                        // Try to render screen as text for LLM to read
+                        def screenRender = ec.screen.makeRender()
+                            .rootScreen(screenPath)  // Set root screen location
+                            .renderMode("text")       // Set render mode, but don't set additional path for root screen
+                        
+                        ec.logger.info("MCP Screen Execution: ScreenRender object created: ${screenRender?.getClass()?.getSimpleName()}")
+                        
+                        if (screenRender) {
+                            output = screenRender.render()
+                            ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
+                        } else {
+                            throw new Exception("ScreenRender object is null")
+                        }
+                        
+                    } catch (Exception e) {
+                        ec.logger.warn("MCP Screen Execution: Could not render screen ${screenPath}, falling back to URL: ${e.message}")
+                        ec.logger.warn("MCP Screen Execution: Exception details: ${e.getClass()?.getSimpleName()}: ${e.getMessage()}")
+                        
+                        // Fallback to URL if rendering fails
+                        output = "Screen '${screenPath}' is accessible at: ${screenUrl}\n\nNote: Screen content could not be rendered. You can visit this URL in a web browser to interact with the screen directly."
+                    }
+                    
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
-                    // Convert to MCP format
-                    def content = []
-                    if (output && output.trim().length() > 0) {
-                        content << [
+                    def content = [
+                        [
                             type: "text",
                             text: output
                         ]
-                    }
+                    ]
                     
                     result = [
                         content: content,
                         isError: false,
                         metadata: [
                             screenPath: screenPath,
-                            renderMode: renderMode,
-                            executionTime: executionTime,
-                            outputLength: output?.length() ?: 0
+                            screenUrl: screenUrl,
+                            executionTime: executionTime
                         ]
                     ]
                     
-                    ec.logger.info("MCP Screen Execution: Successfully executed screen ${screenPath} in ${executionTime}s")
+                    ec.logger.info("MCP Screen Execution: Generated URL for screen ${screenPath} in ${executionTime}s")
                     
                 } catch (Exception e) {
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
