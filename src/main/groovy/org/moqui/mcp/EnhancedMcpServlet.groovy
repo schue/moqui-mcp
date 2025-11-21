@@ -163,6 +163,71 @@ try {
                 return
             }
             
+            // Create Visit for JSON-RPC requests too
+            def visit = null
+            try {
+                // Initialize web facade for Visit creation
+                ec.initWebFacade(webappName, request, response)
+                // Web facade was successful, get Visit it created
+                visit = ec.user.getVisit()
+                if (!visit) {
+                    throw new Exception("Web facade succeeded but no Visit created")
+                }
+            } catch (Exception e) {
+                logger.warn("Web facade initialization failed: ${e.message}, trying manual Visit creation")
+                // Try to create Visit manually using the same pattern as handleSseConnection
+                try {
+                    def visitParams = [
+                        sessionId: request.session.id,
+                        webappName: webappName,
+                        fromDate: new Timestamp(System.currentTimeMillis()),
+                        initialLocale: request.locale.toString(),
+                        initialRequest: (request.requestURL.toString() + (request.queryString ? "?" + request.queryString : "")).take(255),
+                        initialReferrer: request.getHeader("Referer")?.take(255),
+                        initialUserAgent: request.getHeader("User-Agent")?.take(255),
+                        clientHostName: request.remoteHost,
+                        clientUser: request.remoteUser,
+                        serverIpAddress: ec.ecfi.getLocalhostAddress().getHostAddress(),
+                        serverHostName: ec.ecfi.getLocalhostAddress().getHostName(),
+                        clientIpAddress: request.remoteAddr,
+                        userId: ec.user.userId,
+                        userCreated: "Y"
+                    ]
+                    
+                    logger.info("Creating Visit with params: ${visitParams}")
+                    def visitResult = ec.service.sync().name("create", "moqui.server.Visit")
+                        .parameters(visitParams)
+                        .disableAuthz()
+                        .call()
+                    logger.info("Visit creation result: ${visitResult}")
+                    
+                    if (!visitResult || !visitResult.visitId) {
+                        throw new Exception("Visit creation service returned null or no visitId")
+                    }
+                    
+                    // Look up the actual Visit EntityValue
+                    visit = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", visitResult.visitId)
+                        .one()
+                    if (!visit) {
+                        throw new Exception("Failed to look up newly created Visit")
+                    }
+                    ec.web.session.setAttribute("moqui.visitId", visit.visitId)
+                    logger.info("Manually created Visit ${visit.visitId} for user ${ec.user.username}")
+                    
+                } catch (Exception visitEx) {
+                    logger.error("Manual Visit creation failed: ${visitEx.message}", visitEx)
+                    response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to create Visit")
+                    return
+                }
+            }
+            
+            // Final check that we have a Visit
+            if (!visit) {
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to create Visit")
+                return
+            }
+            
             // Route based on request method and path
             String requestURI = request.getRequestURI()
             String method = request.getMethod()
@@ -174,13 +239,13 @@ try {
                 handleMessage(request, response, ec)
             } else if ("POST".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle POST requests to /mcp for JSON-RPC
-                handleJsonRpc(request, response, ec, webappName, requestBody)
+                handleJsonRpc(request, response, ec, webappName, requestBody, visit)
             } else if ("GET".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle GET requests to /mcp - maybe for server info or SSE fallback
                 handleSseConnection(request, response, ec, webappName)
             } else {
                 // Fallback to JSON-RPC handling
-                handleJsonRpc(request, response, ec, webappName, requestBody)
+                handleJsonRpc(request, response, ec, webappName, requestBody, visit)
             }
             
         } catch (ArtifactAuthorizationException e) {
@@ -527,7 +592,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         }
     }
     
-    private void handleJsonRpc(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec, String webappName, String requestBody) 
+    private void handleJsonRpc(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec, String webappName, String requestBody, def visit) 
             throws IOException {
         
         // Initialize web facade for proper session management (like SSE connections)
@@ -657,11 +722,11 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         // This ensures Moqui picks up the existing Visit when initWebFacade() is called
         if (sessionId && rpcRequest.method != "initialize") {
             try {
-                def visit = ec.entity.find("moqui.server.Visit")
+                def existingVisit = ec.entity.find("moqui.server.Visit")
                     .condition("visitId", sessionId)
                     .one()
                 
-                if (!visit) {
+                if (!existingVisit) {
                     response.setStatus(HttpServletResponse.SC_NOT_FOUND)
                     response.setContentType("application/json")
                     response.writer.write(groovy.json.JsonOutput.toJson([
@@ -672,14 +737,8 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                     return
                 }
                 
-                // Verify user has access to this Visit
-                logger.info("Session access check - visit.userId: ${visit.userId}, ec.user.userId: ${ec.user.userId}")
-                
-                // Allow access if:
-                // 1. Visit userId matches current user, OR
-                // 2. Visit was created with ADMIN (for privileged access) but current user is MCP_USER (actual authenticated user)
                 // Rely on Moqui security - only allow access if visit and current user match
-                if (!visit.userId || !ec.user.userId || visit.userId.toString() != ec.user.userId.toString()) {
+                if (!existingVisit.userId || !ec.user.userId || existingVisit.userId.toString() != ec.user.userId.toString()) {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN)
                     response.setContentType("application/json")
                     response.writer.write(groovy.json.JsonOutput.toJson([
@@ -708,7 +767,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         }
         
         // Process MCP method using Moqui services with session ID if available
-        def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId)
+        def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId, visit)
         
         // Set Mcp-Session-Id header BEFORE any response data (per MCP 2025-06-18 spec)
         if (result?.sessionId) {
@@ -728,7 +787,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         response.writer.write(groovy.json.JsonOutput.toJson(rpcResponse))
     }
     
-    private Map<String, Object> processMcpMethod(String method, Map params, ExecutionContextImpl ec, String sessionId) {
+    private Map<String, Object> processMcpMethod(String method, Map params, ExecutionContextImpl ec, String sessionId, def visit) {
         logger.info("Enhanced METHOD: ${method} with sessionId: ${sessionId}")
         
         try {
@@ -738,18 +797,23 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             }
             
             // Add session context to parameters for services
-            params.sessionId = sessionId
+            params.sessionId = visit.visitId
             
             switch (method) {
                 case "initialize":
                     // For initialize, use the visitId we just created instead of null sessionId from request
-                    params.sessionId = visit.visitId
+                    if (visit && visit.visitId) {
+                        params.sessionId = visit.visitId
+                        logger.info("Initialize - using visitId: ${visit.visitId}")
+                    } else {
+                        logger.warn("Initialize - no visit available, using null sessionId")
+                    }
                     params.actualUserId = ec.user.userId
                     logger.info("Initialize - actualUserId: ${params.actualUserId}, sessionId: ${params.sessionId}")
                     return callMcpService("mcp#Initialize", params, ec)
                 case "ping":
                     // Simple ping for testing - bypass service for now
-                    return [pong: System.currentTimeMillis(), sessionId: sessionId, user: ec.user.username]
+                    return [pong: System.currentTimeMillis(), sessionId: visit.visitId, user: ec.user.username]
                 case "tools/list":
                     return callMcpService("mcp#ToolsList", params, ec)
                 case "tools/call":
