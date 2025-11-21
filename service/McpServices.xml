@@ -68,9 +68,6 @@
                         logger.info("Creating Visit - actualUserId: ${actualUserId}")
                         
                         // Use pushUser for admin-level Visit creation if needed
-                        UserInfo adminUserInfo = null
-                        try {
-                            adminUserInfo = ec.user.pushUser("ADMIN")
                             visit = ec.entity.makeValue("moqui.server.Visit")
                             visit.visitId = ec.entity.sequencedIdPrimaryEd(ec.entity.getEntityDefinition("moqui.server.Visit"))
                             visit.userId = actualUserId // Use actual user, not ADMIN
@@ -82,11 +79,6 @@
                             visit.initialUserAgent = "MCP Client"
                             visit.sessionId = null // No HTTP session for direct API calls
                             visit.disableAuthz().create()
-                        } finally {
-                            if (adminUserInfo != null) {
-                                ec.user.popUser()
-                            }
-                        }
                     }
                 }
                 
@@ -128,8 +120,8 @@
                 def userAccountId = userId ? userId : null
                 
                 // Get user-specific tools and resources
-                def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList").parameters([sessionId: sessionId]).call()
-                def resourcesResult = ec.service.sync().name("McpServices.mcp#ResourcesList").parameters([sessionId: sessionId]).call()
+                def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList").parameters([sessionId: visit.visitId]).call()
+                def resourcesResult = ec.service.sync().name("McpServices.mcp#ResourcesList").parameters([sessionId: visit.visitId]).call()
                 
                 // Build server capabilities based on what user can access
                 def serverCapabilities = [
@@ -205,6 +197,7 @@
                     adminUserInfo = null
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
+                        ec.logger.info("MCP session update visit 209 ${visit}")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                         ec.artifactExecution.disableAuthz()
                         visit.update()
@@ -518,12 +511,17 @@
                 
                 // Permissions are handled by Moqui's artifact authorization system
                 // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
+
+                def visit
                 
                 // Validate session if provided
                 if (sessionId) {
-                    def visit = ec.entity.find("moqui.server.Visit")
+                    visit = ec.entity.find("moqui.server.Visit")
                         .condition("visitId", sessionId)
+                        .disableAuthz()
                         .one()
+
+                    ec.logger.info("VISIT 533 ${visit}")
                     
                     if (!visit || visit.userId != ec.user.userId) {
                         throw new Exception("Invalid session: ${sessionId}")
@@ -534,11 +532,9 @@
                 def resources = []
                 
                 UserInfo adminUserInfo = null
-                try {
-                        throw new Exception("Invalid session: ${sessionId}")
-                    }
-                    
+                
                     // Update session activity
+                    /*
                     def metadata = [:]
                     try {
                         metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
@@ -550,9 +546,10 @@
                     metadata.mcpLastOperation = "resources/list"
                     
                     // Update Visit - need admin context for Visit updates
-                    UserInfo adminUserInfo = null
+                    adminUserInfo = null
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
+                        ec.logger.info("MCP session update visit 558 ${visit}")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                         ec.artifactExecution.disableAuthz()
                         visit.update()
@@ -562,7 +559,7 @@
                             ec.user.popUser()
                         }
                     }
-                }
+                    */
                 
                 // Store original user context before switching to ADMIN
                 def originalUsername = ec.user.username
@@ -666,6 +663,7 @@
                     UserInfo adminUserInfo = null
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
+                        ec.logger.info("MCP session update visit 671 ${visit}")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                         ec.artifactExecution.disableAuthz()
                         visit.update()
@@ -783,6 +781,7 @@
                     UserInfo adminUserInfo = null
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
+                        ec.logger.info("MCP session update visit 789 ${visit}")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                         ec.artifactExecution.disableAuthz()
                         visit.update()
@@ -812,6 +811,7 @@
                     UserInfo adminUserInfo = null
                     try {
                         adminUserInfo = ec.user.pushUser("ADMIN")
+                        ec.logger.info("MCP session update visit 819 ${visit}")
                         visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                         ec.artifactExecution.disableAuthz()
                         visit.update()
