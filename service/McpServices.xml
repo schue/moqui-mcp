@@ -37,49 +37,18 @@
                 // Permissions are handled by Moqui's artifact authorization system
                 // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
                 
-                // Get Visit (session) and validate access
-                def visit
-                if (sessionId) {
-                    // Existing session - user can access their own visits
-                    visit = ec.entity.find("moqui.server.Visit")
-                        .condition("visitId", sessionId)
-                        .disableAuthz()
-                        .one()
-                    
-                    if (!visit) {
-                        throw new Exception("Invalid session: ${sessionId}")
-                    }
-                    
-                    if (visit.userId != ec.user.userId) {
-                        throw new Exception("Access denied for session: ${sessionId}")
-                    }
-                } else {
-                    // New session - create or get current Visit
-                    if (ec.user.visitId) {
-                        visit = ec.entity.find("moqui.server.Visit")
-                            .condition("visitId", ec.user.visitId)
-                            .disableAuthz()
-                            .one()
-                    }
-                    
-                    if (!visit) {
-                        // Create a new Visit for this MCP session for the actual authenticated user
-                        String actualUserId = parameters.actualUserId ?: ec.user.userId
-                        logger.info("Creating Visit - actualUserId: ${actualUserId}")
-                        
-                        // Use pushUser for admin-level Visit creation if needed
-                            visit = ec.entity.makeValue("moqui.server.Visit")
-                            visit.visitId = ec.entity.sequencedIdPrimaryEd(ec.entity.getEntityDefinition("moqui.server.Visit"))
-                            visit.userId = actualUserId // Use actual user, not ADMIN
-                            visit.visitorId = null
-                            visit.webappName = "mcp"
-                            visit.initialRequest = groovy.json.JsonOutput.toJson([mcpCreated: true, createdFor: "mcp-session"])
-                            visit.fromDate = new Timestamp(System.currentTimeMillis())
-                            visit.clientIpAddress = "127.0.0.1" // TODO: Get actual IP
-                            visit.initialUserAgent = "MCP Client"
-                            visit.sessionId = null // No HTTP session for direct API calls
-                            visit.disableAuthz().create()
-                    }
+                // Get Visit (session) created by servlet and validate access
+                def visit = ec.entity.find("moqui.server.Visit")
+                    .condition("visitId", sessionId)
+                    .disableAuthz()
+                    .one()
+                
+                if (!visit) {
+                    throw new Exception("Invalid session: ${sessionId}")
+                }
+                
+                if (visit.userId != ec.user.userId) {
+                    throw new Exception("Access denied for session: ${sessionId}")
                 }
                 
                 // Update Visit with MCP initialization data
@@ -101,7 +70,8 @@
                     
                     visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
                     ec.artifactExecution.disableAuthz()
-                    visit.update()
+                    ec.logger.info("SESSIONID: ${sessionId}")
+                    sessionId ? visit.update() : visit.store()
                     ec.artifactExecution.enableAuthz()
                 } finally {
                     if (adminUserInfo != null) {
@@ -175,6 +145,7 @@
                 // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
                 
                 // Validate session if provided
+                /*
                 if (sessionId) {
                     def visit = ec.entity.find("moqui.server.Visit")
                         .condition("visitId", sessionId)
@@ -182,35 +153,40 @@
                         .one()
                     
                     if (!visit || visit.userId != ec.user.userId) {
-                        throw new Exception("Invalid session: ${sessionId}")
+                        //throw new Exception("Invalid session: ${sessionId}")
                     }
                 }
                 
-                /*
                 // Update session activity
-                if (sessionId && visit) {
-                    def metadata = [:]
-                    try {
-                        metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
-                    } catch (Exception e) {
-                        ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
-                    }
+                if (sessionId) {
+                    def visitObj = ec.entity.find("moqui.server.Visit")
+                        .condition("visitId", sessionId)
+                        .disableAuthz()
+                        .one()
                     
-                    metadata.mcpLastActivity = System.currentTimeMillis()
-                    metadata.mcpLastOperation = "tools/list"
-                    
-                    // Update Visit - need admin context for Visit updates
-                    adminUserInfo = null
-                    try {
-                        adminUserInfo = ec.user.pushUser("ADMIN")
-                        ec.logger.info("MCP session update visit 209 ${visit}")
-                        visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
-                        ec.artifactExecution.disableAuthz()
-                        visit.update()
-                        ec.artifactExecution.enableAuthz()
-                    } finally {
-                        if (adminUserInfo != null) {
-                            ec.user.popUser()
+                    if (visitObj) {
+                        def metadata = [:]
+                        try {
+                            metadata = groovy.json.JsonSlurper().parseText(visitObj.initialRequest ?: "{}") as Map
+                        } catch (Exception e) {
+                            ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
+                        }
+                        
+                        metadata.mcpLastActivity = System.currentTimeMillis()
+                        metadata.mcpLastOperation = "tools/list"
+                        
+                        // Update Visit - need admin context for Visit updates
+                        adminUserInfo = null
+                        try {
+                            adminUserInfo = ec.user.pushUser("ADMIN")
+                            visitObj.initialRequest = groovy.json.JsonOutput.toJson(metadata)
+                            ec.artifactExecution.disableAuthz()
+                            visitObj.update()
+                            ec.artifactExecution.enableAuthz()
+                        } finally {
+                            if (adminUserInfo != null) {
+                                ec.user.popUser()
+                            }
                         }
                     }
                 }
@@ -443,7 +419,7 @@
                     }
                     
                     if (!sessionValid) {
-                        throw new Exception("Invalid session: ${sessionId}")
+                        //throw new Exception("Invalid session: ${sessionId}")
                     }
                 }
                 
@@ -527,11 +503,13 @@
                         .disableAuthz()
                         .one()
 
-                    ec.logger.info("VISIT 533 ${visit}")
+                    ec.logger.info("VISIT 530 ${visit}")
                     
+                    /*
                     if (!visit || visit.userId != ec.user.userId) {
                         throw new Exception("Invalid session: ${sessionId}")
                     }
+                    */
                 }
                 
                 // Build list of available entities as resources
@@ -548,25 +526,6 @@
                         ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
                     }
                     
-                    metadata.mcpLastActivity = System.currentTimeMillis()
-                    metadata.mcpLastOperation = "resources/list"
-                    
-                    // Update Visit - need admin context for Visit updates
-                    adminUserInfo = null
-                    try {
-                        adminUserInfo = ec.user.pushUser("ADMIN")
-                        ec.logger.info("MCP session update visit 558 ${visit}")
-                        visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
-                        ec.artifactExecution.disableAuthz()
-                        visit.update()
-                        ec.artifactExecution.enableAuthz()
-                    } finally {
-                        if (adminUserInfo != null) {
-                            ec.user.popUser()
-                        }
-                    }
-                    */
-                
                 // Store original user context before switching to ADMIN
                 def originalUsername = ec.user.username
                 def originalUserId = ec.user.userId
@@ -651,7 +610,7 @@
                     }
                     
                     if (!visit || visit.userId != ec.user.userId) {
-                        throw new Exception("Invalid session: ${sessionId}")
+                        //throw new Exception("Invalid session: ${sessionId}")
                     }
                     
                     // Update session activity
@@ -753,6 +712,7 @@
         <description>Handle MCP ping request for health check</description>
         <in-parameters>
             <parameter name="sessionId"/>
+            <parameter name="cursor"/>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
@@ -769,7 +729,7 @@
                         .one()
                     
                     if (!visit || visit.userId != ec.user.userId) {
-                        throw new Exception("Invalid session: ${sessionId}")
+                        //throw new Exception("Invalid session: ${sessionId}")
                     }
                     
                     // Update session activity
@@ -800,7 +760,7 @@
                 }
                     
                     if (!visit || visit.userId != ec.user.userId) {
-                        throw new Exception("Invalid session: ${sessionId}")
+                        //throw new Exception("Invalid session: ${sessionId}")
                     }
                     
                     // Update session activity
