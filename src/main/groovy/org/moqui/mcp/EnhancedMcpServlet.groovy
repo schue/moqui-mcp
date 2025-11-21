@@ -208,6 +208,7 @@ try {
                     // Look up the actual Visit EntityValue
                     visit = ec.entity.find("moqui.server.Visit")
                         .condition("visitId", visitResult.visitId)
+                        .disableAuthz()
                         .one()
                     if (!visit) {
                         throw new Exception("Failed to look up newly created Visit")
@@ -339,6 +340,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 // Look up the actual Visit EntityValue
                 visit = ec.entity.find("moqui.server.Visit")
                     .condition("visitId", visitResult.visitId)
+                    .disableAuthz()
                     .one()
                 if (!visit) {
                     throw new Exception("Failed to look up newly created Visit")
@@ -468,6 +470,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         // Get Visit directly - this is our session
         def visit = ec.entity.find("moqui.server.Visit")
             .condition("visitId", sessionId)
+            .disableAuthz()
             .one()
         
         if (!visit) {
@@ -724,6 +727,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             try {
                 def existingVisit = ec.entity.find("moqui.server.Visit")
                     .condition("visitId", sessionId)
+                    .disableAuthz()
                     .one()
                 
                 if (!existingVisit) {
@@ -925,6 +929,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             // Look up all MCP Visits (persistent)
             def mcpVisits = ec.entity.find("moqui.server.Visit")
                 .condition("initialRequest", "like", "%mcpSession%")
+                .disableAuthz()
                 .list()
             
             logger.info("Broadcasting to ${mcpVisits.size()} MCP visits, ${activeConnections.size()} active connections")
@@ -985,6 +990,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             // Look up all MCP Visits (persistent)
             def mcpVisits = ec.entity.find("moqui.server.Visit")
                 .condition("initialRequest", "like", "%mcpSession%")
+                .disableAuthz()
                 .list()
             
             return [

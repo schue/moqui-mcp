@@ -331,6 +331,22 @@
                         }
                     }
                     
+                    // Add screen-based tools
+                    try {
+                        def screenToolsResult = ec.service.sync().name("McpServices.discover#ScreensAsMcpTools")
+                            .parameters([sessionId: sessionId])
+                            .requireNewTransaction(false)  // Use current transaction
+                            .disableAuthz()
+                            .call()
+                        
+                        if (screenToolsResult?.tools) {
+                            availableTools.addAll(screenToolsResult.tools)
+                            ec.logger.info("MCP ToolsList: Added ${screenToolsResult.tools.size()} screen-based tools")
+                        }
+                    } catch (Exception e) {
+                        ec.logger.warn("Error discovering screen-based tools: ${e.message}")
+                    }
+                    
                 // Implement pagination according to MCP spec
                 def pageSize = 50  // Reasonable page size for tool lists
                 def startIndex = 0
@@ -516,7 +532,7 @@
                 // Use curated list of commonly used entities instead of discovering all entities
                 def availableResources = []
                 
-                ec.logger.info("MCP ResourcesList: Starting permissions-based entity discovery")
+                ec.logger.info("MCP ResourcesList: Starting permissions-based entity discovery ${userGroups}")
                 
                 // Get user's accessible entities using Moqui's optimized ArtifactAuthzCheckView
                 def userAccessibleEntities = null as Set<String>
@@ -885,6 +901,334 @@
                 products = entityFind.selectFields(["productId", "productName", "description", "productTypeId", 
                                                    "productCategoryId", "ownerPartyId", "internalName"]).list()
                 
+            ]]></script>
+        </actions>
+    </service>
+
+    <!-- Screen-based MCP Services -->
+    
+    <service verb="discover" noun="ScreensAsMcpTools" authenticate="true" allow-remote="true" transaction-timeout="60">
+        <description>Discover screens accessible to user and convert them to MCP tools</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+            <parameter name="screenPathPattern" required="false"><description>Optional pattern to filter screen paths (supports wildcards)</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="tools" type="List"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import org.moqui.impl.context.UserFacadeImpl.UserInfo
+                import org.moqui.impl.screen.ScreenDefinition
+                
+                ExecutionContext ec = context.ec
+                
+                def originalUsername = ec.user.username
+                def originalUserId = ec.user.userId
+                def userGroups = ec.user.getUserGroupIdSet().collect { it }
+                
+                ec.logger.info("MCP Screen Discovery: Starting for user ${originalUsername} (${originalUserId}) with groups ${userGroups}")
+                
+                def tools = []
+                
+                // Get user's accessible screens using ArtifactAuthzCheckView
+                def userAccessibleScreens = null as Set<String>
+                UserInfo adminUserInfo = null
+                try {
+                    adminUserInfo = ec.user.pushUser("ADMIN")
+                    def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
+                        .condition("userGroupId", userGroups)
+                        .condition("artifactTypeEnumId", "AT_XML_SCREEN")
+                        .useCache(true)
+                        .disableAuthz()
+                        .list()
+                    userAccessibleScreens = aacvList.collect { it.artifactName } as Set<String>
+                } finally {
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
+                    }
+                }
+                
+                ec.logger.info("MCP Screen Discovery: Found ${userAccessibleScreens.size()} accessible screens")
+                
+                // Helper function to check if user has permission to a screen
+                def userHasScreenPermission = { screenPath ->
+                    return userAccessibleScreens != null && userAccessibleScreens.contains(screenPath.toString())
+                }
+                
+                // Get all screen definitions and convert accessible ones to MCP tools
+                try {
+                    adminUserInfo = ec.user.pushUser("ADMIN")
+                    
+                    // Get screen locations from component configuration and known screen paths
+                    def screenPaths = []
+                    
+                    // Common screen paths to check (using existing Moqui screens)
+                    def commonScreenPaths = [
+                        "apps/ScreenTree",
+                        "apps/AppList",
+                        "webroot/apps",
+                        "webroot/ChangePassword",
+                        "webroot/error",
+                        "webroot/apps/AppList",
+                        "webroot/apps/ScreenTree",
+                        "webroot/apps/ScreenTree/ScreenTreeNested"
+                    ]
+                    
+                    // Add component-specific screens
+                    def componentScreenLocs = ec.entity.find("moqui.screen.SubscreensItem")
+                        .selectFields(["screenLocation", "subscreenLocation"])
+                        .disableAuthz()
+                        .distinct(true)
+                        .list()
+                    
+                    for (compScreen in componentScreenLocs) {
+                        if (compScreen.subscreenLocation) {
+                            screenPaths << compScreen.subscreenLocation
+                        }
+                    }
+                    
+                    // Combine all screen paths
+                    screenPaths.addAll(commonScreenPaths)
+                    screenPaths = screenPaths.unique()
+                    
+                    // Filter by pattern if provided
+                    if (screenPathPattern) {
+                        def pattern = screenPathPattern.replace("*", ".*")
+                        screenPaths = screenPaths.findAll { it.matches(pattern) }
+                    }
+                    
+                    ec.logger.info("MCP Screen Discovery: Checking ${screenPaths.size()} screen paths")
+                    
+                    for (screenPath in screenPaths) {
+                        try {
+                            // Check if user has permission to this screen
+                            if (userHasScreenPermission(screenPath)) {
+                                def tool = convertScreenToMcpTool(screenPath, ec)
+                                if (tool) {
+                                    tools << tool
+                                }
+                            }
+                        } catch (Exception e) {
+                            ec.logger.debug("Error processing screen ${screenPath}: ${e.message}")
+                        }
+                    }
+                    
+                } finally {
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
+                    }
+                }
+                
+                ec.logger.info("MCP Screen Discovery: Converted ${tools.size()} screens to MCP tools for user ${originalUsername}")
+                
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="convert" noun="ScreenToMcpTool" authenticate="false">
+        <description>Convert a screen path to MCP tool format</description>
+        <in-parameters>
+            <parameter name="screenPath" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="tool" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                tool = null
+                try {
+                    // Try to get screen definition
+                    def screenDef = null
+                    try {
+                        screenDef = ec.screen.getScreenDefinition(screenPath)
+                    } catch (Exception e) {
+                        // Screen might not exist or be accessible
+                        return
+                    }
+                    
+                    if (!screenDef) {
+                        return
+                    }
+                    
+                    // Extract screen information
+                    def screenName = screenPath.replaceAll("[^a-zA-Z0-9]", "_")
+                    def title = screenDef.getScreenName() ?: screenPath.split("/")[-1]
+                    def description = screenDef.getDescription() ?: "Moqui screen: ${screenPath}"
+                    
+                    // Get screen parameters from transitions and forms
+                    def parameters = [:]
+                    def required = []
+                    
+                    try {
+                        // Get transitions for parameter discovery
+                        def transitions = screenDef.getTransitionMap()
+                        transitions.each { transitionName, transition ->
+                            transition.getPathParameterList().each { param ->
+                                parameters[param] = [
+                                    type: "string",
+                                    description: "Path parameter: ${param}"
+                                ]
+                                required << param
+                            }
+                            
+                            // Get single service parameters if transition calls a service
+                            def serviceName = transition.getSingleServiceName()
+                            if (serviceName) {
+                                try {
+                                    def serviceDef = ec.service.getServiceDefinition(serviceName)
+                                    if (serviceDef) {
+                                        def inParamNames = serviceDef.getInParameterNames()
+                                        for (paramName in inParamNames) {
+                                            def paramNode = serviceDef.getInParameter(paramName)
+                                            def paramType = paramNode?.attribute('type') ?: 'String'
+                                            def paramDesc = paramNode.first("description")?.text ?: "Parameter from service ${serviceName}"
+                                            
+                                            // Convert Moqui type to JSON Schema type
+                                            def typeMap = [
+                                                "text-short": "string",
+                                                "text-medium": "string", 
+                                                "text-long": "string",
+                                                "text-very-long": "string",
+                                                "id": "string",
+                                                "id-long": "string",
+                                                "number-integer": "integer",
+                                                "number-decimal": "number",
+                                                "number-float": "number",
+                                                "date": "string",
+                                                "date-time": "string",
+                                                "date-time-nano": "string",
+                                                "boolean": "boolean",
+                                                "text-indicator": "boolean"
+                                            ]
+                                            def jsonSchemaType = typeMap[paramType] ?: "string"
+                                            
+                                            parameters[paramName] = [
+                                                type: jsonSchemaType,
+                                                description: paramDesc
+                                            ]
+                                            
+                                            if (paramNode?.attribute('required') == "true") {
+                                                required << paramName
+                                            }
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    ec.logger.debug("Error getting service definition for ${serviceName}: ${e.message}")
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        ec.logger.debug("Error getting transitions for screen ${screenPath}: ${e.message}")
+                    }
+                    
+                    // Build MCP tool
+                    tool = [
+                        name: "screen_${screenName}",
+                        title: title,
+                        description: "${description}. This tool renders the Moqui screen '${screenPath}' and returns the output.",
+                        inputSchema: [
+                            type: "object",
+                            properties: parameters,
+                            required: required.unique()
+                        ]
+                    ]
+                    
+                    // Add screen metadata
+                    tool.screenPath = screenPath
+                    tool.toolType = "screen"
+                    
+                } catch (Exception e) {
+                    ec.logger.warn("Error converting screen ${screenPath} to MCP tool: ${e.message}")
+                }
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="execute" noun="ScreenAsMcpTool" authenticate="true" allow-remote="true" transaction-timeout="120">
+        <description>Execute a screen as an MCP tool</description>
+        <in-parameters>
+            <parameter name="screenPath" required="true"/>
+            <parameter name="parameters" type="Map"><description>Parameters to pass to the screen</description></parameter>
+            <parameter name="renderMode" default="json"><description>Render mode: json, text, csv, xml</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                def startTime = System.currentTimeMillis()
+                try {
+                    // Validate screen exists
+                    if (!ec.screen.isScreenDefined(screenPath)) {
+                        throw new Exception("Screen not found: ${screenPath}")
+                    }
+                    
+                    // Set parameters in context
+                    if (parameters) {
+                        ec.context.putAll(parameters)
+                    }
+                    
+                    // Render screen
+                    def screenRender = ec.screen.makeRender()
+                        .screenPath(screenPath)
+                        .renderMode(renderMode)
+                    
+                    def output = screenRender.render()
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    // Convert to MCP format
+                    def content = []
+                    if (output && output.trim().length() > 0) {
+                        content << [
+                            type: "text",
+                            text: output
+                        ]
+                    }
+                    
+                    result = [
+                        content: content,
+                        isError: false,
+                        metadata: [
+                            screenPath: screenPath,
+                            renderMode: renderMode,
+                            executionTime: executionTime,
+                            outputLength: output?.length() ?: 0
+                        ]
+                    ]
+                    
+                    ec.logger.info("MCP Screen Execution: Successfully executed screen ${screenPath} in ${executionTime}s")
+                    
+                } catch (Exception e) {
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    
+                    result = [
+                        content: [
+                            [
+                                type: "text", 
+                                text: "Error executing screen ${screenPath}: ${e.message}"
+                            ]
+                        ],
+                        isError: true,
+                        metadata: [
+                            screenPath: screenPath,
+                            renderMode: renderMode,
+                            executionTime: executionTime
+                        ]
+                    ]
+                    
+                    ec.logger.error("MCP Screen Execution error for ${screenPath}", e)
+                }
             ]]></script>
         </actions>
     </service>
