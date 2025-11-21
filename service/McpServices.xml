@@ -119,9 +119,15 @@
                 def userId = ec.user.userId
                 def userAccountId = userId ? userId : null
                 
-                // Get user-specific tools and resources
-                def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList").parameters([sessionId: visit.visitId]).call()
-                def resourcesResult = ec.service.sync().name("McpServices.mcp#ResourcesList").parameters([sessionId: visit.visitId]).call()
+                // Get user-specific tools and resources in SAME transaction context
+                def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList")
+                    .parameters([sessionId: visit.visitId])
+                    .requireNewTransaction(false)  // Use current transaction
+                    .call()
+                def resourcesResult = ec.service.sync().name("McpServices.mcp#ResourcesList")
+                    .parameters([sessionId: visit.visitId])
+                    .requireNewTransaction(false)  // Use current transaction
+                    .call()
                 
                 // Build server capabilities based on what user can access
                 def serverCapabilities = [
