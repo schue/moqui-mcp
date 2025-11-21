@@ -742,9 +742,10 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             
             switch (method) {
                 case "initialize":
-                    // Capture actual authenticated user ID before service elevation
+                    // For initialize, use the visitId we just created instead of null sessionId from request
+                    params.sessionId = visit.visitId
                     params.actualUserId = ec.user.userId
-                    logger.info("Initialize - actualUserId: ${params.actualUserId}")
+                    logger.info("Initialize - actualUserId: ${params.actualUserId}, sessionId: ${params.sessionId}")
                     return callMcpService("mcp#Initialize", params, ec)
                 case "ping":
                     // Simple ping for testing - bypass service for now
