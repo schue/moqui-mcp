@@ -16,8 +16,23 @@
 
     <entity-factory load-path="entity/" />
     <service-factory load-path="service/" />
+    <screen-factory load-path="screen/" />
     
     <!-- Load seed data -->
     <entity-factory load-data="data/McpSecuritySeedData.xml" />
+
+    <!-- Webapp Configuration -->
+    <webapp-list>
+        <webapp name="webroot">
+            <servlet name="EnhancedMcpServlet" class="org.moqui.mcp.EnhancedMcpServlet" 
+                     load-on-startup="5" async-supported="true">
+                <init-param name="keepAliveIntervalSeconds" value="30"/>
+                <init-param name="maxConnections" value="100"/>
+                <url-pattern>/mcp/*</url-pattern>
+            </servlet>
+        </webapp>
+    </webapp-list>
+
+
 
 </component>

@@ -19,40 +19,7 @@
                              http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
          version="4.0">
 
-    <!-- Service-Based MCP Servlet Configuration -->
-    <servlet>
-        <servlet-name>EnhancedMcpServlet</servlet-name>
-        <servlet-class>org.moqui.mcp.EnhancedMcpServlet</servlet-class>
-        
-        <init-param>
-            <param-name>keepAliveIntervalSeconds</param-name>
-            <param-value>30</param-value>
-        </init-param>
-        <init-param>
-            <param-name>maxConnections</param-name>
-            <param-value>100</param-value>
-        </init-param>
-        
-        <!-- Enable async support for SSE -->
-        <async-supported>true</async-supported>
-        
-        <!-- Load on startup -->
-        <load-on-startup>5</load-on-startup>
-    </servlet>
-    
-    <servlet-mapping>
-        <servlet-name>EnhancedMcpServlet</servlet-name>
-        <url-pattern>/mcp/*</url-pattern>
-    </servlet-mapping>
-    
-    <!-- Session Configuration -->
-    <session-config>
-        <session-timeout>30</session-timeout>
-        <cookie-config>
-            <http-only>true</http-only>
-            <secure>false</secure>
-        </cookie-config>
-    </session-config>
+    <!-- MCP Servlet Configuration moved to component.xml webapp-list -->
     
     <!-- Security Constraints (optional - uncomment if needed) -->
     <!--
