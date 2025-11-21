@@ -542,14 +542,33 @@
                     return userAccessibleEntities != null && userAccessibleEntities.contains(entityName.toString())
                 }
                 
-                // Add all permitted entities - let Moqui artifact security handle filtering
-                for (entityName in allEntityNames) {
+                // Add all permitted entities including ViewEntities for LLM convenience
+                def allEntityNames = ec.entity.getAllEntityNames()
+                def allViewNames = [] as Set<String>
+                
+                // Get ViewEntities by checking entity definitions for view entities
+                def entityInfoList = ec.entity.getAllEntityInfo(0, true) // includeViewEntities=true
+                for (entityInfo in entityInfoList) {
+                    if (entityInfo.isViewEntity) {
+                        allViewNames.add(entityInfo.entityName)
+                    }
+                }
+                
+                // Combine real entities and ViewEntities
+                def allAccessibleEntities = allEntityNames + allViewNames
+                
+                for (entityName in allAccessibleEntities) {
                     if (userHasEntityPermission(entityName)) {
+                        def description = "Moqui entity: ${entityName}"
+                        if (entityName.contains("View")) {
+                            description = "Moqui ViewEntity: ${entityName} (pre-joined data for LLM convenience)"
+                        }
+                        
                         ec.logger.info("MCP ResourcesList: Adding entity: ${entityName}")
                         availableResources << [
                             uri: "entity://${entityName}",
                             name: entityName,
-                            description: "Moqui entity: ${entityName}",
+                            description: description,
                             mimeType: "application/json"
                         ]
                     }
@@ -592,12 +611,45 @@
                 
                  def startTime = System.currentTimeMillis()
                  try {
-                     // Get entity definition for field descriptions
-                     def entityInfoList = ec.entity.getAllEntityInfo(0, false)
-                     def entityDef = entityInfoList.find { it.entityName == entityName }
-                     if (!entityDef) {
-                         throw new Exception("Entity not found: ${entityName}")
-                     }
+                 // Try to get entity definition - handle both real entities and view entities
+                      def entityDef = null
+                      try {
+                          // First try getAllEntityInfo for detailed info
+                          def entityInfoList = ec.entity.getAllEntityInfo(-1, true) // all entities, include view entities
+                          entityDef = entityInfoList.find { it.entityName == entityName }
+                          
+                          if (!entityDef) {
+                              // If not found in detailed list, try basic entity check
+                              if (ec.entity.isEntityDefined(entityName)) {
+                                  // Create minimal entity definition for basic query
+                                  entityDef = [
+                                      entityName: entityName,
+                                      packageName: entityName.split('\\.')[0],
+                                      description: "Entity: ${entityName}",
+                                      isViewEntity: entityName.contains('View'),
+                                      allFieldInfoList: []
+                                  ]
+                              }
+                          }
+                      } catch (Exception e) {
+                          ec.logger.warn("ResourcesRead: Error getting entity info for ${entityName}: ${e.message}")
+                          // Fallback: try basic entity check
+                          if (ec.entity.isEntityDefined(entityName)) {
+                              entityDef = [
+                                  entityName: entityName,
+                                  packageName: entityName.split('\\.')[0],
+                                  description: "Entity: ${entityName}",
+                                  isViewEntity: entityName.contains('View'),
+                                  allFieldInfoList: []
+                              ]
+                          }
+                      }
+                      
+                      if (!entityDef) {
+                          throw new Exception("Entity not found: ${entityName}")
+                      }
+                      
+                      ec.logger.info("ResourcesRead: Found entity ${entityName}, isViewEntity=${entityDef.isViewEntity}")
                      
                      // Query entity data (limited to prevent large responses)
                      def entityList = ec.entity.find(entityName)
@@ -637,9 +689,10 @@
                      result = [contents: contents]
                      
                  } catch (Exception e) {
-                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-                     throw new Exception("Error reading resource ${uri}: ${e.message}")
-                 }
+                      def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                      ec.logger.warn("Error reading resource ${uri}: ${e.message}")
+                      result = [error: "Error reading resource ${uri}: ${e.message}"]
+                  }
             ]]></script>
         </actions>
     </service>
