@@ -1355,20 +1355,47 @@ try {
                     try {
                         ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath}")
                         
+                        // Mock web context objects that screens may expect
+                        ec.context.put("html_scripts", new LinkedHashSet<String>())
+                        ec.context.put("html_stylesheets", new LinkedHashSet<String>())
+                        
+                        // Mock other common web context objects
+                        ec.context.put("webappName", "mcp")
+                        ec.context.put("servletContext", [:])
+                        ec.context.put("request", [:])
+                        ec.context.put("response", [:])
+                        
+                        // Mock ec.web for getResourceDistinctValue() calls
+                        def mockWeb = [
+                            getResourceDistinctValue: { -> return System.currentTimeMillis() }
+                        ]
+                        ec.context.put("web", mockWeb)
+                        
                         // Try to render screen with specified render mode for LLM to read
                         def screenRender = ec.screen.makeRender()
                             .rootScreen(screenPath)  // Set root screen location
                             .renderMode(renderMode)  // Set render mode from parameter, but don't set additional path for root screen
                         
-                        // Mock sri.sendRedirectAndStopRender() to prevent redirects in MCP context
-                        // We want screen content, not redirects to other pages
-                        def mockSri = [
+                        // Get the real sri object and override problematic methods
+                        // Put mock sri in context that will be used by templates
+                        def mockSriForContext = [
+                            buildUrl: { String path ->
+                                return [
+                                    url: path.startsWith("/") ? path : "/${path}",
+                                    path: path,
+                                    isPermitted: { -> true },
+                                    toString: { -> return path.startsWith("/") ? path : "/${path}" }
+                                ]
+                            },
+                            getThemeValues: { String enumId ->
+                                return []
+                            },
                             sendRedirectAndStopRender: { String redirectUrl ->
                                 ec.logger.info("MCP Screen Execution: Ignoring redirect to ${redirectUrl} - continuing screen render for MCP")
                                 // Don't actually redirect, just log and continue
                             }
                         ]
-                        ec.context.put("sri", mockSri)
+                        ec.context.put("sri", mockSriForContext)
                         
                         ec.logger.info("MCP Screen Execution: ScreenRender object created: ${screenRender?.getClass()?.getSimpleName()}")
                         
