@@ -15,7 +15,6 @@
 
     <webapp-list>
         <webapp name="webroot" http-port="8080">
-            <root-screen host="*" location="component://moqui-mcp-2/screen/McpScreens.xml"/>
             <servlet name="EnhancedMcpServlet" class="org.moqui.mcp.EnhancedMcpServlet" 
                      load-on-startup="5" async-supported="true">
                 <init-param name="keepAliveIntervalSeconds" value="30"/>

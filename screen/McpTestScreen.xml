@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd">
+    
+    <parameters>
+        <parameter name="message" default-value="Hello from MCP!"/>
+    </parameters>
+    
+    <actions>
+        <set field="timestamp" from="new java.util.Date()"/>
+        <set field="user" from="ec.user.username"/>
+    </actions>
+    
+    <widgets>
+        <container style="text-center">
+            <label text="MCP Test Screen" type="h1"/>
+            <label text="${message}" type="h3"/>
+            <label text="User: ${user}" type="p"/>
+            <label text="Time: ${timestamp}" type="p"/>
+            <label text="Render Mode: ${sri.renderMode}" type="p"/>
+        </container>
+    </widgets>
+</screen>
