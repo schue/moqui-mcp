@@ -1312,22 +1312,22 @@ try {
                     def screenUrl = "http://localhost:8080/${screenPath}"
                     
                     try {
-                        ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using Moqui's test framework")
+                        ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen")
                         
-                        // Determine appropriate base path based on screen path
-                        def basePath = ""
+                        // For ScreenTest to work properly, we need to use the correct root screen
+                        // The screenPath should be relative to the appropriate root screen
+                        def testScreenPath = screenPath
+                        def rootScreen = "component://webroot/screen/webroot.xml"
+                        
+                        // If the screen path is already a full component:// path, we need to handle it differently
                         if (screenPath.startsWith("component://")) {
-                            basePath = ""  // Use empty base path for component paths
-                        } else if (screenPath.startsWith("apps/")) {
-                            basePath = "apps"  // Use apps base path for apps screens
-                        } else if (screenPath.startsWith("webroot/")) {
-                            basePath = ""  // Use empty base path for webroot screens
+                            // Extract the path after component:// for ScreenTest
+                            testScreenPath = screenPath.substring(12) // Remove "component://"
+                            ec.logger.info("MCP Screen Execution: Converted component path to test path: ${testScreenPath}")
                         }
                         
-                        // Use Moqui's official test screen rendering framework
-                        // This creates proper WebFacadeStub with all necessary web context objects
                         def screenTest = ec.screen.makeTest()
-                            .baseScreenPath(basePath)
+                            .rootScreen(rootScreen)
                             .renderMode(renderMode ? renderMode : "text")
                         
                         ec.logger.info("MCP Screen Execution: ScreenTest object created: ${screenTest?.getClass()?.getSimpleName()}")
@@ -1335,9 +1335,13 @@ try {
                         if (screenTest) {
                             def renderParams = parameters ?: [:]
                             
+                            // Add current user info to render context to maintain authentication
+                            renderParams.userId = ec.user.userId
+                            renderParams.username = ec.user.username
+                            
                             // Add timeout to prevent hanging
                             def future = java.util.concurrent.Executors.newSingleThreadExecutor().submit({
-                                return screenTest.render(screenPath, renderParams, null)
+                                return screenTest.render(testScreenPath, renderParams, null)
                             } as java.util.concurrent.Callable)
                             
                             try {
