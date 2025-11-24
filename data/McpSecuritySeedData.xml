@@ -92,6 +92,8 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.product.Product" artifactTypeEnumId="AT_ENTITY"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.invoice.Invoice" artifactTypeEnumId="AT_ENTITY"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="moqui.server.CommunicationEvent" artifactTypeEnumId="AT_ENTITY"/>
+    <!-- MCP Test Services -->
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="org.moqui.mcp.McpTestServices.*" artifactTypeEnumId="AT_SERVICE"/>
     <!-- Visit Entity Access -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="moqui.server.Visit" artifactTypeEnumId="AT_ENTITY"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="create#moqui.server.Visit" artifactTypeEnumId="AT_ENTITY"/>
