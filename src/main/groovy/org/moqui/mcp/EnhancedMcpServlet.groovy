@@ -14,8 +14,8 @@
 package org.moqui.mcp
 
 import groovy.json.JsonSlurper
-import groovy.json.JsonOutput
 import org.moqui.impl.context.ExecutionContextFactoryImpl
+import groovy.json.JsonBuilder
 import org.moqui.context.ArtifactAuthorizationException
 import org.moqui.context.ArtifactTarpitException
 import org.moqui.impl.context.ExecutionContextImpl
@@ -155,11 +155,11 @@ try {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED)
                 response.setContentType("application/json")
                 response.setHeader("WWW-Authenticate", "Basic realm=\"Moqui MCP\"")
-                response.writer.write(groovy.json.JsonOutput.toJson([
+                response.writer.write(new JsonBuilder([
                     jsonrpc: "2.0",
                     error: [code: -32003, message: "Authentication required. Use Basic auth with valid Moqui credentials."],
                     id: null
-                ]))
+                ]).toString())
                 return
             }
             
@@ -253,11 +253,11 @@ try {
             logger.warn("Enhanced MCP Access Forbidden (no authz): " + e.message)
             response.setStatus(HttpServletResponse.SC_FORBIDDEN)
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(new JsonBuilder([
                 jsonrpc: "2.0",
                 error: [code: -32001, message: "Access Forbidden: " + e.message],
                 id: null
-            ]))
+            ]).toString())
         } catch (ArtifactTarpitException e) {
             logger.warn("Enhanced MCP Too Many Requests (tarpit): " + e.message)
             response.setStatus(429)
@@ -265,20 +265,20 @@ try {
                 response.addIntHeader("Retry-After", e.getRetryAfterSeconds())
             }
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(new JsonBuilder([
                 jsonrpc: "2.0",
                 error: [code: -32002, message: "Too Many Requests: " + e.message],
                 id: null
-            ]))
+            ]).toString())
         } catch (Throwable t) {
             logger.error("Error in Enhanced MCP request", t)
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(new JsonBuilder([
                 jsonrpc: "2.0",
                 error: [code: -32603, message: "Internal error: " + t.message],
                 id: null
-            ]))
+            ]).toString())
         } finally {
             ec.destroy()
         }
@@ -397,7 +397,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             // Set MCP session ID header per specification BEFORE sending any data
             response.setHeader("Mcp-Session-Id", visit.visitId.toString())
             
-            sendSseEvent(response.writer, "connect", groovy.json.JsonOutput.toJson(connectData), 0)
+            sendSseEvent(response.writer, "connect", new JsonBuilder(connectData).toString(), 0)
             
             // Send endpoint info for message posting (for compatibility)
             sendSseEvent(response.writer, "endpoint", "/mcp", 1)
@@ -414,7 +414,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                         sessionId: visit.visitId,
                         architecture: "Visit-based sessions"
                     ]
-                    sendSseEvent(response.writer, "ping", groovy.json.JsonOutput.toJson(pingData), pingCount + 2)
+                    sendSseEvent(response.writer, "ping", new JsonBuilder(pingData).toString(), pingCount + 2)
                     pingCount++
                 }
             }
@@ -432,7 +432,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                         sessionId: visit.visitId,
                         timestamp: System.currentTimeMillis()
                     ]
-                    sendSseEvent(response.writer, "disconnect", groovy.json.JsonOutput.toJson(closeData), -1)
+                    sendSseEvent(response.writer, "disconnect", new JsonBuilder(closeData).toString(), -1)
                 } catch (Exception e) {
                     // Ignore errors during cleanup
                 }
@@ -460,7 +460,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             response.setContentType("application/json")
             response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 error: "Missing sessionId parameter or header",
                 architecture: "Visit-based sessions"
             ]))
@@ -477,7 +477,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             response.setContentType("application/json")
             response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_NOT_FOUND)
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 error: "Session not found: " + sessionId,
                 architecture: "Visit-based sessions"
             ]))
@@ -491,7 +491,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             response.setContentType("application/json")
             response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_FORBIDDEN)
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 error: "Access denied for session: " + sessionId + " (visit.userId=${visit.userId}, ec.user.userId=${ec.user.userId})",
                 architecture: "Visit-based sessions"
             ]))
@@ -515,7 +515,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 response.setContentType("application/json")
                 response.setCharacterEncoding("UTF-8")
                 response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-                response.writer.write(groovy.json.JsonOutput.toJson([
+                response.writer.write(JsonOutput.toJson([
                     jsonrpc: "2.0",
                     error: [code: -32700, message: "Failed to read request body: " + e.message],
                     id: null
@@ -528,7 +528,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 response.setContentType("application/json")
                 response.setCharacterEncoding("UTF-8")
                 response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-                response.writer.write(groovy.json.JsonOutput.toJson([
+                response.writer.write(JsonOutput.toJson([
                     jsonrpc: "2.0",
                     error: [code: -32602, message: "Empty request body"],
                     id: null
@@ -545,7 +545,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 response.setContentType("application/json")
                 response.setCharacterEncoding("UTF-8")
                 response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-                response.writer.write(groovy.json.JsonOutput.toJson([
+                response.writer.write(JsonOutput.toJson([
                     jsonrpc: "2.0",
                     error: [code: -32700, message: "Invalid JSON: " + e.message],
                     id: null
@@ -558,7 +558,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 response.setContentType("application/json")
                 response.setCharacterEncoding("UTF-8")
                 response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-                response.writer.write(groovy.json.JsonOutput.toJson([
+                response.writer.write(JsonOutput.toJson([
                     jsonrpc: "2.0",
                     error: [code: -32600, message: "Invalid JSON-RPC 2.0 request"],
                     id: rpcRequest?.id ?: null
@@ -576,7 +576,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             response.setContentType("application/json")
             response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_OK)
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 id: rpcRequest.id,
                 result: [status: "processed", sessionId: sessionId, architecture: "Visit-based"]
@@ -587,7 +587,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             response.setContentType("application/json")
             response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32603, message: "Internal error: " + e.message],
                 id: null
@@ -617,7 +617,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         if (!"POST".equals(method)) {
             response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED)
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32601, message: "Method Not Allowed. Use POST for JSON-RPC or GET /mcp-sse/sse for SSE."],
                 id: null
@@ -638,7 +638,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         if (!"POST".equals(jsonMethod)) {
             response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED)
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32601, message: "Method Not Allowed. Use POST for JSON-RPC or GET /mcp-sse/sse for SSE."],
                 id: null
@@ -652,7 +652,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         if (!requestBody) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32602, message: "Empty request body"],
                 id: null
@@ -672,7 +672,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             logger.error("Failed to parse JSON-RPC request: ${e.message}")
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32700, message: "Invalid JSON: " + e.message],
                 id: null
@@ -684,7 +684,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         if (!rpcRequest?.jsonrpc || rpcRequest.jsonrpc != "2.0" || !rpcRequest?.method) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32600, message: "Invalid JSON-RPC 2.0 request"],
                 id: null
@@ -697,7 +697,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         if (protocolVersion && protocolVersion != "2025-06-18") {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32600, message: "Unsupported MCP protocol version: ${protocolVersion}. Supported: 2025-06-18"],
                 id: null
@@ -713,7 +713,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         if (!sessionId && rpcRequest.method != "initialize") {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
-            response.writer.write(groovy.json.JsonOutput.toJson([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32600, message: "Mcp-Session-Id header required for non-initialize requests"],
                 id: rpcRequest.id
@@ -733,7 +733,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 if (!existingVisit) {
                     response.setStatus(HttpServletResponse.SC_NOT_FOUND)
                     response.setContentType("application/json")
-                    response.writer.write(groovy.json.JsonOutput.toJson([
+                    response.writer.write(JsonOutput.toJson([
                         jsonrpc: "2.0",
                         error: [code: -32600, message: "Session not found: ${sessionId}"],
                         id: rpcRequest.id
@@ -745,7 +745,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 if (!existingVisit.userId || !ec.user.userId || existingVisit.userId.toString() != ec.user.userId.toString()) {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN)
                     response.setContentType("application/json")
-                    response.writer.write(groovy.json.JsonOutput.toJson([
+                    response.writer.write(JsonOutput.toJson([
                         jsonrpc: "2.0",
                         error: [code: -32600, message: "Access denied for session: ${sessionId}"],
                         id: rpcRequest.id
@@ -761,7 +761,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 logger.error("Error finding session ${sessionId}: ${e.message}")
                 response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
                 response.setContentType("application/json")
-                response.writer.write(groovy.json.JsonOutput.toJson([
+                response.writer.write(JsonOutput.toJson([
                     jsonrpc: "2.0",
                     error: [code: -32603, message: "Session lookup error: ${e.message}"],
                     id: rpcRequest.id
@@ -788,7 +788,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         response.setContentType("application/json")
         response.setCharacterEncoding("UTF-8")
         
-        response.writer.write(groovy.json.JsonOutput.toJson(rpcResponse))
+        response.writer.write(JsonOutput.toJson(rpcResponse))
     }
     
     private Map<String, Object> processMcpMethod(String method, Map params, ExecutionContextImpl ec, String sessionId, def visit) {

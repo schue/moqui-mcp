@@ -67,14 +67,14 @@ class WebFacadeStub implements WebFacade {
     }
     
     protected void createMockHttpObjects() {
-        // Create mock HttpServletRequest
-        this.httpServletRequest = new MockHttpServletRequest(this.parameters, this.requestMethod)
+        // Create mock HttpSession first
+        this.httpSession = new MockHttpSession(this.sessionAttributes)
+        
+        // Create mock HttpServletRequest with session
+        this.httpServletRequest = new MockHttpServletRequest(this.parameters, this.requestMethod, this.httpSession)
         
         // Create mock HttpServletResponse with String output capture
         this.httpServletResponse = new MockHttpServletResponse()
-        
-        // Create mock HttpSession
-        this.httpSession = new MockHttpSession(this.sessionAttributes)
         
         // Note: Objects are linked through the mock implementations
     }
@@ -256,13 +256,26 @@ class WebFacadeStub implements WebFacade {
         private final Map<String, Object> parameters
         private final String method
         private HttpSession session
+        private String remoteUser = null
+        private java.security.Principal userPrincipal = null
         
-        MockHttpServletRequest(Map<String, Object> parameters, String method) {
+        MockHttpServletRequest(Map<String, Object> parameters, String method, HttpSession session = null) {
             this.parameters = parameters ?: [:]
             this.method = method ?: "GET"
+            this.session = session
+            
+            // Extract user information from session attributes for authentication
+            if (session) {
+                def username = session.getAttribute("username")
+                def userId = session.getAttribute("userId")
+                if (username) {
+                    this.remoteUser = username as String
+                    this.userPrincipal = new java.security.Principal() {
+                        String getName() { return username as String }
+                    }
+                }
+            }
         }
-        
-        void setSession(HttpSession session) { this.session = session }
         
         @Override String getMethod() { return method }
         @Override String getScheme() { return "http" }
@@ -303,9 +316,9 @@ class WebFacadeStub implements WebFacade {
         @Override void removeAttribute(String name) {}
         @Override java.util.Enumeration<String> getAttributeNames() { return Collections.enumeration([]) }
         @Override String getAuthType() { return null }
-        @Override String getRemoteUser() { return null }
+        @Override String getRemoteUser() { return remoteUser }
         @Override boolean isUserInRole(String role) { return false }
-        @Override java.security.Principal getUserPrincipal() { return null }
+        @Override java.security.Principal getUserPrincipal() { return userPrincipal }
         @Override String getRequestedSessionId() { return null }
         @Override StringBuffer getRequestURL() { return new StringBuffer("http://localhost:8080/test") }
         @Override String getPathInfo() { return "/test" }

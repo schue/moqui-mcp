@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <screen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd">
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/xml-screen-3.xsd"
+        standalone="true">
     
     <parameters>
         <parameter name="message" default-value="Hello from MCP!"/>
@@ -8,7 +9,7 @@
     
     <actions>
         <set field="timestamp" from="new java.util.Date()"/>
-        <set field="user" from="ec.user.username"/>
+        <set field="user" from="ec.user?.username ?: 'Anonymous'"/>
     </actions>
     
     <widgets>
@@ -18,6 +19,7 @@
             <label text="User: ${user}" type="p"/>
             <label text="Time: ${timestamp}" type="p"/>
             <label text="Render Mode: ${sri.renderMode}" type="p"/>
+            <label text="Screen Path: ${sri.screenPath}" type="p"/>
         </container>
     </widgets>
 </screen>

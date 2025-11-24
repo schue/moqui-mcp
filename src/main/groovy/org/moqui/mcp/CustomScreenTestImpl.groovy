@@ -203,6 +203,13 @@ class CustomScreenTestImpl implements ScreenTest {
                         if (authzDisabled) threadEci.artifactExecutionFacade.disableAuthz()
                         // as this is used for server-side transition calls don't do tarpit checks
                         threadEci.artifactExecutionFacade.disableTarpit()
+                        
+                        // Ensure user is properly authenticated in the thread context
+                        // This is critical for screen authentication checks
+                        if (username != null && !username.isEmpty()) {
+                            threadEci.userFacade.internalLoginUser(username)
+                        }
+                        
                         renderInternal(threadEci, stri)
                         threadEci.destroy()
                     } catch (Throwable t) {
@@ -230,8 +237,17 @@ class CustomScreenTestImpl implements ScreenTest {
             // push context
             ContextStack cs = eci.getContext()
             cs.push()
+            
+            // Ensure user context is properly set in session attributes for WebFacadeStub
+            def sessionAttributes = new HashMap(sti.sessionAttributes)
+            sessionAttributes.putAll([
+                userId: eci.userFacade.getUserId(),
+                username: eci.userFacade.getUsername(),
+                userAccountId: eci.userFacade.getUserId()
+            ])
+            
             // create our custom WebFacadeStub instead of framework's, passing screen path for proper path handling
-            WebFacadeStub wfs = new WebFacadeStub(sti.ecfi, stri.parameters, sti.sessionAttributes, stri.requestMethod, stri.screenPath)
+            WebFacadeStub wfs = new WebFacadeStub(sti.ecfi, stri.parameters, sessionAttributes, stri.requestMethod, stri.screenPath)
             // set stub on eci, will also put parameters in context
             eci.setWebFacade(wfs)
             // make the ScreenRender

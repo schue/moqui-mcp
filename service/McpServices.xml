@@ -743,35 +743,52 @@ try {
                      
                      def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                      
-                     // Build field info for LLM
-                     def fieldInfo = []
-                     entityDef.allFieldInfoList.each { field ->
-                         fieldInfo << [
-                             name: field.name,
-                             type: field.type,
-                             description: field.description ?: "",
-                             isPk: field.isPk,
-                             required: field.notNull
+                     // SIZE PROTECTION: Check response size before returning
+                     def jsonOutput = new JsonBuilder([
+                         entityName: entityName,
+                         description: entityDef.description ?: "",
+                         packageName: entityDef.packageName,
+                         recordCount: entityList.size(),
+                         fields: fieldInfo,
+                         data: entityList
+                     ]).toString()
+                     
+                     def maxResponseSize = 1024 * 1024  // 1MB limit
+                     if (jsonOutput.length() > maxResponseSize) {
+                         ec.logger.warn("ResourcesRead: Response too large for ${entityName}: ${jsonOutput.length()} bytes (limit: ${maxResponseSize} bytes)")
+                         
+                         // Create truncated response with fewer records
+                         def truncatedList = entityList.take(10)  // Keep only first 10 records
+                         def truncatedOutput = new JsonBuilder([
+                             entityName: entityName,
+                             description: entityDef.description ?: "",
+                             packageName: entityDef.packageName,
+                             recordCount: entityList.size(),
+                             fields: fieldInfo,
+                             data: truncatedList,
+                             truncated: true,
+                             originalSize: entityList.size(),
+                             truncatedSize: truncatedList.size(),
+                             message: "Response truncated due to size limits. Original data has ${entityList.size()} records, showing first ${truncatedList.size()}."
+                         ]).toString()
+                         
+                         contents = [
+                             [
+                                 uri: uri,
+                                 mimeType: "application/json",
+                                 text: truncatedOutput
+                             ]
+                         ]
+                     } else {
+                         // Normal response
+                         contents = [
+                             [
+                                 uri: uri,
+                                 mimeType: "application/json",
+                                 text: jsonOutput
+                             ]
                          ]
                      }
-                     
-                     // Convert to MCP resource content
-                     def contents = [
-                         [
-                             uri: uri,
-                             mimeType: "application/json",
-                             text: new JsonBuilder([
-                                 entityName: entityName,
-                                 description: entityDef.description ?: "",
-                                 packageName: entityDef.packageName,
-                                 recordCount: entityList.size(),
-                                 fields: fieldInfo,
-                                 data: entityList
-                             ]).toString()
-                         ]
-                     ]
-                     
-                     result = [contents: contents]
                      
                  } catch (Exception e) {
                       def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
@@ -1320,7 +1337,7 @@ def startTime = System.currentTimeMillis()
         def targetScreenDef = null
         def isStandalone = false
         
-        // If the screen path is already a full component:// path, we need to handle it differently
+                // If the screen path is already a full component:// path, we need to handle it differently
         if (screenPath.startsWith("component://")) {
             // For component:// paths, we need to use the component's root screen, not webroot
             // Extract the component name and use its root screen
@@ -1416,10 +1433,21 @@ def startTime = System.currentTimeMillis()
                                 testScreenPath = remainingPath
                                 ec.logger.info("MCP Screen Execution: Using component root ${rootScreen} for path ${testScreenPath}")
                             } else {
-                                // Fallback: try using webroot with the full path
-                                rootScreen = "component://webroot/screen/webroot.xml"
-                                testScreenPath = pathAfterComponent
-                                ec.logger.warn("MCP Screen Execution: Could not find component root for ${componentName}, using webroot fallback: ${testScreenPath}")
+                                // For mantle and other components, try using the component's screen directory as root
+                                // This is a better fallback than webroot
+                                def componentScreenRoot = "component://${componentName}/screen/"
+                                if (pathAfterComponent.startsWith("${componentName}/screen/")) {
+                                    // Extract the screen file name from the path
+                                    def screenFileName = pathAfterComponent.substring("${componentName}/screen/".length())
+                                    rootScreen = screenPath  // Use the full path as root
+                                    testScreenPath = ""     // Empty path for direct screen access
+                                    ec.logger.info("MCP Screen Execution: Using component screen as direct root: ${rootScreen}")
+                                } else {
+                                    // Final fallback: try webroot
+                                    rootScreen = "component://webroot/screen/webroot.xml"
+                                    testScreenPath = pathAfterComponent
+                                    ec.logger.warn("MCP Screen Execution: Could not find component root for ${componentName}, using webroot fallback: ${testScreenPath}")
+                                }
                             }
                         }
                     }
@@ -1431,13 +1459,16 @@ def startTime = System.currentTimeMillis()
             }
         }
         
-        // Restore user context from sessionId before creating ScreenTest
-                // Regular screen rendering with restored user context - use our custom ScreenTestImpl
-                def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
-                    .rootScreen(rootScreen)
-                    .renderMode(renderMode ? renderMode : "html")
-                
-                ec.logger.info("MCP Screen Execution: ScreenTest object created: ${screenTest?.getClass()?.getSimpleName()}")
+        // User context should already be correct from MCP servlet restoration
+        // CustomScreenTestImpl will capture current user context automatically
+        ec.logger.info("MCP Screen Execution: Current user context - userId: ${ec.user.userId}, username: ${ec.user.username}")
+        
+        // Regular screen rendering with current user context - use our custom ScreenTestImpl
+        def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
+            .rootScreen(rootScreen)
+            .renderMode(renderMode ? renderMode : "html")
+        
+        ec.logger.info("MCP Screen Execution: ScreenTest object created: ${screenTest?.getClass()?.getSimpleName()}")
             
                 if (screenTest) {
                     def renderParams = parameters ?: [:]
@@ -1460,7 +1491,28 @@ def startTime = System.currentTimeMillis()
                         def testRender = future.get(30, java.util.concurrent.TimeUnit.SECONDS)  // 30 second timeout
                         output = testRender.output
                         def outputLength = output?.length() ?: 0
-                        ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${outputLength}")
+                        
+                        // SIZE PROTECTION: Check response size before returning
+                        def maxResponseSize = 1024 * 1024  // 1MB limit
+                        if (outputLength > maxResponseSize) {
+                            ec.logger.warn("MCP Screen Execution: Response too large for ${screenPath}: ${outputLength} bytes (limit: ${maxResponseSize} bytes)")
+                            
+                            // Create truncated response with clear indication
+                            def truncatedOutput = output.substring(0, Math.min(maxResponseSize / 2, outputLength))
+                            output = """SCREEN RESPONSE TRUNCATED
+
+The screen '${screenPath}' generated a response that is too large for MCP processing:
+- Original size: ${outputLength} bytes
+- Size limit: ${maxResponseSize} bytes
+- Truncated to: ${truncatedOutput.length()} bytes
+
+TRUNCATED CONTENT:
+${truncatedOutput}
+
+[Response truncated due to size limits. Consider using more specific screen parameters or limiting data ranges.]"""
+                        }
+                        
+                        ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
                     } catch (java.util.concurrent.TimeoutException e) {
                         future.cancel(true)
                         throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
