@@ -156,11 +156,11 @@ try {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED)
                 response.setContentType("application/json")
                 response.setHeader("WWW-Authenticate", "Basic realm=\"Moqui MCP\"")
-                response.writer.write(new JsonBuilder([
+                response.writer.write(JsonOutput.toJson([
                     jsonrpc: "2.0",
                     error: [code: -32003, message: "Authentication required. Use Basic auth with valid Moqui credentials."],
                     id: null
-                ]).toString())
+                ]))
                 return
             }
             
@@ -254,11 +254,11 @@ try {
             logger.warn("Enhanced MCP Access Forbidden (no authz): " + e.message)
             response.setStatus(HttpServletResponse.SC_FORBIDDEN)
             response.setContentType("application/json")
-            response.writer.write(new JsonBuilder([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32001, message: "Access Forbidden: " + e.message],
                 id: null
-            ]).toString())
+            ]))
         } catch (ArtifactTarpitException e) {
             logger.warn("Enhanced MCP Too Many Requests (tarpit): " + e.message)
             response.setStatus(429)
@@ -266,20 +266,20 @@ try {
                 response.addIntHeader("Retry-After", e.getRetryAfterSeconds())
             }
             response.setContentType("application/json")
-            response.writer.write(new JsonBuilder([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32002, message: "Too Many Requests: " + e.message],
                 id: null
-            ]).toString())
+            ]))
         } catch (Throwable t) {
             logger.error("Error in Enhanced MCP request", t)
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
             response.setContentType("application/json")
-            response.writer.write(new JsonBuilder([
+            response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 error: [code: -32603, message: "Internal error: " + t.message],
                 id: null
-            ]).toString())
+            ]))
         } finally {
             ec.destroy()
         }
@@ -398,7 +398,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             // Set MCP session ID header per specification BEFORE sending any data
             response.setHeader("Mcp-Session-Id", visit.visitId.toString())
             
-            sendSseEvent(response.writer, "connect", new JsonBuilder(connectData).toString(), 0)
+            sendSseEvent(response.writer, "connect", JsonOutput.toJson(connectData), 0)
             
             // Send endpoint info for message posting (for compatibility)
             sendSseEvent(response.writer, "endpoint", "/mcp", 1)
@@ -415,7 +415,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                         sessionId: visit.visitId,
                         architecture: "Visit-based sessions"
                     ]
-                    sendSseEvent(response.writer, "ping", new JsonBuilder(pingData).toString(), pingCount + 2)
+                    sendSseEvent(response.writer, "ping", JsonOutput.toJson(pingData), pingCount + 2)
                     pingCount++
                 }
             }
@@ -433,7 +433,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                         sessionId: visit.visitId,
                         timestamp: System.currentTimeMillis()
                     ]
-                    sendSseEvent(response.writer, "disconnect", new JsonBuilder(closeData).toString(), -1)
+                    sendSseEvent(response.writer, "disconnect", JsonOutput.toJson(closeData), -1)
                 } catch (Exception e) {
                     // Ignore errors during cleanup
                 }
