@@ -33,6 +33,7 @@ class WebFacadeStub implements WebFacade {
     protected final Map<String, Object> parameters
     protected final Map<String, Object> sessionAttributes
     protected final String requestMethod
+    protected final String screenPath
     
     protected HttpServletRequest httpServletRequest
     protected HttpServletResponse httpServletResponse
@@ -54,11 +55,12 @@ class WebFacadeStub implements WebFacade {
     boolean skipJsonSerialize = false
     
     WebFacadeStub(ExecutionContextFactoryImpl ecfi, Map<String, Object> parameters, 
-                   Map<String, Object> sessionAttributes, String requestMethod) {
+                   Map<String, Object> sessionAttributes, String requestMethod, String screenPath = null) {
         this.ecfi = ecfi
         this.parameters = parameters ?: [:]
         this.sessionAttributes = sessionAttributes ?: [:]
         this.requestMethod = requestMethod ?: "GET"
+        this.screenPath = screenPath
         
         // Create mock HTTP objects
         createMockHttpObjects()
@@ -111,11 +113,23 @@ class WebFacadeStub implements WebFacade {
     }
     
     @Override
-    String getPathInfo() { return "/test" }
+    String getPathInfo() { 
+        // For standalone screens, return empty path to render the screen itself
+        // For screens with subscreen paths, return the relative path
+        return screenPath ? "/${screenPath}" : ""
+    }
     
     @Override
     ArrayList<String> getPathInfoList() {
-        return new ArrayList<String>(["test"])
+        // IMPORTANT: Don't delegate to WebFacadeImpl - it expects real HTTP servlet context
+        // Return mock path info for MCP screen rendering based on actual screen path
+        def pathInfo = getPathInfo()
+        if (pathInfo && pathInfo.startsWith("/")) {
+            // Split path and filter out empty parts
+            def pathParts = pathInfo.substring(1).split("/") as List
+            return new ArrayList<String>(pathParts.findAll { it && it.toString().length() > 0 })
+        }
+        return new ArrayList<String>()  // Empty for standalone screens
     }
     
     @Override

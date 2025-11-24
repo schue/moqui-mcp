@@ -435,22 +435,6 @@
                     } else {
                         ec.logger.info("Found original screen path for tool ${name}: ${screenPath}")
                     }
-                    
-                    /*
-                    // Map common screen patterns to actual screen locations
-                    if (screenPath.startsWith("OrderFind") || screenPath.startsWith("ProductFind") || screenPath.startsWith("PartyFind")) {
-                        // For find screens, try to use appropriate component screens
-                        if (screenPath.startsWith("Order")) {
-                            screenPath = "webroot/apps/order"  // Try to map to order app
-                        } else if (screenPath.startsWith("Product")) {
-                            screenPath = "webroot/apps/product"  // Try to map to product app  
-                        } else if (screenPath.startsWith("Party")) {
-                            screenPath = "webroot/apps/party"  // Try to map to party app
-                        }
-                    } else if (screenPath == "apps") {
-                        screenPath = "component://webroot/screen/webroot.xml"  // Use full component path to webroot screen
-                    }
-                    */
 
                     // Restore user context from sessionId before calling screen tool
                     def serviceResult = null
@@ -483,7 +467,7 @@
                         // Now call the screen tool with proper user context
                         def screenParams = arguments ?: [:]
                         serviceResult = ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
-                            .parameters([screenPath: screenPath, parameters: screenParams, renderMode: "html"])
+                            .parameters([screenPath: screenPath, parameters: screenParams, renderMode: "html", sessionId: sessionId])
                             .call()
                             
                     } finally {
@@ -529,41 +513,6 @@
                 // Capture original user for permission context
                 def originalUsername = ec.user.username
                 UserInfo adminUserInfo = null
-                
-                // Timing already started above
-                
-                // Validate session if provided
-                /*
-                if (sessionId) {
-                    def visit = null
-                    adminUserInfo = null
-                    try {
-                        adminUserInfo = ec.user.pushUser("ADMIN")
-                        visit = ec.entity.find("moqui.server.Visit")
-                            .condition("visitId", sessionId)
-                            .one()
-                    } finally {
-                        if (adminUserInfo != null) {
-                                ec.user.popUser()
-                            }
-                    }
-                    
-                    // Validate session - allow special MCP case where Visit was created with ADMIN but accessed by MCP_USER or MCP_BUSINESS
-                    boolean sessionValid = false
-                    if (visit) {
-                        if (visit.userId == ec.user.userId) {
-                            sessionValid = true
-                        } else if (visit.userId == "ADMIN" && (ec.user.username == "mcp-user" || ec.user.username == "mcp-business")) {
-                            // Special MCP case: Visit created with ADMIN for privileged access but accessed by MCP users
-                            sessionValid = true
-                        }
-                    }
-                    
-                    if (!sessionValid) {
-                        //throw new Exception("Invalid session: ${sessionId}")
-                    }
-                }
-                */
                 
                 try {
                     // Execute service with elevated privileges for system access
@@ -844,11 +793,48 @@ try {
         </out-parameters>
         <actions>
           <script><![CDATA[
+                import org.moqui.impl.context.UserFacadeImpl.UserInfo
+                
+                // Get current user information
+                def currentUser = ec.user.username
+                def currentUserId = ec.user.userId
+                
+                // Try to get visit information if sessionId is provided
+                def visitInfo = null
+                if (sessionId) {
+                    try {
+                        def adminUserInfo = ec.user.pushUser("ADMIN")
+                        try {
+                            def visit = ec.entity.find("moqui.server.Visit")
+                                .condition("visitId", sessionId)
+                                .disableAuthz()
+                                .one()
+                            
+                            if (visit) {
+                                visitInfo = [
+                                    visitId: visit.visitId,
+                                    userId: visit.userId,
+                                    fromDate: visit.fromDate,
+                                    lastUpdatedStamp: visit.lastUpdatedStamp
+                                ]
+                            }
+                        } finally {
+                            ec.user.popUser()
+                        }
+                    } catch (Exception e) {
+                        // Log but don't fail the ping
+                        ec.logger.warn("Error getting visit info for sessionId ${sessionId}: ${e.message}")
+                    }
+                }
+                
                 result = [
                     timestamp: ec.user.getNowTimestamp(),
                     status: "healthy",
                     version: "2.0.2",
                     sessionId: sessionId,
+                    currentUser: currentUser,
+                    currentUserId: currentUserId,
+                    visitInfo: visitInfo,
                     architecture: "Visit-based sessions"
                 ]
             ]]></script>
@@ -1080,9 +1066,11 @@ try {
                         
                         try {
                             screenDefinition = ec.screen.getScreenDefinition(screenPath)
-                            if (screenDefinition?.screenNode?.first("description")?.text) {
-                                title = screenDefinition.screenNode.first("description").text
-                                description = screenDefinition.screenNode.first("description").text
+                            // Screen XML doesn't have description elements, so use screen path as description
+                            // We could potentially use default-menu-title attribute if available
+                            if (screenDefinition?.screenNode?.attribute('default-menu-title')) {
+                                title = screenDefinition.screenNode.attribute('default-menu-title')
+                                description = "Moqui screen: ${screenPath} (${title})"
                             }
                         } catch (Exception e) {
                             ec.logger.info("MCP Screen Discovery: No screen definition for ${screenPath}, using basic info")
@@ -1170,8 +1158,17 @@ try {
                     
                     // Extract screen information
                     def screenName = screenPath.replaceAll("[^a-zA-Z0-9]", "_")
-                    def title = screenDef.getScreenName() ?: screenPath.split("/")[-1]
-                    def description = screenDef.getDescription() ?: "Moqui screen: ${screenPath}"
+                    def title = screenPath.split("/")[-1]
+                    def description = "Moqui screen: ${screenPath}"
+                    
+                    // Safely get screen description - screen XML doesn't have description elements
+                    try {
+                        if (screenDef?.screenNode?.attribute('default-menu-title')) {
+                            description = screenDef.screenNode.attribute('default-menu-title')
+                        }
+                    } catch (Exception e) {
+                        ec.logger.debug("Could not get screen title: ${e.message}")
+                    }
                     
                     // Get screen parameters from transitions and forms
                     def parameters = [:]
@@ -1284,123 +1281,216 @@ try {
             <parameter name="screenPath" required="true"/>
             <parameter name="parameters" type="Map"><description>Parameters to pass to the screen</description></parameter>
             <parameter name="renderMode" default="html"><description>Render mode: text, html, xml, vuet, qvt</description></parameter>
+            <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
         </out-parameters>
         <actions>
             <script><![CDATA[
-                import org.moqui.context.ExecutionContext
-                import groovy.json.JsonBuilder
+import org.moqui.context.ExecutionContext
+import groovy.json.JsonBuilder
+
+ExecutionContext ec = context.ec
+
+def startTime = System.currentTimeMillis()
+    // Note: Screen validation will happen during render
+    // if (!ec.screen.isScreenDefined(screenPath)) {
+    //     throw new Exception("Screen not found: ${screenPath}")
+    // }
+    
+    // Set parameters in context
+    if (parameters) {
+        ec.context.putAll(parameters)
+    }
+    
+    // Try to render screen content for LLM consumption
+    def output = null
+    def screenUrl = "http://localhost:8080/${screenPath}"
+    
+    try {
+        ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen")
+        
+        // For ScreenTest to work properly, we need to use the correct root screen
+        // The screenPath should be relative to the appropriate root screen
+        def testScreenPath = screenPath
+        def rootScreen = "component://webroot/screen/webroot.xml"
+        
+        // Initialize standalone flag outside the if block
+        def targetScreenDef = null
+        def isStandalone = false
+        
+        // If the screen path is already a full component:// path, we need to handle it differently
+        if (screenPath.startsWith("component://")) {
+            // For component:// paths, we need to use the component's root screen, not webroot
+            // Extract the component name and use its root screen
+            def pathAfterComponent = screenPath.substring(12) // Remove "component://"
+            def pathParts = pathAfterComponent.split("/")
+            if (pathParts.length >= 2) {
+                def componentName = pathParts[0]
+                def remainingPath = pathParts[1..-1].join("/")
                 
-                ExecutionContext ec = context.ec
-                
-                def startTime = System.currentTimeMillis()
+                // Check if the target screen itself is standalone FIRST
                 try {
-                    // Note: Screen validation will happen during render
-                    // if (!ec.screen.isScreenDefined(screenPath)) {
-                    //     throw new Exception("Screen not found: ${screenPath}")
-                    // }
-                    
-                    // Set parameters in context
-                    if (parameters) {
-                        ec.context.putAll(parameters)
+                    targetScreenDef = ec.screen.getScreenDefinition(screenPath)
+                    ec.logger.info("MCP Screen Execution: Target screen def for ${screenPath}: ${targetScreenDef?.getClass()?.getSimpleName()}")
+                    if (targetScreenDef?.screenNode) {
+                        def standaloneAttr = targetScreenDef.screenNode.attribute('standalone')
+                        ec.logger.info("MCP Screen Execution: Target screen ${screenPath} standalone attribute: '${standaloneAttr}'")
+                        isStandalone = standaloneAttr == "true"
+                    } else {
+                        ec.logger.warn("MCP Screen Execution: Target screen ${screenPath} has no screenNode")
                     }
+                    ec.logger.info("MCP Screen Execution: Target screen ${screenPath} standalone=${isStandalone}")
                     
-                    // Try to render screen content for LLM consumption
-                    def output = null
-                    def screenUrl = "http://localhost:8080/${screenPath}"
+                    if (isStandalone) {
+                        // For standalone screens, try to render with minimal context or fall back to URL
+                        ec.logger.info("MCP Screen Execution: Standalone screen detected, will try direct rendering")
+                        rootScreen = screenPath
+                        testScreenPath = ""  // Empty path for standalone screens
+                        // We'll handle standalone screens specially below
+                    }
+                } catch (Exception e) {
+                    ec.logger.warn("MCP Screen Execution: Error checking target screen ${screenPath}: ${e.message}")
+                    ec.logger.error("MCP Screen Execution: Full exception", e)
+                }
+                
+                // Only look for component root if target is not standalone
+                if (!isStandalone) {
+                    // For component://webroot/screen/... paths, always use webroot as root
+                    if (pathAfterComponent.startsWith("webroot/screen/")) {
+                        // This is a webroot screen, use webroot as root and the rest as path
+                        rootScreen = "component://webroot/screen/webroot.xml"
+                        testScreenPath = pathAfterComponent.substring("webroot/screen/".length())
+                        // Remove any leading "webroot/" from the path since we're already using webroot as root
+                        if (testScreenPath.startsWith("webroot/")) {
+                            testScreenPath = testScreenPath.substring("webroot/".length())
+                        }
+                        ec.logger.info("MCP Screen Execution: Using webroot root for webroot screen: ${rootScreen} with path: ${testScreenPath}")
+                    } else {
+                        // For other component screens, check if this is a direct screen path (not a subscreen path)
+                        def pathSegments = remainingPath.split("/")
+                        def isDirectScreenPath = false
+                        
+                        // Try to check if the full path is a valid screen
+                        try {
+                            def directScreenDef = ec.screen.getScreenDefinition(screenPath)
+                            if (directScreenDef) {
+                                isDirectScreenPath = true
+                                ec.logger.info("MCP Screen Execution: Found direct screen path: ${screenPath}")
+                            }
+                        } catch (Exception e) {
+                            ec.logger.debug("MCP Screen Execution: Direct screen check failed for ${screenPath}: ${e.message}")
+                        }
+                        
+                        if (isDirectScreenPath) {
+                            // For direct screen paths, use the screen itself as root
+                            rootScreen = screenPath
+                            testScreenPath = ""
+                            ec.logger.info("MCP Screen Execution: Using direct screen as root: ${rootScreen}")
+                        } else {
+                            // Try to find the actual root screen for this component
+                            def componentRootScreen = null
+                            def possibleRootScreens = [
+                                "${componentName}.xml",
+                                "${componentName}Root.xml", 
+                                "${componentName}Admin.xml"
+                            ]
+                            
+                            for (rootScreenName in possibleRootScreens) {
+                                def candidateRoot = "component://${componentName}/screen/${rootScreenName}"
+                                try {
+                                    def testDef = ec.screen.getScreenDefinition(candidateRoot)
+                                    if (testDef) {
+                                        componentRootScreen = candidateRoot
+                                        ec.logger.info("MCP Screen Execution: Found component root screen: ${componentRootScreen}")
+                                        break
+                                    }
+                                } catch (Exception e) {
+                                    ec.logger.debug("MCP Screen Execution: Root screen ${candidateRoot} not found: ${e.message}")
+                                }
+                            }
+                            
+                            if (componentRootScreen) {
+                                rootScreen = componentRootScreen
+                                testScreenPath = remainingPath
+                                ec.logger.info("MCP Screen Execution: Using component root ${rootScreen} for path ${testScreenPath}")
+                            } else {
+                                // Fallback: try using webroot with the full path
+                                rootScreen = "component://webroot/screen/webroot.xml"
+                                testScreenPath = pathAfterComponent
+                                ec.logger.warn("MCP Screen Execution: Could not find component root for ${componentName}, using webroot fallback: ${testScreenPath}")
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Fallback for malformed component paths
+                testScreenPath = pathAfterComponent
+                ec.logger.warn("MCP Screen Execution: Malformed component path, using fallback: ${testScreenPath}")
+            }
+        }
+        
+        // Restore user context from sessionId before creating ScreenTest
+                // Regular screen rendering with restored user context - use our custom ScreenTestImpl
+                def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
+                    .rootScreen(rootScreen)
+                    .renderMode(renderMode ? renderMode : "html")
+                
+                ec.logger.info("MCP Screen Execution: ScreenTest object created: ${screenTest?.getClass()?.getSimpleName()}")
+            
+                if (screenTest) {
+                    def renderParams = parameters ?: [:]
+                    
+                    // Add current user info to render context to maintain authentication
+                    renderParams.userId = ec.user.userId
+                    renderParams.username = ec.user.username
+                    
+                    // Set user context in ScreenTest to maintain authentication
+                    // Note: ScreenTestImpl may not have direct userAccountId property, 
+                    // the user context should be inherited from the current ExecutionContext
+                    ec.logger.info("MCP Screen Execution: Current user context - userId: ${ec.user.userId}, username: ${ec.user.username}")
+                    
+                    // Regular screen rendering with timeout
+                    def future = java.util.concurrent.Executors.newSingleThreadExecutor().submit({
+                        return screenTest.render(testScreenPath, renderParams, null)
+                    } as java.util.concurrent.Callable)
                     
                     try {
-                        ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen")
-                        
-                        // For ScreenTest to work properly, we need to use the correct root screen
-                        // The screenPath should be relative to the appropriate root screen
-                        def testScreenPath = screenPath
-                        def rootScreen = "component://webroot/screen/webroot.xml"
-                        
-                        // If the screen path is already a full component:// path, we need to handle it differently
-                        if (screenPath.startsWith("component://")) {
-                            // Extract the path after component:// for ScreenTest
-                            testScreenPath = screenPath.substring(12) // Remove "component://"
-                            ec.logger.info("MCP Screen Execution: Converted component path to test path: ${testScreenPath}")
-                        }
-                        
-                        def screenTest = ec.screen.makeTest()
-                            .rootScreen(rootScreen)
-                            .renderMode(renderMode ? renderMode : "text")
-                        
-                        ec.logger.info("MCP Screen Execution: ScreenTest object created: ${screenTest?.getClass()?.getSimpleName()}")
-                        
-                        if (screenTest) {
-                            def renderParams = parameters ?: [:]
-                            
-                            // Add current user info to render context to maintain authentication
-                            renderParams.userId = ec.user.userId
-                            renderParams.username = ec.user.username
-                            
-                            // Add timeout to prevent hanging
-                            def future = java.util.concurrent.Executors.newSingleThreadExecutor().submit({
-                                return screenTest.render(testScreenPath, renderParams, null)
-                            } as java.util.concurrent.Callable)
-                            
-                            try {
-                                def testRender = future.get(30, java.util.concurrent.TimeUnit.SECONDS)  // 30 second timeout
-                                output = testRender.output
-                                def outputLength = output?.length() ?: 0
-                                ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${outputLength}")
-                            } catch (java.util.concurrent.TimeoutException e) {
-                                future.cancel(true)
-                                throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
-                            } finally {
-                                future.cancel(true)
-                            }
-                        } else {
-                            throw new Exception("ScreenTest object is null")
-                        }
-                        
-                    } catch (Exception e) {
-                        ec.logger.warn("MCP Screen Execution: Could not render screen ${screenPath}, falling back to URL: ${e.message}")
-                        ec.logger.warn("MCP Screen Execution: Exception details: ${e.getClass()?.getSimpleName()}: ${e.getMessage()}")
-                        ec.logger.error("MCP Screen Execution: Full exception for ${screenPath}", e)
-                        
-                        // Fallback to URL if rendering fails
-                        output = "Screen '${screenPath}' is accessible at: ${screenUrl}\n\nNote: Screen content could not be rendered. You can visit this URL in a web browser to interact with the screen directly."
+                        def testRender = future.get(30, java.util.concurrent.TimeUnit.SECONDS)  // 30 second timeout
+                        output = testRender.output
+                        def outputLength = output?.length() ?: 0
+                        ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${outputLength}")
+                    } catch (java.util.concurrent.TimeoutException e) {
+                        future.cancel(true)
+                        throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
+                    } finally {
+                        future.cancel(true)
                     }
-                    
-                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-                    
-                    // Return just the rendered screen content for MCP wrapper to handle
-                    result = [
-                        type: "text",
-                        text: output,
-                        screenPath: screenPath,
-                        screenUrl: screenUrl,
-                        executionTime: executionTime
-                    ]
-                    
-                    ec.logger.info("MCP Screen Execution: Generated URL for screen ${screenPath} in ${executionTime}s")
-                    
-                } catch (Exception e) {
-                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-                    
-                    result = [
-                        content: [
-                            [
-                                type: "text", 
-                                text: "Error executing screen ${screenPath}: ${e.message}"
-                            ]
-                        ],
-                        isError: true,
-                        metadata: [
-                            screenPath: screenPath,
-                            renderMode: renderMode,
-                            executionTime: executionTime
-                        ]
-                    ]
-                    
-                    ec.logger.error("MCP Screen Execution error for ${screenPath}", e)
+                } else {
+                    throw new Exception("ScreenTest object is null")
                 }
+    } catch (Exception e) {
+        ec.logger.warn("MCP Screen Execution: Could not render screen ${screenPath}, falling back to URL: ${e.message}")
+        ec.logger.warn("MCP Screen Execution: Exception details: ${e.getClass()?.getSimpleName()}: ${e.getMessage()}")
+        ec.logger.error("MCP Screen Execution: Full exception for ${screenPath}", e)
+        
+        // Fallback to URL if rendering fails
+        output = "Screen '${screenPath}' is accessible at: ${screenUrl}\n\nNote: Screen content could not be rendered. You can visit this URL in a web browser to interact with the screen directly."
+    }
+    
+    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+    
+    // Return just the rendered screen content for MCP wrapper to handle
+    result = [
+        type: "text",
+        text: output,
+        screenPath: screenPath,
+        screenUrl: screenUrl,
+        executionTime: executionTime
+    ]
+    
+    ec.logger.info("MCP Screen Execution: Generated URL for screen ${screenPath} in ${executionTime}s")
             ]]></script>
         </actions>
     </service>
