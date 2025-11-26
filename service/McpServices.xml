@@ -1523,12 +1523,55 @@ ${truncatedOutput}
                     throw new Exception("ScreenTest object is null")
                 }
     } catch (Exception e) {
-        ec.logger.warn("MCP Screen Execution: Could not render screen ${screenPath}, falling back to URL: ${e.message}")
+        ec.logger.warn("MCP Screen Execution: Could not render screen ${screenPath}, exposing error details: ${e.message}")
         ec.logger.warn("MCP Screen Execution: Exception details: ${e.getClass()?.getSimpleName()}: ${e.getMessage()}")
         ec.logger.error("MCP Screen Execution: Full exception for ${screenPath}", e)
         
-        // Fallback to URL if rendering fails
-        output = "Screen '${screenPath}' is accessible at: ${screenUrl}\n\nNote: Screen content could not be rendered. You can visit this URL in a web browser to interact with the screen directly."
+        // Expose detailed error information instead of URL fallback
+        def errorDetails = []
+        errorDetails << "SCREEN RENDERING ERROR"
+        errorDetails << "======================"
+        errorDetails << "Screen Path: ${screenPath}"
+        errorDetails << "Error Type: ${e.getClass()?.getSimpleName()}"
+        errorDetails << "Error Message: ${e.getMessage()}"
+        errorDetails << ""
+        
+        // Add stack trace for debugging (limited depth for readability)
+        if (e.getStackTrace()) {
+            errorDetails << "Stack Trace (top 10 frames):"
+            e.getStackTrace().take(10).eachWithIndex { stackTrace, index ->
+                errorDetails << "  ${index + 1}. ${stackTrace.toString()}"
+            }
+            if (e.getStackTrace().size() > 10) {
+                errorDetails << "  ... and ${e.getStackTrace().size() - 10} more frames"
+            }
+        }
+        
+        // Add cause information if available
+        def cause = e.getCause()
+        if (cause) {
+            errorDetails << ""
+            errorDetails << "Root Cause: ${cause.getClass()?.getSimpleName()}: ${cause.getMessage()}"
+        }
+        
+        // Add context information
+        errorDetails << ""
+        errorDetails << "Context Information:"
+        errorDetails << "- User: ${ec.user.username} (${ec.user.userId})"
+        errorDetails << "- Render Mode: ${renderMode}"
+        errorDetails << "- Parameters: ${parameters ?: 'none'}"
+        errorDetails << "- Execution Time: ${((System.currentTimeMillis() - startTime) / 1000.0)}s"
+        
+        // Add troubleshooting suggestions
+        errorDetails << ""
+        errorDetails << "Troubleshooting Suggestions:"
+        errorDetails << "1. Check if the screen path is correct and the screen exists"
+        errorDetails << "2. Verify user has permission to access this screen"
+        errorDetails << "3. Check if all required parameters are provided"
+        errorDetails << "4. Verify screen dependencies and data access"
+        errorDetails << "5. Check server logs for more detailed error information"
+        
+        output = errorDetails.join("\n")
     }
     
     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
