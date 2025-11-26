@@ -76,10 +76,12 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.ledger.LedgerServices.find#GlAccount" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.product.PriceServices.get#ProductPrice" artifactTypeEnumId="AT_SERVICE"/>
     <!-- Entity Services -->
+    <!--
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.find#Entity" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.create#Entity" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.update#Entity" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.delete#Entity" artifactTypeEnumId="AT_SERVICE"/>
+    -->
     
     <!-- Essential Business Entities -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.order.OrderHeader" artifactTypeEnumId="AT_ENTITY"/>
@@ -111,13 +113,17 @@
     <!-- MCP Artifact Authz -->
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpRestPaths" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+    <!--
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreenTransitions" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreens" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_VIEW"/>
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreenTools" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+    -->
     
     <!-- Give ALL users access to security entities needed for permission checks -->
+    <!--
     <moqui.security.ArtifactAuthz userGroupId="ALL_USERS" artifactGroupId="McpSecurityEntities" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    
+    -->
+
     <!-- Ensure ADMIN user always has access to security entities needed for permission checks -->
     <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/>
     <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpScreens" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/>
@@ -145,6 +151,8 @@
     <!-- ADMIN user doesn't need to be in MCP groups - should have full access by default -->
     
     <!-- Add existing demo users to MCP business group for focused testing -->
+    <!--
     <moqui.security.UserGroupMember userGroupId="MCP_BUSINESS" userId="ORG_ZIZI_JD" fromDate="2025-01-01 00:00:00.000"/>
     <moqui.security.UserGroupMember userGroupId="MCP_BUSINESS" userId="ORG_ZIZI_BD" fromDate="2025-01-01 00:00:00.000"/>
+    -->
 </entity-facade-xml>

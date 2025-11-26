@@ -139,6 +139,7 @@ try {
                     String username = basicAuthAsString.substring(0, indexOfColon)
                     String password = basicAuthAsString.substring(indexOfColon + 1)
                     try {
+                        logger.info("LOGGING IN ${username} ${password}")
                         ec.user.loginUser(username, password)
                         authenticated = true
                         logger.info("Enhanced MCP Basic auth successful for user: ${ec.user?.username}")

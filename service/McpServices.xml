@@ -1324,6 +1324,7 @@ def startTime = System.currentTimeMillis()
     // Try to render screen content for LLM consumption
     def output = null
     def screenUrl = "http://localhost:8080/${screenPath}"
+    def isError = false
     
     try {
         ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen")
@@ -1495,6 +1496,7 @@ def startTime = System.currentTimeMillis()
                         // SIZE PROTECTION: Check response size before returning
                         def maxResponseSize = 1024 * 1024  // 1MB limit
                         if (outputLength > maxResponseSize) {
+                            isError = true
                             ec.logger.warn("MCP Screen Execution: Response too large for ${screenPath}: ${outputLength} bytes (limit: ${maxResponseSize} bytes)")
                             
                             // Create truncated response with clear indication
@@ -1523,6 +1525,7 @@ ${truncatedOutput}
                     throw new Exception("ScreenTest object is null")
                 }
     } catch (Exception e) {
+        isError = true
         ec.logger.warn("MCP Screen Execution: Could not render screen ${screenPath}, exposing error details: ${e.message}")
         ec.logger.warn("MCP Screen Execution: Exception details: ${e.getClass()?.getSimpleName()}: ${e.getMessage()}")
         ec.logger.error("MCP Screen Execution: Full exception for ${screenPath}", e)
@@ -1582,7 +1585,8 @@ ${truncatedOutput}
         text: output,
         screenPath: screenPath,
         screenUrl: screenUrl,
-        executionTime: executionTime
+        executionTime: executionTime,
+        isError: isError
     ]
     
     ec.logger.info("MCP Screen Execution: Generated URL for screen ${screenPath} in ${executionTime}s")

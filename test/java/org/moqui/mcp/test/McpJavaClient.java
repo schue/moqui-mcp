@@ -43,7 +43,7 @@ class McpJavaClient {
     
     McpJavaClient(String baseUrl = "http://localhost:8080/mcp", 
                   String username = "john.sales", 
-                  String password = "opencode") {
+                  String password = "moqui") {
         this.baseUrl = baseUrl
         this.username = username
         this.password = password

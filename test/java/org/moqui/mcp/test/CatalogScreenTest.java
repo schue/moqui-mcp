@@ -35,13 +35,15 @@ class CatalogScreenTest {
         println "======================================"
         
         try {
-            // Find the catalog screen tool
+            // Find the catalog screen tool - look for mantle ProductList screen
             def tools = client.getTools()
             def catalogTool = tools.find { 
-                it.name?.contains("catalog") || 
                 it.name?.contains("ProductList") ||
-                it.description?.contains("catalog") ||
-                it.description?.contains("ProductList")
+                it.name?.contains("ProductDetail") ||
+                it.name?.contains("Search") ||
+                it.description?.contains("ProductList") ||
+                it.description?.contains("ProductDetail") ||
+                it.description?.contains("Search")
             }
             
             if (!catalogTool) {

@@ -73,66 +73,70 @@ class McpTestSuite {
     void testPopCommerceProductSearch() {
         println "🛍️ Testing PopCommerce Product Search"
         
-        // Use actual available screen - ProductList from mantle component
-        def result = client.callScreen("component://mantle/screen/product/ProductList.xml", [:])
+        // Use PopCommerce catalog screen with blue product search
+        def result = client.callScreen("screen_component___PopCommerce_screen_PopCommerceAdmin_Catalog_xml", [feature: "BU:Blue"])
         
         assert result != null : "Screen call result should not be null"
         assert result instanceof Map : "Screen result should be a map"
         
-        if (result.containsKey('error')) {
-            println "⚠️ Screen call returned error: ${result.error}"
-        } else {
-            println "✅ Product list screen accessed successfully"
-            
-            // Check if we got content
-            def content = result.result?.content
-            if (content && content instanceof List && content.size() > 0) {
-                println "✅ Screen returned content with ${content.size()} items"
-                
-                // Look for product data in the content
-                for (item in content) {
-                    println "📦 Content item type: ${item.type}"
-                    if (item.type == "text" && item.text) {
-                        println "✅ Screen returned text content: ${item.text.take(200)}..."
-                        // Try to parse as JSON to see if it contains product data
-                        try {
-                            def jsonData = new groovy.json.JsonSlurper().parseText(item.text)
-                            if (jsonData instanceof Map) {
-                                println "📊 Parsed JSON data keys: ${jsonData.keySet()}"
-                                if (jsonData.containsKey('products') || jsonData.containsKey('productList')) {
-                                    def products = jsonData.products ?: jsonData.productList
-                                    if (products instanceof List && products.size() > 0) {
-                                        println "🛍️ Found ${products.size()} products!"
-                                        products.eachWithIndex { product, index ->
-                                            if (index < 3) { // Show first 3 products
-                                                println "   Product ${index + 1}: ${product.productName ?: product.name ?: 'Unknown'} (ID: ${product.productId ?: product.productId ?: 'N/A'})"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (Exception e) {
-                            println "📝 Text content (not JSON): ${item.text.take(300)}..."
-                        }
-                    } else if (item.type == "resource" && item.resource) {
-                        println "🔗 Resource data: ${item.resource.keySet()}"
-                        if (item.resource.containsKey('products')) {
-                            def products = item.resource.products
+        // Fail test if screen returns error
+        assert !result.containsKey('error') : "Screen call should not return error: ${result.error}"
+        assert !result.isError : "Screen result should not have isError set to true"
+        
+        println "✅ PopCommerce catalog screen accessed successfully"
+        
+        // Check if we got content - fail test if no content
+        def content = result.result?.content
+        assert content != null && content instanceof List && content.size() > 0 : "Screen should return content with blue products"
+        println "✅ Screen returned content with ${content.size()} items"
+        
+        def blueProductsFound = false
+        
+        // Look for product data in the content
+        for (item in content) {
+            println "📦 Content item type: ${item.type}"
+            if (item.type == "text" && item.text) {
+                println "✅ Screen returned text content: ${item.text.take(200)}..."
+                // Try to parse as JSON to see if it contains product data
+                try {
+                    def jsonData = new groovy.json.JsonSlurper().parseText(item.text)
+                    if (jsonData instanceof Map) {
+                        println "📊 Parsed JSON data keys: ${jsonData.keySet()}"
+                        if (jsonData.containsKey('products') || jsonData.containsKey('productList')) {
+                            def products = jsonData.products ?: jsonData.productList
                             if (products instanceof List && products.size() > 0) {
-                                println "🛍️ Found ${products.size()} products in resource!"
+                                println "🛍️ Found ${products.size()} products!"
+                                blueProductsFound = true
                                 products.eachWithIndex { product, index ->
-                                    if (index < 3) {
-                                        println "   Product ${index + 1}: ${product.productName ?: product.name ?: 'Unknown'} (ID: ${product.productId ?: 'N/A'})"
+                                    if (index < 3) { // Show first 3 products
+                                        println "   Product ${index + 1}: ${product.productName ?: product.name ?: 'Unknown'} (ID: ${product.productId ?: product.productId ?: 'N/A'})"
                                     }
                                 }
                             }
                         }
                     }
+                } catch (Exception e) {
+                    println "📝 Text content (not JSON): ${item.text.take(300)}..."
                 }
-            } else {
-                println "⚠️ No content returned from screen"
+            } else if (item.type == "resource" && item.resource) {
+                println "🔗 Resource data: ${item.resource.keySet()}"
+                if (item.resource.containsKey('products')) {
+                    def products = item.resource.products
+                    if (products instanceof List && products.size() > 0) {
+                        println "🛍️ Found ${products.size()} products in resource!"
+                        blueProductsFound = true
+                        products.eachWithIndex { product, index ->
+                            if (index < 3) {
+                                println "   Product ${index + 1}: ${product.productName ?: product.name ?: 'Unknown'} (ID: ${product.productId ?: 'N/A'})"
+                            }
+                        }
+                    }
+                }
             }
         }
+        
+        // Fail test if no blue products were found
+        assert blueProductsFound : "Should find at least one blue product with BU:Blue feature"
     }
     
     @Test
