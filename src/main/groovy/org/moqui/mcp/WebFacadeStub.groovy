@@ -18,6 +18,8 @@ import org.moqui.context.*
 import org.moqui.context.MessageFacade.MessageInfo
 import org.moqui.impl.context.ExecutionContextFactoryImpl
 import org.moqui.impl.context.ContextJavaUtil
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 import javax.servlet.ServletContext
 import javax.servlet.http.HttpServletRequest
@@ -29,6 +31,8 @@ import java.util.EventListener
 /** Stub implementation of WebFacade for testing/screen rendering without a real HTTP request */
 @CompileStatic
 class WebFacadeStub implements WebFacade {
+    protected final static Logger logger = LoggerFactory.getLogger(WebFacadeStub.class)
+    
     protected final ExecutionContextFactoryImpl ecfi
     protected final Map<String, Object> parameters
     protected final Map<String, Object> sessionAttributes
@@ -70,8 +74,8 @@ class WebFacadeStub implements WebFacade {
         // Create mock HttpSession first
         this.httpSession = new MockHttpSession(this.sessionAttributes)
         
-        // Create mock HttpServletRequest with session
-        this.httpServletRequest = new MockHttpServletRequest(this.parameters, this.requestMethod, this.httpSession)
+        // Create mock HttpServletRequest with session and screen path
+        this.httpServletRequest = new MockHttpServletRequest(this.parameters, this.requestMethod, this.httpSession, this.screenPath)
         
         // Create mock HttpServletResponse with String output capture
         this.httpServletResponse = new MockHttpServletResponse()
@@ -81,7 +85,16 @@ class WebFacadeStub implements WebFacade {
     
     @Override
     String getRequestUrl() {
-        return "http://localhost:8080/test"
+        if (logger.isDebugEnabled()) {
+            logger.debug("WebFacadeStub.getRequestUrl() called - screenPath: ${screenPath}")
+        }
+        // Build URL based on actual screen path
+        def path = screenPath ? "/${screenPath}" : "/"
+        def url = "http://localhost:8080${path}"
+        if (logger.isDebugEnabled()) {
+            logger.debug("WebFacadeStub.getRequestUrl() returning: ${url}")
+        }
+        return url
     }
     
     @Override
@@ -114,22 +127,36 @@ class WebFacadeStub implements WebFacade {
     
     @Override
     String getPathInfo() { 
+        if (logger.isDebugEnabled()) {
+            logger.debug("WebFacadeStub.getPathInfo() called - screenPath: ${screenPath}")
+        }
         // For standalone screens, return empty path to render the screen itself
         // For screens with subscreen paths, return the relative path
-        return screenPath ? "/${screenPath}" : ""
+        def pathInfo = screenPath ? "/${screenPath}" : ""
+        if (logger.isDebugEnabled()) {
+            logger.debug("WebFacadeStub.getPathInfo() returning: ${pathInfo}")
+        }
+        return pathInfo
     }
     
     @Override
     ArrayList<String> getPathInfoList() {
+        if (logger.isDebugEnabled()) {
+            logger.debug("WebFacadeStub.getPathInfoList() called - screenPath: ${screenPath}")
+        }
         // IMPORTANT: Don't delegate to WebFacadeImpl - it expects real HTTP servlet context
         // Return mock path info for MCP screen rendering based on actual screen path
         def pathInfo = getPathInfo()
+        def pathList = new ArrayList<String>()
         if (pathInfo && pathInfo.startsWith("/")) {
             // Split path and filter out empty parts
             def pathParts = pathInfo.substring(1).split("/") as List
-            return new ArrayList<String>(pathParts.findAll { it && it.toString().length() > 0 })
+            pathList = new ArrayList<String>(pathParts.findAll { it && it.toString().length() > 0 })
         }
-        return new ArrayList<String>()  // Empty for standalone screens
+        if (logger.isDebugEnabled()) {
+            logger.debug("WebFacadeStub.getPathInfoList() returning: ${pathList} (from pathInfo: ${pathInfo})")
+        }
+        return pathList
     }
     
     @Override
@@ -256,13 +283,15 @@ class WebFacadeStub implements WebFacade {
         private final Map<String, Object> parameters
         private final String method
         private HttpSession session
+        private String screenPath
         private String remoteUser = null
         private java.security.Principal userPrincipal = null
         
-        MockHttpServletRequest(Map<String, Object> parameters, String method, HttpSession session = null) {
+        MockHttpServletRequest(Map<String, Object> parameters, String method, HttpSession session = null, String screenPath = null) {
             this.parameters = parameters ?: [:]
             this.method = method ?: "GET"
             this.session = session
+            this.screenPath = screenPath
             
             // Extract user information from session attributes for authentication
             if (session) {
@@ -281,7 +310,11 @@ class WebFacadeStub implements WebFacade {
         @Override String getScheme() { return "http" }
         @Override String getServerName() { return "localhost" }
         @Override int getServerPort() { return 8080 }
-        @Override String getRequestURI() { return "/test" }
+        @Override String getRequestURI() { 
+            // Build URI based on actual screen path
+            def path = screenPath ? "/${screenPath}" : "/"
+            return path
+        }
         @Override String getContextPath() { return "" }
         @Override String getServletPath() { return "" }
         @Override String getQueryString() { return null }
@@ -320,8 +353,15 @@ class WebFacadeStub implements WebFacade {
         @Override boolean isUserInRole(String role) { return false }
         @Override java.security.Principal getUserPrincipal() { return userPrincipal }
         @Override String getRequestedSessionId() { return null }
-        @Override StringBuffer getRequestURL() { return new StringBuffer("http://localhost:8080/test") }
-        @Override String getPathInfo() { return "/test" }
+        @Override StringBuffer getRequestURL() { 
+            // Build URL based on actual screen path
+            def path = screenPath ? "/${screenPath}" : "/"
+            return new StringBuffer("http://localhost:8080${path}")
+        }
+        @Override String getPathInfo() { 
+            // Return path info based on actual screen path
+            return screenPath ? "/${screenPath}" : "/"
+        }
         @Override String getPathTranslated() { return null }
         @Override boolean isRequestedSessionIdValid() { return false }
         @Override boolean isRequestedSessionIdFromCookie() { return false }

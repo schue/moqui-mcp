@@ -1,323 +1,215 @@
 # MCP Test Suite
 
-This directory contains comprehensive tests for the Moqui MCP (Model Context Protocol) interface.
+This directory contains the Java-based test suite for the Moqui MCP (Model Context Protocol) implementation. The tests validate that the screen infrastructure works correctly through deterministic workflows.
 
 ## Overview
 
-The test suite validates the complete MCP functionality including:
-- Basic MCP protocol operations
-- Screen discovery and execution
-- Service invocation through MCP
-- Complete e-commerce workflows (product discovery → order placement)
-- Session management and security
-- Error handling and edge cases
+The test suite provides a Java equivalent to the `mcp.sh` script and includes comprehensive tests for:
+
+1. **Screen Infrastructure Tests** - Basic MCP connectivity, screen discovery, rendering, and parameter handling
+2. **PopCommerce Workflow Tests** - Complete business workflow: product lookup → order placement for John Doe
 
 ## Test Structure
 
 ```
 test/
-├── client/                    # MCP client implementations
-│   └── McpTestClient.groovy   # General-purpose MCP test client
-├── workflows/                 # Workflow-specific tests
-│   └── EcommerceWorkflowTest.groovy  # Complete e-commerce workflow test
-├── integration/               # Integration tests (future)
-├── run-tests.sh              # Main test runner script
-└── README.md                 # This file
+├── java/org/moqui/mcp/test/
+│   ├── McpJavaClient.java          # Java MCP client (equivalent to mcp.sh)
+│   ├── ScreenInfrastructureTest.java  # Screen infrastructure validation
+│   ├── PopCommerceOrderTest.java   # PopCommerce order workflow test
+│   └── McpTestSuite.java           # Main test runner
+├── resources/
+│   └── test-config.properties      # Test configuration
+├── run-tests.sh                    # Test execution script
+└── README.md                       # This file
 ```
 
-## Test Services
+## Prerequisites
 
-The test suite includes specialized MCP services in `../service/McpTestServices.xml`:
-
-### Core Test Services
-- `org.moqui.mcp.McpTestServices.create#TestProduct` - Create test products
-- `org.moqui.mcp.McpTestServices.create#TestCustomer` - Create test customers
-- `org.moqui.mcp.McpTestServices.create#TestOrder` - Create test orders
-- `org.moqui.mcp.McpTestServices.get#TestProducts` - Retrieve test products
-- `org.moqui.mcp.McpTestServices.get#TestOrders` - Retrieve test orders
-
-### Workflow Services
-- `org.moqui.mcp.McpTestServices.run#EcommerceWorkflow` - Complete e-commerce workflow
-- `org.moqui.mcp.McpTestServices.cleanup#TestData` - Cleanup test data
+1. **Moqui MCP Server Running**: The tests require the MCP server to be running at `http://localhost:8080/mcp`
+2. **Java 17+**: Tests are written in Groovy/Java and require Java 17 or later
+3. **Test Data**: JohnSales user should exist with appropriate permissions
 
 ## Running Tests
 
-### Prerequisites
-
-1. **Start MCP Server**:
-   ```bash
-   cd moqui-mcp-2
-   ../gradlew run --daemon > ../server.log 2>&1 &
-   ```
-
-2. **Verify Server is Running**:
-   ```bash
-   curl -s -u "john.sales:opencode" "http://localhost:8080/mcp"
-   ```
-
-### Run All Tests
+### Quick Start
 
 ```bash
-cd moqui-mcp-2
+# Run all tests
 ./test/run-tests.sh
+
+# Run only infrastructure tests
+./test/run-tests.sh infrastructure
+
+# Run only workflow tests
+./test/run-tests.sh workflow
+
+# Show help
+./test/run-tests.sh help
 ```
 
-### Run Individual Tests
+### Manual Execution
 
-#### General MCP Test Client
 ```bash
+# Change to moqui-mcp-2 directory
 cd moqui-mcp-2
-groovy -cp "lib/*:build/libs/*:../framework/build/libs/*:../runtime/lib/*" \
-    test/client/McpTestClient.groovy
+
+# Set up classpath and run tests
+java -cp "build/classes/java/main:build/resources/main:test/build/classes/java/test:test/resources:../moqui-framework/runtime/lib/*:../moqui-framework/framework/build/libs/*" \
+     org.moqui.mcp.test.McpTestSuite
 ```
 
-#### E-commerce Workflow Test
-```bash
-cd moqui-mcp-2
-groovy -cp "lib/*:build/libs/*:../framework/build/libs/*:../runtime/lib/*" \
-    test/workflows/EcommerceWorkflowTest.groovy
+## Test Configuration
+
+Tests are configured via `test/resources/test-config.properties`:
+
+```properties
+# MCP server connection
+test.mcp.url=http://localhost:8080/mcp
+test.user=john.sales
+test.password=opencode
+
+# Test data
+test.customer.firstName=John
+test.customer.lastName=Doe
+test.product.color=blue
+test.product.category=PopCommerce
+
+# Test screens
+test.screen.catalog=PopCommerce/Catalog/Product
+test.screen.order=PopCommerce/Order/CreateOrder
+test.screen.customer=PopCommerce/Customer/FindCustomer
 ```
 
-## Test Workflows
+## Test Details
 
-### 1. Basic MCP Test Client (`McpTestClient.groovy`)
+### 1. Screen Infrastructure Tests
 
-Tests core MCP functionality:
-- ✅ Session initialization and management
-- ✅ Tool discovery and execution
-- ✅ Resource access and querying
-- ✅ Error handling and validation
+Validates basic MCP functionality:
 
-**Workflows**:
-- Product Discovery Workflow
-- Order Placement Workflow
-- E-commerce Full Workflow
+- **Connectivity**: Can connect to MCP server and authenticate as JohnSales
+- **Tool Discovery**: Can discover available screen tools
+- **Screen Rendering**: Can render screens and get content back
+- **Parameter Handling**: Can pass parameters to screens correctly
+- **Error Handling**: Handles errors and edge cases gracefully
 
-### 2. E-commerce Workflow Test (`EcommerceWorkflowTest.groovy`)
+### 2. PopCommerce Workflow Tests
 
 Tests complete business workflow:
-- ✅ Product Discovery
-- ✅ Customer Management
-- ✅ Order Placement
-- ✅ Screen-based Operations
-- ✅ Complete Workflow Execution
-- ✅ Test Data Cleanup
 
-## Test Data Management
+1. **Catalog Access**: Find and access PopCommerce catalog screens
+2. **Product Search**: Search for blue products in the catalog
+3. **Customer Lookup**: Find John Doe customer record
+4. **Order Creation**: Create an order for John Doe with a blue product
+5. **Workflow Validation**: Validate the complete workflow succeeded
 
-### Automatic Cleanup
-Test data is automatically created and cleaned up during tests:
-- Products: Prefix `TEST-`
-- Customers: Prefix `TEST-`
-- Orders: Prefix `TEST-ORD-`
+## Test Output
 
-### Manual Cleanup
-```bash
-# Using mcp.sh
-./mcp.sh call org.moqui.mcp.McpTestServices.cleanup#TestData olderThanHours=24
+Tests provide detailed output with:
 
-# Direct service call
-curl -u "john.sales:opencode" -X POST \
-  "http://localhost:8080/rest/s1/org/moqui/mcp/McpTestServices/cleanup#TestData" \
-  -H "Content-Type: application/json" \
-  -d '{"olderThanHours": 24}'
+- ✅ Success indicators for passed steps
+- ❌ Error indicators for failed steps with details
+- 📊 Workflow summaries with timing information
+- 📋 Comprehensive test reports
+
+Example output:
 ```
+🧪 MCP TEST SUITE
+==================
+Configuration:
+  URL: http://localhost:8080/mcp
+  User: john.sales
+  Customer: John Doe
+  Product Color: blue
 
-## Expected Test Results
-
-### Successful Test Output
-```
-🧪 E-commerce Workflow Test for MCP
+==================================================
+SCREEN INFRASTRUCTURE TESTS
+==================================================
+🔌 Testing Basic MCP Connectivity
 ==================================
-🚀 Initializing MCP session for workflow test...
-✅ Session initialized: 123456
-
-🔍 Step 1: Product Discovery
-===========================
-Found 44 available tools
-Found 8 product-related tools
-✅ Created test product: TEST-1700123456789
-
-👥 Step 2: Customer Management
-===============================
-✅ Created test customer: TEST-1700123456790
-
-🛒 Step 3: Order Placement
-==========================
-✅ Created test order: TEST-ORD-1700123456791
-
-🖥️ Step 4: Screen-based Workflow
-=================================
-Found 2 catalog screens
-✅ Successfully executed catalog screen: PopCommerceAdmin/Catalog
-
-🔄 Step 5: Complete E-commerce Workflow
-========================================
-✅ Complete workflow executed successfully
-   Workflow ID: WF-1700123456792
-   Product ID: TEST-1700123456793
-   Customer ID: TEST-1700123456794
-   Order ID: TEST-ORD-1700123456795
-   ✅ Create Product: Test product created successfully
-   ✅ Create Customer: Test customer created successfully
-   ✅ Create Order: Test order created successfully
-
-🧹 Step 6: Cleanup Test Data
-============================
-✅ Test data cleanup completed
-   Deleted orders: 3
-   Deleted products: 3
-   Deleted customers: 2
-
-============================================================
-📋 E-COMMERCE WORKFLOW TEST REPORT
-============================================================
-Duration: 2847ms
-
-✅ productDiscovery
-✅ customerManagement
-✅ orderPlacement
-✅ screenBasedWorkflow
-✅ completeWorkflow
-✅ cleanup
-
-Overall Result: 6/6 steps passed
-Success Rate: 100%
-🎉 ALL TESTS PASSED! MCP e-commerce workflow is working correctly.
-============================================================
+🚀 Initializing MCP session...
+✅ Session initialized: abc123
+✅ Ping Server
+✅ List Tools
+✅ List Resources
 ```
+
+## Deterministic Testing
+
+The tests are designed to be deterministic:
+
+- **Fixed Test Data**: Uses specific customer (John Doe) and product criteria (blue products)
+- **Consistent Workflow**: Always follows the same sequence of operations
+- **Repeatable Results**: Same inputs produce same outputs
+- **State Validation**: Validates that each step completes successfully before proceeding
+
+## Integration with Moqui Test Framework
+
+The test structure follows Moqui's existing test patterns:
+
+- Uses Groovy for test implementation (consistent with Moqui)
+- Follows Moqui's package structure and naming conventions
+- Integrates with Moqui's configuration system
+- Uses Moqui's logging and error handling patterns
 
 ## Troubleshooting
 
 ### Common Issues
 
-#### 1. MCP Server Not Running
-```
-❌ MCP server is not running at http://localhost:8080/mcp
-```
-**Solution**: Start the server first
-```bash
-cd moqui-mcp-2 && ../gradlew run --daemon > ../server.log 2>&1 &
-```
+1. **MCP Server Not Running**
+   ```
+   ❌ MCP server not running at http://localhost:8080/mcp
+   ```
+   Solution: Start the server with `./gradlew run --daemon`
 
-#### 2. Authentication Failures
-```
-❌ Error: Authentication required
-```
-**Solution**: Verify credentials in `opencode.json` or use default `john.sales:opencode`
+2. **Authentication Failures**
+   ```
+   ❌ Failed to initialize session
+   ```
+   Solution: Verify JohnSales user exists and credentials are correct
 
-#### 3. Missing Test Services
-```
-❌ Error: Service not found: org.moqui.mcp.McpTestServices.create#TestProduct
-```
-**Solution**: Rebuild the project
-```bash
-cd moqui-mcp-2 && ../gradlew build
-```
+3. **Missing Screens**
+   ```
+   ❌ No catalog screens found
+   ```
+   Solution: Ensure PopCommerce component is installed and screens are available
 
-#### 4. Classpath Issues
-```
-❌ Error: Could not find class McpTestClient
-```
-**Solution**: Ensure proper classpath
-```bash
-groovy -cp "lib/*:build/libs/*:../framework/build/libs/*:../runtime/lib/*" ...
-```
+4. **Classpath Issues**
+   ```
+   ClassNotFoundException
+   ```
+   Solution: Verify all required JARs are in the classpath
 
 ### Debug Mode
 
-Enable verbose output in tests:
+For detailed debugging, you can run individual test classes:
+
 ```bash
-# For mcp.sh
-./mcp.sh --verbose ping
-
-# For Groovy tests
-# Add debug prints in the test code
+java -cp "..." org.moqui.mcp.test.McpJavaClient
+java -cp "..." org.moqui.mcp.test.ScreenInfrastructureTest
+java -cp "..." org.moqui.mcp.test.PopCommerceOrderTest
 ```
 
-### Log Analysis
+## Future Enhancements
 
-Check server logs for detailed error information:
-```bash
-tail -f ../server.log
-tail -f ../moqui.log
-```
+Planned improvements to the test suite:
 
-## Extending Tests
-
-### Adding New Test Services
-
-1. Create service in `../service/McpTestServices.xml`
-2. Rebuild: `../gradlew build`
-3. Add test method in appropriate test client
-4. Update documentation
-
-### Adding New Workflows
-
-1. Create new test class in `test/workflows/`
-2. Extend base test functionality
-3. Add to test runner if needed
-4. Update documentation
-
-## Performance Testing
-
-### Load Testing
-```bash
-# Run multiple concurrent tests
-for i in {1..10}; do
-    groovy test/workflows/EcommerceWorkflowTest.groovy &
-done
-wait
-```
-
-### Benchmarking
-Tests track execution time and can be used for performance benchmarking.
-
-## Security Testing
-
-The test suite validates:
-- ✅ Authentication requirements
-- ✅ Authorization enforcement
-- ✅ Session isolation
-- ✅ Permission-based access control
-
-## Integration with CI/CD
-
-### GitHub Actions Example
-```yaml
-- name: Run MCP Tests
-  run: |
-    cd moqui-mcp-2
-    ./test/run-tests.sh
-```
-
-### Jenkins Pipeline
-```groovy
-stage('MCP Tests') {
-    steps {
-        sh 'cd moqui-mcp-2 && ./test/run-tests.sh'
-    }
-}
-```
+1. **More Workflows**: Additional business process tests
+2. **Performance Tests**: Load testing and timing validation
+3. **Negative Tests**: More comprehensive error scenario testing
+4. **Integration Tests**: Cross-component workflow validation
+5. **AI Comprehension Tests**: Once screen infrastructure is stable
 
 ## Contributing
 
 When adding new tests:
-1. Follow existing naming conventions
-2. Include proper error handling
-3. Add comprehensive logging
-4. Update documentation
-5. Test with different data scenarios
 
-## Support
+1. Follow the existing structure and patterns
+2. Use the `McpJavaClient` for all MCP communication
+3. Record test steps using the workflow tracking system
+4. Update configuration as needed
+5. Add documentation for new test scenarios
 
-For test-related issues:
-1. Check server logs
-2. Verify MCP server status
-3. Validate test data
-4. Review authentication setup
-5. Check network connectivity
+## License
 
----
-
-**Note**: These tests are designed for development and testing environments. Use appropriate test data and cleanup procedures in production environments.
+This test suite is in the public domain under CC0 1.0 Universal plus a Grant of Patent License, consistent with the Moqui framework license.
