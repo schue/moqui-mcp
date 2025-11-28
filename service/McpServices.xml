@@ -500,7 +500,7 @@
                     
                     result.result = [
                         content: content,
-                        isError: false
+                        isError: serviceResult?.result?.isError ?: false
                     ]
                     return
                 }
