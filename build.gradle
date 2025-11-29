@@ -39,9 +39,6 @@ dependencies {
     // Test dependencies
     testImplementation project(':framework')
     testImplementation project(':framework').configurations.testImplementation.allDependencies
-    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.2'
-    testImplementation 'org.junit.jupiter:junit-jupiter-engine:5.8.2'
-    testImplementation 'org.junit.platform:junit-platform-suite:1.8.2'
 }
 
 // by default the Java plugin runs test on build, change to not do that (only run test if explicit task)
@@ -57,7 +54,7 @@ test {
     dependsOn cleanTest
 
     systemProperty 'moqui.runtime', moquiDir.absolutePath + '/runtime'
-    systemProperty 'moqui.conf', 'MoquiConf.xml'
+    systemProperty 'moqui.conf', 'conf/MoquiDevConf.xml'
     systemProperty 'moqui.init.static', 'true'
     maxHeapSize = "512M"
 

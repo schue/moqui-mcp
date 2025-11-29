@@ -45,25 +45,6 @@
     <!-- MCP Test Screen -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="component://moqui-mcp-2/screen/McpTestScreen.xml" artifactTypeEnumId="AT_XML_SCREEN"/>
     
-    <!-- Common Screen Access Patterns -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/order/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/party/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/invoice/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/product/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/ledger/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/marketing/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/sales/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/manufacturing/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/warehouse/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/humanresource/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="apps/project/*" artifactTypeEnumId="AT_XML_SCREEN"/>
-    
-    <!-- Specific Business Screens for Testing -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="component://mantle/screen/product/ProductList.xml" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="component://mantle/screen/product/ProductDetail.xml" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="component://mantle/screen/order/OrderList.xml" artifactTypeEnumId="AT_XML_SCREEN"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="component://mantle/screen/party/PartyList.xml" artifactTypeEnumId="AT_XML_SCREEN"/>
-    
     <!-- Essential Business Services -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.order.OrderServices.create#Order" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.party.PartyServices.find#Party" artifactTypeEnumId="AT_SERVICE"/>
@@ -113,9 +94,9 @@
     <!-- MCP Artifact Authz -->
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpRestPaths" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+    <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreens" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_VIEW"/>
     <!--
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreenTransitions" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreens" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_VIEW"/>
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreenTools" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
     -->
     
@@ -129,7 +110,7 @@
     <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpScreens" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/>
     <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpScreenTools" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/>
     <!-- Explicit permission for screen execution service -->
-    <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpServices" artifactName="McpServices.execute#ScreenAsMcpTool" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/>
+    <!-- <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpServices" artifactName="McpServices.execute#ScreenAsMcpTool" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/> -->
     
     <!-- MCP Business Group Authz -->
     <moqui.security.ArtifactAuthz userGroupId="MCP_BUSINESS" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>

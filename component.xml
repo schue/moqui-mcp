@@ -33,6 +33,5 @@
         </webapp>
     </webapp-list>
 
-
-
+    <depends-on name="SimpleScreens" version="2.2.0"/>
 </component>

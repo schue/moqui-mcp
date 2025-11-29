@@ -275,7 +275,25 @@ class WebFacadeStub implements WebFacade {
     }
     
     // Helper methods for ScreenTestImpl
-    String getResponseText() { return responseText }
+    String getResponseText() { 
+        if (responseText != null) {
+            logger.info("getResponseText: returning responseText (length: ${responseText.length()})")
+            return responseText
+        }
+        if (httpServletResponse instanceof MockHttpServletResponse) {
+            // Flush the writer to ensure all content is captured
+            try {
+                httpServletResponse.getWriter().flush()
+            } catch (IOException e) {
+                logger.warn("Error flushing response writer: ${e.message}")
+            }
+            def content = ((MockHttpServletResponse) httpServletResponse).getResponseContent()
+            logger.info("getResponseText: returning content from mock response (length: ${content?.length() ?: 0})")
+            return content
+        }
+        logger.warn("getResponseText: httpServletResponse is not MockHttpServletResponse: ${httpServletResponse?.getClass()?.getName()}")
+        return null
+    }
     Object getResponseJsonObj() { return responseJsonObj }
     
     // Mock HTTP classes

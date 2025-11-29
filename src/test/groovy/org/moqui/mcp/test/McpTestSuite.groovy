@@ -13,48 +13,53 @@
  */
 package org.moqui.mcp.test
 
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.DisplayName
-import org.junit.jupiter.api.MethodOrderer
-import org.junit.jupiter.api.Order
-import org.junit.jupiter.api.TestMethodOrder
 import org.moqui.Moqui
+import org.moqui.context.ExecutionContext
+import spock.lang.Shared
+import spock.lang.Specification
+import spock.lang.Stepwise
 
-@DisplayName("MCP Test Suite")
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class McpTestSuite {
+@Stepwise
+class McpTestSuite extends Specification {
     
-    static SimpleMcpClient client
-    static boolean criticalTestFailed = false
+    @Shared
+    ExecutionContext ec
+
+    @Shared
+    SimpleMcpClient client
+
+    @Shared
+    boolean criticalTestFailed = false
     
-    @BeforeAll
-    static void setupMoqui() {
+    def setupSpec() {
         // Initialize Moqui framework for testing
-        System.setProperty('moqui.runtime', '../runtime')
-        System.setProperty('moqui.conf', 'MoquiConf.xml')
-        System.setProperty('moqui.init.static', 'true')
+        // Note: moqui.runtime is set by build.gradle
         
+        // Clear moqui.conf to ensure we use the runtime's MoquiDevConf.xml instead of component's minimal conf
+        //System.clearProperty('moqui.conf')
+        
+        // System.setProperty('moqui.init.static', 'true')
+        
+        ec = Moqui.getExecutionContext()
+
         // Initialize MCP client
         client = new SimpleMcpClient()
     }
     
-    @AfterAll
-    static void cleanup() {
+    def cleanupSpec() {
         if (client) {
             client.closeSession()
         }
+        if (ec) {
+            ec.destroy()
+        }
     }
 
-    @Test
-    @Order(1)
-    @DisplayName("Test Internal Service Direct Call")
-    void testInternalServiceDirectCall() {
+    def "Test Internal Service Direct Call"() {
         println "🔧 Testing Internal Service Direct Call"
+        println "📂 Runtime Path: ${System.getProperty('moqui.runtime')}"
+        println "📂 Conf Path: ${System.getProperty('moqui.conf')}"
         
-        // Try to get ExecutionContext to verify if we are running in-container
-        def ec = Moqui.getExecutionContext()
         if (ec == null) {
             println "⚠️ No ExecutionContext available - skipping internal service test (running in external client mode)"
             return
@@ -62,7 +67,17 @@ class McpTestSuite {
         
         println "✅ ExecutionContext available, testing service directly"
         
+        // Login as mcp-user to ensure we have a valid user context for the screen render
         try {
+            ec.user.internalLoginUser("mcp-user")
+            println "✅ Logged in as mcp-user"
+        } catch (Throwable t) {
+            println "❌ Failed to login as mcp-user: ${t.message}"
+            t.printStackTrace()
+            // Continue to see if service call works (it might fail auth but shouldn't crash)
+        }
+        
+        when:
             // Call the service directly
             def result = ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
                 .parameters([
@@ -73,13 +88,14 @@ class McpTestSuite {
                 .call()
                 
             println "✅ Service returned result: ${result}"
-            
+        
+        then:
             // Verify result structure
-            assert result != null
-            assert result.result != null
-            assert result.result.type == "text"
-            assert result.result.screenPath == "component://moqui-mcp-2/screen/McpTestScreen.xml"
-            assert !result.result.isError
+            result != null
+            result.result != null
+            result.result.type == "text"
+            result.result.screenPath == "component://moqui-mcp-2/screen/McpTestScreen.xml"
+            !result.result.isError
             
             // Verify content
             def text = result.result.text
@@ -88,67 +104,56 @@ class McpTestSuite {
                 println "🎉 SUCCESS: Found test message in direct render output"
             } else {
                 println "⚠️ Test message not found in output (or output empty)"
-                // Note: We don't fail the critical test on empty output yet as it might be an environment quirk, 
-                // but if we wanted to enforce it, we would throw AssertionError here.
             }
-            
-        } catch (Exception e) {
-            println "❌ Service call failed: ${e.message}"
-            e.printStackTrace()
-            criticalTestFailed = true
-            throw e
-        } catch (AssertionError e) {
-            println "❌ Service assertion failed: ${e.message}"
-            criticalTestFailed = true
-            throw e
-        }
+
+        cleanup:
+            ec.user.logoutUser()
     }
     
-    @Test
-    @Order(2)
-    @DisplayName("Test MCP Server Connectivity")
-    void testMcpServerConnectivity() {
+    def "Test MCP Server Connectivity"() {
         if (criticalTestFailed) return
+
         println "🔌 Testing MCP Server Connectivity"
         
+        expect:
         // Test session initialization first
-        assert client.initializeSession() : "MCP session should initialize successfully"
+        client.initializeSession()
         println "✅ Session initialized successfully"
         
         // Test server ping
-        assert client.ping() : "MCP server should respond to ping"
+        client.ping()
         println "✅ Server ping successful"
         
         // Test tool listing
         def tools = client.listTools()
-        assert tools != null : "Tools list should not be null"
-        assert tools.size() > 0 : "Should have at least one tool available"
+        tools != null
+        tools.size() > 0
         println "✅ Found ${tools.size()} available tools"
     }
     
-    @Test
-    @Order(3)
-    @DisplayName("Test PopCommerce Product Search")
-    void testPopCommerceProductSearch() {
+    def "Test PopCommerce Product Search"() {
         if (criticalTestFailed) return
+
         println "🛍️ Testing PopCommerce Product Search"
         
+        when:
         // Use SimpleScreens search screen directly (PopCommerce/SimpleScreens reuses this)
         // Pass "Blue" as queryString to find blue products
         def result = client.callScreen("component://SimpleScreens/screen/SimpleScreens/Catalog/Search.xml", [queryString: "Blue"])
         
-        assert result != null : "Screen call result should not be null"
-        assert result instanceof Map : "Screen result should be a map"
+        then:
+        result != null
+        result instanceof Map
         
         // Fail test if screen returns error
-        assert !result.containsKey('error') : "Screen call should not return error: ${result.error}"
-        assert !result.isError : "Screen result should not have isError set to true"
+        !result.containsKey('error')
+        !result.isError
         
         println "✅ PopCommerce search screen accessed successfully"
         
         // Check if we got content - fail test if no content
         def content = result.result?.content
-        assert content != null && content instanceof List && content.size() > 0 : "Screen should return content with blue products"
+        content != null && content instanceof List && content.size() > 0
         println "✅ Screen returned content with ${content.size()} items"
         
         def blueProductsFound = false
@@ -194,21 +199,21 @@ class McpTestSuite {
         }
         
         // Fail test if no blue products were found
-        assert blueProductsFound : "Should find at least one blue product (Demo with Variants Blue) in search results"
+        blueProductsFound
     }
     
-    @Test
-    @Order(4)
-    @DisplayName("Test Customer Lookup")
-    void testCustomerLookup() {
+    def "Test Customer Lookup"() {
         if (criticalTestFailed) return
+
         println "👤 Testing Customer Lookup"
         
+        when:
         // Use actual available screen - PartyList from mantle component
         def result = client.callScreen("component://mantle/screen/party/PartyList.xml", [:])
         
-        assert result != null : "Screen call result should not be null"
-        assert result instanceof Map : "Screen result should be a map"
+        then:
+        result != null
+        result instanceof Map
         
         if (result.containsKey('error')) {
             println "⚠️ Screen call returned error: ${result.error}"
@@ -233,18 +238,18 @@ class McpTestSuite {
         }
     }
     
-    @Test
-    @Order(5)
-    @DisplayName("Test Complete Order Workflow")
-    void testCompleteOrderWorkflow() {
+    def "Test Complete Order Workflow"() {
         if (criticalTestFailed) return
+
         println "🛒 Testing Complete Order Workflow"
         
+        when:
         // Use actual available screen - OrderList from mantle component
         def result = client.callScreen("component://mantle/screen/order/OrderList.xml", [:])
         
-        assert result != null : "Screen call result should not be null"
-        assert result instanceof Map : "Screen result should be a map"
+        then:
+        result != null
+        result instanceof Map
         
         if (result.containsKey('error')) {
             println "⚠️ Screen call returned error: ${result.error}"
@@ -269,20 +274,20 @@ class McpTestSuite {
         }
     }
     
-    @Test
-    @Order(6)
-    @DisplayName("Test MCP Screen Infrastructure")
-    void testMcpScreenInfrastructure() {
+    def "Test MCP Screen Infrastructure"() {
         if (criticalTestFailed) return
+
         println "🖥️ Testing MCP Screen Infrastructure"
         
+        when:
         // Test calling the MCP test screen with a custom message
         def result = client.callScreen("component://moqui-mcp-2/screen/McpTestScreen.xml", [
             message: "MCP Test Successful!"
         ])
         
-        assert result != null : "Screen call result should not be null"
-        assert result instanceof Map : "Screen result should be a map"
+        then:
+        result != null
+        result instanceof Map
         
         if (result.containsKey('error')) {
             println "⚠️ Screen call returned error: ${result.error}"
@@ -323,5 +328,4 @@ class McpTestSuite {
             }
         }
     }
-
 }

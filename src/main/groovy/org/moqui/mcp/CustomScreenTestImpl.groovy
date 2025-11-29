@@ -74,13 +74,13 @@ class CustomScreenTestImpl implements McpScreenTest {
      * instead of the framework's version that has null contextPath issues
      */
     protected WebFacade createWebFacade(ExecutionContextFactoryImpl ecfi, Map<String, Object> parameters, 
-                                       Map<String, Object> sessionAttributes, String requestMethod) {
+                                       Map<String, Object> sessionAttributes, String requestMethod, String screenPath) {
         if (logger.isDebugEnabled()) {
-            logger.debug("CustomScreenTestImpl.createWebFacade() called with parameters: ${parameters?.keySet()}, sessionAttributes: ${sessionAttributes?.keySet()}, requestMethod: ${requestMethod}")
+            logger.debug("CustomScreenTestImpl.createWebFacade() called with parameters: ${parameters?.keySet()}, sessionAttributes: ${sessionAttributes?.keySet()}, requestMethod: ${requestMethod}, screenPath: ${screenPath}")
         }
         
         // Use our MCP component's WebFacadeStub which properly handles null contextPath
-        return new org.moqui.mcp.WebFacadeStub(ecfi, parameters, sessionAttributes, requestMethod)
+        return new org.moqui.mcp.WebFacadeStub(ecfi, parameters, sessionAttributes, requestMethod, screenPath)
     }
 
     @Override
@@ -222,8 +222,22 @@ class CustomScreenTestImpl implements McpScreenTest {
                 @Override void run() {
                     try {
                         ExecutionContextImpl threadEci = ecfi.getEci()
-                        if (loginSubject != null) threadEci.userFacade.internalLoginSubject(loginSubject)
-                        else if (username != null && !username.isEmpty()) threadEci.userFacade.internalLoginUser(username)
+                        if (loginSubject != null) {
+                            logger.info("CustomScreenTestRender: Login subject for ${username}")
+                            threadEci.userFacade.internalLoginSubject(loginSubject)
+                        } else if (username != null && !username.isEmpty()) {
+                            logger.info("CustomScreenTestRender: Login user ${username}")
+                            threadEci.userFacade.internalLoginUser(username)
+                        } else {
+                            logger.warn("CustomScreenTestRender: No user to login!")
+                        }
+                        
+                        if (threadEci.userFacade.userId) {
+                            logger.info("CustomScreenTestRender: Logged in as ${threadEci.userFacade.username} (${threadEci.userFacade.userId})")
+                        } else {
+                            logger.warn("CustomScreenTestRender: Failed to login, userId is null")
+                        }
+
                         if (authzDisabled) threadEci.artifactExecutionFacade.disableAuthz()
                         // as this is used for server-side transition calls don't do tarpit checks
                         threadEci.artifactExecutionFacade.disableTarpit()
@@ -253,7 +267,7 @@ class CustomScreenTestImpl implements McpScreenTest {
             ContextStack cs = eci.getContext()
             cs.push()
             // create the WebFacadeStub using our custom method
-            org.moqui.mcp.WebFacadeStub wfs = (org.moqui.mcp.WebFacadeStub) csti.createWebFacade(csti.ecfi, stri.parameters, csti.sessionAttributes, stri.requestMethod)
+            org.moqui.mcp.WebFacadeStub wfs = (org.moqui.mcp.WebFacadeStub) csti.createWebFacade(csti.ecfi, stri.parameters, csti.sessionAttributes, stri.requestMethod, stri.screenPath)
             // set stub on eci, will also put parameters in the context
             eci.setWebFacade(wfs)
             // make the ScreenRender
@@ -277,15 +291,18 @@ class CustomScreenTestImpl implements McpScreenTest {
 
             // do the render
             try {
+                logger.info("Starting render for ${stri.screenPath} with root ${csti.rootScreenLocation}")
                 screenRender.render(wfs.getRequest(), wfs.getResponse())
                 // get the response text from the WebFacadeStub
                 stri.outputString = wfs.getResponseText()
                 stri.jsonObj = wfs.getResponseJsonObj()
+                logger.info("Render finished. Output length: ${stri.outputString?.length()}, JSON: ${stri.jsonObj != null}")
             } catch (Throwable t) {
                 String errMsg = "Exception in render of ${stri.screenPath}: ${t.toString()}"
                 logger.warn(errMsg, t)
                 stri.errorMessages.add(errMsg)
                 csti.errorCount++
+                if (stri.outputString == null) stri.outputString = "RENDER_EXCEPTION: " + errMsg
             }
             // calc renderTime
             stri.renderTime = System.currentTimeMillis() - startTime
