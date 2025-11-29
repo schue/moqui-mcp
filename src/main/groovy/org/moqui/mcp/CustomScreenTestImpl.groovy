@@ -55,6 +55,7 @@ class CustomScreenTestImpl implements McpScreenTest {
     protected String servletContextPath = null
     protected String webappName = null
     protected boolean skipJsonSerialize = false
+    protected String authUsername = null
     protected static final String hostname = "localhost"
 
     long renderCount = 0, errorCount = 0, totalChars = 0, startTime = System.currentTimeMillis()
@@ -116,6 +117,8 @@ class CustomScreenTestImpl implements McpScreenTest {
     @Override McpScreenTest baseLinkUrl(String baseLinkUrl) { this.baseLinkUrl = baseLinkUrl; return this }
     @Override McpScreenTest servletContextPath(String scp) { this.servletContextPath = scp; return this }
     @Override McpScreenTest skipJsonSerialize(boolean skip) { this.skipJsonSerialize = skip; return this }
+    
+    McpScreenTest auth(String username) { this.authUsername = username; return this }
 
     @Override
     McpScreenTest webappName(String wan) {
@@ -213,6 +216,8 @@ class CustomScreenTestImpl implements McpScreenTest {
             ExecutionContextFactoryImpl ecfi = sti.ecfi
             ExecutionContextImpl localEci = ecfi.getEci()
             String username = localEci.userFacade.getUsername()
+            if (!username && sti.authUsername) username = sti.authUsername
+            
             org.apache.shiro.subject.Subject loginSubject = localEci.userFacade.getCurrentSubject()
             boolean authzDisabled = localEci.artifactExecutionFacade.getAuthzDisabled()
             CustomScreenTestRenderImpl stri = this

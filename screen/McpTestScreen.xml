@@ -14,14 +14,9 @@
         <set field="userId" from="ec.user?.userId ?: 'ANONYMOUS'"/>
         <set field="sessionId" from="ec.web?.sessionId ?: 'NO_SESSION'"/>
         
-        <!-- Test different data access patterns -->
-        <entity-find entity-name="moqui.basic.Enumeration" list="enumerations" limit="5"/>
-        <entity-find entity-name="McpSession" list="mcpSessions" limit="5">
-            <econdition field-name="userId" from="userId"/>
-        </entity-find>
-        
         <!-- Test service calls -->
-        <service-call name="org.moqui.impl.SystemServices.ping" out-map="pingResult"/>
+        <service-call name="McpServices.mcp#Ping" out-map="pingContext"/>
+        <set field="pingResult" from="pingContext?.result"/>
         
         <!-- Test permissions -->
         <set field="hasAdminAccess" from="ec.user?.hasPermission('MCP_ADMIN')"/>
@@ -30,7 +25,7 @@
         
         <!-- Test context data -->
         <set field="renderMode" from="sri.renderMode ?: 'unknown'"/>
-        <set field="screenPath" from="sri.screenPath ?: 'unknown'"/>
+        <set field="screenPath" from="sri.getActiveScreenPath()?.join('/') ?: 'unknown'"/>
         <set field="webappName" from="ec.web?.webappName ?: 'unknown'"/>
         <set field="locale" from="ec.user?.locale ?: 'en_US'"/>
     </actions>
@@ -81,9 +76,7 @@
             <container style="test-section">
                 <label text="Data Access Tests" type="h2"/>
                 <container style="data-section">
-                    <label text="System Ping Result: ${pingResult?.message ?: 'No response'}" type="p"/>
-                    <label text="Enumerations Found: ${enumerations?.size() ?: 0}" type="p"/>
-                    <label text="MCP Sessions Found: ${mcpSessions?.size() ?: 0}" type="p"/>
+                    <label text="System Ping Result: ${pingResult?.status ?: 'No response'}" type="p"/>
                 </container>
             </container>
             

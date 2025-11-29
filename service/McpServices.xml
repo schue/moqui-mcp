@@ -1457,6 +1457,7 @@ def startTime = System.currentTimeMillis()
         def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
             .rootScreen(rootScreen)
             .renderMode(renderMode ? renderMode : "html")
+            .auth(ec.user.username) // Propagate current user to the test renderer
         
         ec.logger.info("MCP Screen Execution: ScreenTest object created: ${screenTest?.getClass()?.getSimpleName()}")
             

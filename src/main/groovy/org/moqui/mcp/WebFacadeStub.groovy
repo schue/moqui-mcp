@@ -125,6 +125,12 @@ class WebFacadeStub implements WebFacade {
         return withPort ? "localhost:8080" : "localhost"
     }
     
+    String getWebappName() {
+        // Return a default webappName since this is a stub implementation
+        // In real Moqui, this would come from the webapp configuration
+        return "mcp"
+    }
+    
     @Override
     String getPathInfo() { 
         if (logger.isDebugEnabled()) {
@@ -176,6 +182,8 @@ class WebFacadeStub implements WebFacade {
     
     @Override
     String getSessionToken() { return "test-token" }
+
+    String getSessionId() { return httpSession?.getId() }
     
     @Override
     ServletContext getServletContext() { 
