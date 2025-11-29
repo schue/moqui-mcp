@@ -407,34 +407,12 @@
                 def isScreenTool = name.startsWith("screen_")
                 
                 if (isScreenTool) {
-                    // For screen tools, we need to extract the original screen path from the tool description
-                    // The tool name is encoded but the description contains the original path
-                    def toolName = name.substring(7)  // Remove "screen_" prefix
+                    // Decode screen path from tool name (Clean Encoding)
+                    def toolNameSuffix = name.substring(7)  // Remove "screen_" prefix
                     
-                    // Find the tool in our available tools to get the original screen path from description
-                    def originalScreenPath = null
-                    def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList")
-                        .parameters([sessionId: sessionId])
-                        .disableAuthz()
-                        .call()
-                    
-                    // The internal service call returns tools list directly, not wrapped in MCP format
-                    if (toolsResult?.result?.tools) {
-                        def matchingTool = toolsResult.result.tools.find { it.name == name }
-                        if (matchingTool?.description?.startsWith("Moqui screen: ")) {
-                            originalScreenPath = matchingTool.description.substring("Moqui screen: ".length())
-                        }
-                    }
-                    
-                    def screenPath = originalScreenPath
-                    
-                    // If we couldn't find the original path, try the old method as fallback
-                    if (!screenPath) {
-                        screenPath = toolName.replace('_', '/').replace('component///', 'component://').replace('/xml','.xml')
-                        ec.logger.warn("Could not find original screen path for tool ${name}, using fallback reconstruction: ${screenPath}")
-                    } else {
-                        ec.logger.info("Found original screen path for tool ${name}: ${screenPath}")
-                    }
+                    // Restore path: _ -> /, prepend component://, append .xml
+                    def screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
+                    ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
 
                     // Restore user context from sessionId before calling screen tool
                     def serviceResult = null
@@ -1045,8 +1023,14 @@ try {
                 
                 // Helper function to convert screen path to MCP tool name
                 def screenPathToToolName = { screenPath ->
-                    // Create a safe tool name but we'll store the original path in description
-                    return "screen_" + screenPath.replaceAll("[^a-zA-Z0-9]", "_")
+                    // Clean Encoding: strip component:// and .xml, replace / with _
+                    // Preserves hyphens for readability.
+                    // component://moqui-mcp-2/screen/McpTestScreen.xml -> screen_moqui-mcp-2_screen_McpTestScreen
+                    def cleanPath = screenPath
+                    if (cleanPath.startsWith("component://")) cleanPath = cleanPath.substring(12)
+                    if (cleanPath.endsWith(".xml")) cleanPath = cleanPath.substring(0, cleanPath.length() - 4)
+                    
+                    return "screen_" + cleanPath.replace('/', '_')
                 }
                 
                 // Helper function to create MCP tool from screen
@@ -1067,7 +1051,7 @@ try {
                 // Use discovered screens instead of hardcoded list
                 for (screenPath in accessibleScreens) {
                     try {
-                        ec.logger.info("MCP Screen Discovery: Processing screen ${screenPath}")
+                        //ec.logger.info("MCP Screen Discovery: Processing screen ${screenPath}")
                         
                         // For MCP, include all accessible screens - LLMs can decide what's useful
                         // Skip only obviously problematic patterns
@@ -1174,7 +1158,12 @@ try {
                     }
                     
                     // Extract screen information
-                    def screenName = screenPath.replaceAll("[^a-zA-Z0-9]", "_")
+                    // Clean Encoding
+                    def cleanPath = screenPath
+                    if (cleanPath.startsWith("component://")) cleanPath = cleanPath.substring(12)
+                    if (cleanPath.endsWith(".xml")) cleanPath = cleanPath.substring(0, cleanPath.length() - 4)
+                    
+                    def screenName = cleanPath.replace('/', '_')
                     def title = screenPath.split("/")[-1]
                     def description = "Moqui screen: ${screenPath}"
                     

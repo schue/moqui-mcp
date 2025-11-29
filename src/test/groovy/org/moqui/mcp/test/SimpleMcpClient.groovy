@@ -181,18 +181,17 @@ class SimpleMcpClient {
      * Get the correct tool name for a given screen path
      */
     private String getScreenToolName(String screenPath) {
-        if (screenPath.contains("ProductList")) {
-            return "screen_component___mantle_screen_product_ProductList_xml"
-        } else if (screenPath.contains("PartyList")) {
-            return "screen_component___mantle_screen_party_PartyList_xml"
-        } else if (screenPath.contains("OrderList")) {
-            return "screen_component___mantle_screen_order_OrderList_xml"
-        } else if (screenPath.contains("McpTestScreen")) {
-            return "screen_component___moqui_mcp_2_screen_McpTestScreen_xml"
-        } else {
-            // Default fallback
-            return "screen_component___mantle_screen_product_ProductList_xml"
+        // If it already looks like a tool name, return it
+        if (screenPath.startsWith("screen_")) {
+            return screenPath
         }
+        
+        // Clean Encoding: strip component:// and .xml, replace / with _
+        def cleanPath = screenPath
+        if (cleanPath.startsWith("component://")) cleanPath = cleanPath.substring(12)
+        if (cleanPath.endsWith(".xml")) cleanPath = cleanPath.substring(0, cleanPath.length() - 4)
+        
+        return "screen_" + cleanPath.replace('/', '_')
     }
 
     /**
