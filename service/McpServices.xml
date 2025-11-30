@@ -420,17 +420,23 @@
                     UserInfo restoredUserInfo = null
                     try {
                         // Get Visit to find the actual user who created this session
-                        visit = ec.entity.find("moqui.server.Visit")
-                            .condition("visitId", sessionId)
-                            .disableAuthz()
-                            .one()
-                        
-                        if (!visit) {
-                            throw new Exception("Invalid session for screen tool execution: ${sessionId}")
+                        if (sessionId) {
+                            visit = ec.entity.find("moqui.server.Visit")
+                                .condition("visitId", sessionId)
+                                .disableAuthz()
+                                .one()
+                            
+                            if (!visit) {
+                                throw new Exception("Invalid session for screen tool execution: ${sessionId}")
+                            }
+                        } else {
+                            // If no sessionId, we're likely in a test/debug scenario, use current user context
+                            ec.logger.warn("No sessionId provided for screen tool execution, using current user context")
+                            visit = null // Explicitly set to null to indicate no session context
                         }
                         
                         // Restore user context - handle special MCP case where Visit was created with ADMIN
-                        if (visit.userId && visit.userId != ec.user.userId) {
+                        if (visit && visit.userId && visit.userId != ec.user.userId) {
                             // Restore the actual user who created the session
                             def userAccount = ec.entity.find("moqui.security.UserAccount")
                                 .condition("userId", visit.userId)
@@ -1048,8 +1054,65 @@ try {
                     ]
                 }
                 
-                // Use discovered screens instead of hardcoded list
+                // Helper function to recursively discover subscreens
+                def discoverAllScreens = { baseScreenPath ->
+                    def allScreens = [] as Set<String>
+                    def screensToProcess = [baseScreenPath]
+                    
+                    ec.logger.info("MCP Screen Discovery: Starting discovery for base ${baseScreenPath}")
+                    
+                    while (screensToProcess) {
+                        def currentScreenPath = screensToProcess.remove(0)
+                        
+                        ec.logger.info("MCP Screen Discovery: Processing screen ${currentScreenPath}")
+                        
+                        if (allScreens.contains(currentScreenPath)) {
+                            ec.logger.info("MCP Screen Discovery: Already processed ${currentScreenPath}, skipping")
+                            continue
+                        }
+                        
+                        allScreens.add(currentScreenPath)
+                        
+                        try {
+                            ec.logger.info("MCP Screen Discovery: Getting screen info for ${currentScreenPath}")
+                            // Fix: Use getScreenInfoList instead of getScreenInfo to avoid method signature mismatch
+                            def screenInfoList = ec.screen.getScreenInfoList(currentScreenPath, 1)
+                            def screenInfo = screenInfoList?.first()
+                            ec.logger.info("MCP Screen Discovery: Screen info for ${currentScreenPath}: subscreens=${screenInfo?.subScreenInfoByName?.size() ?: 0}")
+                            if (screenInfo?.subScreenInfoByName) {
+                                ec.logger.info("MCP Screen Discovery: Found subscreens map: ${screenInfo.subScreenInfoByName.keySet()}")
+                                for (subScreenEntry in screenInfo.subScreenInfoByName) {
+                                    def subScreenPath = subScreenEntry.value.location
+                                    ec.logger.info("MCP Screen Discovery: Found subscreen ${subScreenPath} for ${currentScreenPath}")
+                                    if (subScreenPath && !allScreens.contains(subScreenPath)) {
+                                        screensToProcess.add(subScreenPath)
+                                        ec.logger.info("MCP Screen Discovery: Added ${subScreenPath} to processing queue")
+                                    }
+                                }
+                            } else {
+                                ec.logger.info("MCP Screen Discovery: No subscreens found for ${currentScreenPath}")
+                            }
+                        } catch (Exception e) {
+                            ec.logger.info("MCP Screen Discovery: Could not get subscreens for ${currentScreenPath}: ${e.message}")
+                            ec.logger.error("MCP Screen Discovery: Error details:", e)
+                        }
+                    }
+                    
+                    return allScreens
+                }
+                
+                // Discover all screens recursively starting from accessible screens
+                def allAccessibleScreens = [] as Set<String>
+                ec.logger.info("MCP Screen Discovery: Starting recursive discovery from ${accessibleScreens.size()} base screens")
                 for (screenPath in accessibleScreens) {
+                    def discoveredScreens = discoverAllScreens(screenPath)
+                    ec.logger.info("MCP Screen Discovery: Found ${discoveredScreens.size()} screens from base ${screenPath}")
+                    allAccessibleScreens.addAll(discoveredScreens)
+                }
+                ec.logger.info("MCP Screen Discovery: Recursive discovery found ${allAccessibleScreens.size()} total screens")
+                
+                // Use recursively discovered screens instead of hardcoded list
+                for (screenPath in allAccessibleScreens) {
                     try {
                         //ec.logger.info("MCP Screen Discovery: Processing screen ${screenPath}")
                         
@@ -1113,7 +1176,7 @@ try {
                     }
                 }
                 
-                ec.logger.info("MCP Screen Discovery: Created ${tools.size()} hardcoded screen tools for user ${originalUsername}")
+                ec.logger.info("MCP Screen Discovery: Created ${tools.size()} screen tools for user ${originalUsername}")
                 
                 result.tools = tools
                 
@@ -1567,12 +1630,82 @@ ${truncatedOutput}
         output = errorDetails.join("\n")
     }
     
+    // Helper function to convert web paths to MCP tool names
+    def convertWebPathToMcpTool = { path ->
+        try {
+            // Handle simple catalog paths (dropdown menu items)
+            if (path == "Category" || path.startsWith("Category/")) {
+                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Category"
+            } else if (path == "Feature" || path.startsWith("Feature/")) {
+                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Feature"
+            } else if (path == "FeatureGroup" || path.startsWith("FeatureGroup/")) {
+                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_FeatureGroup"
+            } else if (path == "Product" || path.startsWith("Product/")) {
+                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Product"
+            } else if (path.startsWith("Search")) {
+                return "screen_SimpleScreens_screen_SimpleScreens_Search"
+            }
+            
+            // Handle full catalog paths
+            if (path.startsWith("Product/FindProduct")) {
+                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Product"
+            } else if (path.startsWith("Category/FindCategory")) {
+                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Category"  
+            } else if (path.startsWith("Feature/FindFeature")) {
+                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Feature"
+            } else if (path.startsWith("FeatureGroup/FindFeatureGroup")) {
+                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_FeatureGroup"
+            }
+            
+            // Handle PopCommerce Admin paths
+            if (path.startsWith("PopcAdmin/")) {
+                def cleanPath = path.replace("PopcAdmin/", "PopCommerceAdmin/")
+                def toolName = "screen_PopCommerce_screen_" + cleanPath.replace("/", "_")
+                return toolName
+            }
+            
+            // Handle SimpleScreens paths
+            if (path.startsWith("apps/")) {
+                def cleanPath = path.replace("apps/", "")
+                def toolName = "screen_SimpleScreens_screen_SimpleScreens_" + cleanPath.replace("/", "_")
+                return toolName
+            }
+            
+            return null
+        } catch (Exception e) {
+            ec.logger.debug("Error converting web path ${path} to MCP tool: ${e.message}")
+            return null
+        }
+    }
+    
     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+    
+    // Convert web URLs to MCP tool suggestions to keep users in MCP ecosystem
+    def processedOutput = output
+    if (output && !isError) {
+        try {
+            // Convert common web URLs to MCP tool suggestions
+            processedOutput = output.replaceAll(/http:\/\/localhost:8080\/([^\s"'>]+)/) { match ->
+                def path = match[1]
+                def toolName = convertWebPathToMcpTool(path)
+                if (toolName) {
+                    return "MCP_TOOL:${toolName}"
+                } else {
+                    return match[0] // Keep original if no MCP tool found
+                }
+            }
+            
+            ec.logger.info("MCP Screen Execution: Converted web URLs to MCP tool suggestions for ${screenPath}")
+        } catch (Exception e) {
+            ec.logger.warn("MCP Screen Execution: Error converting URLs to MCP tools: ${e.message}")
+            // Keep original output if conversion fails
+        }
+    }
     
     // Return just the rendered screen content for MCP wrapper to handle
     result = [
         type: "text",
-        text: output,
+        text: processedOutput,
         screenPath: screenPath,
         screenUrl: screenUrl,
         executionTime: executionTime,
