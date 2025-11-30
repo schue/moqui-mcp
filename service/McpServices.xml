@@ -1075,22 +1075,29 @@ try {
                         
                         try {
                             ec.logger.info("MCP Screen Discovery: Getting screen info for ${currentScreenPath}")
-                            // Fix: Use getScreenInfoList instead of getScreenInfo to avoid method signature mismatch
+                            // Fix: Use getScreenInfoList and properly access the ScreenInfo object
                             def screenInfoList = ec.screen.getScreenInfoList(currentScreenPath, 1)
-                            def screenInfo = screenInfoList?.first()
-                            ec.logger.info("MCP Screen Discovery: Screen info for ${currentScreenPath}: subscreens=${screenInfo?.subScreenInfoByName?.size() ?: 0}")
-                            if (screenInfo?.subScreenInfoByName) {
-                                ec.logger.info("MCP Screen Discovery: Found subscreens map: ${screenInfo.subScreenInfoByName.keySet()}")
-                                for (subScreenEntry in screenInfo.subScreenInfoByName) {
-                                    def subScreenPath = subScreenEntry.value.location
-                                    ec.logger.info("MCP Screen Discovery: Found subscreen ${subScreenPath} for ${currentScreenPath}")
-                                    if (subScreenPath && !allScreens.contains(subScreenPath)) {
-                                        screensToProcess.add(subScreenPath)
-                                        ec.logger.info("MCP Screen Discovery: Added ${subScreenPath} to processing queue")
+                            if (screenInfoList && screenInfoList.size() > 0) {
+                                def screenInfo = screenInfoList.first()
+                                ec.logger.info("MCP Screen Discovery: Screen info for ${currentScreenPath}: subscreens=${screenInfo?.subscreenInfoByName?.size() ?: 0}")
+                                
+                                // Fix: Use the correct property name 'subscreenInfoByName' (not 'subScreenInfoByName')
+                                if (screenInfo?.subscreenInfoByName) {
+                                    ec.logger.info("MCP Screen Discovery: Found subscreens map: ${screenInfo.subscreenInfoByName.keySet()}")
+                                    for (subScreenEntry in screenInfo.subscreenInfoByName) {
+                                        def subScreenInfo = subScreenEntry.value
+                                        def subScreenPath = subScreenInfo?.sd?.location
+                                        ec.logger.info("MCP Screen Discovery: Found subscreen ${subScreenPath} for ${currentScreenPath}")
+                                        if (subScreenPath && !allScreens.contains(subScreenPath)) {
+                                            screensToProcess.add(subScreenPath)
+                                            ec.logger.info("MCP Screen Discovery: Added ${subScreenPath} to processing queue")
+                                        }
                                     }
+                                } else {
+                                    ec.logger.info("MCP Screen Discovery: No subscreens found for ${currentScreenPath}")
                                 }
                             } else {
-                                ec.logger.info("MCP Screen Discovery: No subscreens found for ${currentScreenPath}")
+                                ec.logger.info("MCP Screen Discovery: No screen info returned for ${currentScreenPath}")
                             }
                         } catch (Exception e) {
                             ec.logger.info("MCP Screen Discovery: Could not get subscreens for ${currentScreenPath}: ${e.message}")
