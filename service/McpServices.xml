@@ -1116,8 +1116,28 @@ try {
                             // Use the passed hierarchical parent tool name
                             def subscreenName = screenPath.split("/")[-1]
                             if (subscreenName.endsWith(".xml")) subscreenName = subscreenName.substring(0, subscreenName.length() - 4)
-                            toolName = parentToolName + "." + subscreenName
-                            ec.logger.info("MCP Screen Discovery: Creating subscreen tool ${toolName} for ${screenPath} (parentToolName: ${parentToolName})")
+                            
+                            // Use dot only for explicitly defined subscreen items, underscore for automatic subscreen discovery
+                            // Check if this screen was explicitly defined in parent's subscreens-item
+                            def isExplicitSubscreen = false
+                            try {
+                                def parentScreenDef = ec.screen.getScreenDefinition(parentScreenPath)
+                                if (parentScreenDef?.screenNode) {
+                                    def subscreensNode = parentScreenDef.screenNode.first("subscreens")
+                                    if (subscreensNode) {
+                                        def subscreenItem = subscreensNode.children().find { 
+                                            it.name() == "subscreens-item" && it.attribute('location') == screenPath 
+                                        }
+                                        isExplicitSubscreen = (subscreenItem != null)
+                                    }
+                                }
+                            } catch (Exception e) {
+                                ec.logger.debug("Could not check explicit subscreen for ${screenPath}: ${e.message}")
+                            }
+                            
+                            def separator = isExplicitSubscreen ? "." : "_"
+                            toolName = parentToolName + separator + subscreenName
+                            ec.logger.info("MCP Screen Discovery: Creating subscreen tool ${toolName} for ${screenPath} (parentToolName: ${parentToolName}, isExplicit: ${isExplicitSubscreen}, separator: ${separator})")
                         } else if (isSubscreen && parentScreenPath) {
                             toolName = screenPathToToolNameWithSubscreens(screenPath, parentScreenPath)
                             ec.logger.info("MCP Screen Discovery: Creating subscreen tool ${toolName} for ${screenPath} (parent: ${parentScreenPath})")
