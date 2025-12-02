@@ -407,61 +407,38 @@
                 def isScreenTool = name.startsWith("screen_")
                 
                 if (isScreenTool) {
-                    // Decode screen path from tool name (Clean Encoding)
+                    // Decode screen path from tool name (Clean Encoding with subscreen support)
                     def toolNameSuffix = name.substring(7)  // Remove "screen_" prefix
                     
-                    // Restore path: _ -> /, prepend component://, append .xml
-                    def screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
-                    ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
-
-                    // Restore user context from sessionId before calling screen tool
-                    def serviceResult = null
-                    def visit = null
-                    UserInfo restoredUserInfo = null
-                    try {
-                        // Get Visit to find the actual user who created this session
-                        if (sessionId) {
-                            visit = ec.entity.find("moqui.server.Visit")
-                                .condition("visitId", sessionId)
-                                .disableAuthz()
-                                .one()
-                            
-                            if (!visit) {
-                                throw new Exception("Invalid session for screen tool execution: ${sessionId}")
-                            }
-                        } else {
-                            // If no sessionId, we're likely in a test/debug scenario, use current user context
-                            ec.logger.warn("No sessionId provided for screen tool execution, using current user context")
-                            visit = null // Explicitly set to null to indicate no session context
-                        }
+                    def screenPath
+                    def subscreenName = null
+                    
+                    // Check if this is a subscreen (contains dot after the initial prefix)
+                    if (toolNameSuffix.contains('.')) {
+                        // Split on dot to separate parent screen path from subscreen name
+                        def lastDotIndex = toolNameSuffix.lastIndexOf('.')
+                        def parentPath = toolNameSuffix.substring(0, lastDotIndex)
+                        subscreenName = toolNameSuffix.substring(lastDotIndex + 1)
                         
-                        // Restore user context - handle special MCP case where Visit was created with ADMIN
-                        if (visit && visit.userId && visit.userId != ec.user.userId) {
-                            // Restore the actual user who created the session
-                            def userAccount = ec.entity.find("moqui.security.UserAccount")
-                                .condition("userId", visit.userId)
-                                .disableAuthz()
-                                .one()
-                            if (userAccount) {
-                                restoredUserInfo = ec.user.pushUser(userAccount.username)
-                                ec.logger.info("Screen tool execution: Restored user context for ${userAccount.username}")
-                            }
-                        }
-                        
+                        // Restore parent path: _ -> /, prepend component://, append .xml
+                        screenPath = "component://" + parentPath.replace('_', '/') + ".xml"
+                        ec.logger.info("Decoded subscreen path for tool ${name}: parent=${screenPath}, subscreen=${subscreenName}")
+                    } else {
+                        // Regular screen path: _ -> /, prepend component://, append .xml
+                        screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
+                        ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
+                    }
+                       
                         // Now call the screen tool with proper user context
                         def screenParams = arguments ?: [:]
+                        def serviceCallParams = [screenPath: screenPath, parameters: screenParams, renderMode: "html", sessionId: sessionId]
+                        if (subscreenName) {
+                            serviceCallParams.subscreenName = subscreenName
+                        }
                         serviceResult = ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
-                            .parameters([screenPath: screenPath, parameters: screenParams, renderMode: "html", sessionId: sessionId])
+                            .parameters(serviceCallParams)
                             .call()
                             
-                    } finally {
-                        // Always restore original user context
-                        if (restoredUserInfo != null) {
-                            ec.user.popUser()
-                            ec.logger.info("Screen tool execution: Restored original user context ${ec.user.username}")
-                        }
-                    }
-                    
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
                     // Convert result to MCP format
@@ -476,7 +453,7 @@
                             ]
                         } else {
                             content << [
-                                type: "text", 
+                                type: "html", 
                                 text: serviceResult.result.toString() ?: "Screen executed successfully"
                             ]
                         }
@@ -525,7 +502,7 @@
                         content: content,
                         isError: false
                     ]
-                } catch (Exception e) {
+                } catch (Exception e2) {
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
                     result = [
@@ -569,14 +546,6 @@
                 def resources = []
                 
                 UserInfo adminUserInfo = null
-                
-                // Update session activity
-                def metadata = [:]
-                try {
-                   metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
-                } catch (Exception e) {
-                   ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
-                }
                     
                 // Store original user context before switching to ADMIN
                 def originalUsername = ec.user.username
@@ -999,7 +968,7 @@ try {
                 
                 def tools = []
                 
-// Discover screens that user can actually access
+                // Discover screens that user can actually access
                 def accessibleScreens = [] as Set<String>
                 adminUserInfo = null
                 try {
@@ -1039,6 +1008,25 @@ try {
                     return "screen_" + cleanPath.replace('/', '_')
                 }
                 
+                // Helper function to convert screen path to MCP tool name with subscreen support
+                def screenPathToToolNameWithSubscreens = { screenPath, parentScreenPath = null ->
+                    // If we have a parent screen path, this is a subscreen - use dot notation
+                    if (parentScreenPath) {
+                        def parentCleanPath = parentScreenPath
+                        if (parentCleanPath.startsWith("component://")) parentCleanPath = parentCleanPath.substring(12)
+                        if (parentCleanPath.endsWith(".xml")) parentCleanPath = parentCleanPath.substring(0, parentCleanPath.length() - 4)
+                        
+                        // Extract subscreen name from the full screen path
+                        def subscreenName = screenPath.split("/")[-1]
+                        if (subscreenName.endsWith(".xml")) subscreenName = subscreenName.substring(0, subscreenName.length() - 4)
+                        
+                        return "screen_" + parentCleanPath.replace('/', '_') + "." + subscreenName
+                    }
+                    
+                    // Regular screen path conversion for main screens
+                    return screenPathToToolName(screenPath)
+                }
+                
                 // Helper function to create MCP tool from screen
                 def createScreenTool = { screenPath, title, description, parameters = [:] ->
                     def toolName = screenPathToToolName(screenPath)
@@ -1054,98 +1042,45 @@ try {
                     ]
                 }
                 
-                // Helper function to recursively discover subscreens
-                def discoverAllScreens = { baseScreenPath ->
-                    def allScreens = [] as Set<String>
-                    def screensToProcess = [baseScreenPath]
+                // Helper function to recursively process screens and create tools directly
+                def processScreenWithSubscreens 
+                processScreenWithSubscreens = { screenPath, parentScreenPath = null, processedScreens = null, toolsAccumulator = null ->
+                    ec.logger.info("MCP Screen Discovery: Processing screen ${screenPath} (parent: ${parentScreenPath})")
                     
-                    ec.logger.info("MCP Screen Discovery: Starting discovery for base ${baseScreenPath}")
+                    // Initialize processedScreens and toolsAccumulator if null
+                    if (processedScreens == null) processedScreens = [] as Set<String>
+                    if (toolsAccumulator == null) toolsAccumulator = []
                     
-                    while (screensToProcess) {
-                        def currentScreenPath = screensToProcess.remove(0)
-                        
-                        ec.logger.info("MCP Screen Discovery: Processing screen ${currentScreenPath}")
-                        
-                        if (allScreens.contains(currentScreenPath)) {
-                            ec.logger.info("MCP Screen Discovery: Already processed ${currentScreenPath}, skipping")
-                            continue
-                        }
-                        
-                        allScreens.add(currentScreenPath)
-                        
-                        try {
-                            ec.logger.info("MCP Screen Discovery: Getting screen info for ${currentScreenPath}")
-                            // Fix: Use getScreenInfoList and properly access the ScreenInfo object
-                            def screenInfoList = ec.screen.getScreenInfoList(currentScreenPath, 1)
-                            if (screenInfoList && screenInfoList.size() > 0) {
-                                def screenInfo = screenInfoList.first()
-                                ec.logger.info("MCP Screen Discovery: Screen info for ${currentScreenPath}: subscreens=${screenInfo?.subscreenInfoByName?.size() ?: 0}")
-                                
-                                // Fix: Use the correct property name 'subscreenInfoByName' (not 'subScreenInfoByName')
-                                if (screenInfo?.subscreenInfoByName) {
-                                    ec.logger.info("MCP Screen Discovery: Found subscreens map: ${screenInfo.subscreenInfoByName.keySet()}")
-                                    for (subScreenEntry in screenInfo.subscreenInfoByName) {
-                                        def subScreenInfo = subScreenEntry.value
-                                        def subScreenPath = subScreenInfo?.sd?.location
-                                        ec.logger.info("MCP Screen Discovery: Found subscreen ${subScreenPath} for ${currentScreenPath}")
-                                        if (subScreenPath && !allScreens.contains(subScreenPath)) {
-                                            screensToProcess.add(subScreenPath)
-                                            ec.logger.info("MCP Screen Discovery: Added ${subScreenPath} to processing queue")
-                                        }
-                                    }
-                                } else {
-                                    ec.logger.info("MCP Screen Discovery: No subscreens found for ${currentScreenPath}")
-                                }
-                            } else {
-                                ec.logger.info("MCP Screen Discovery: No screen info returned for ${currentScreenPath}")
-                            }
-                        } catch (Exception e) {
-                            ec.logger.info("MCP Screen Discovery: Could not get subscreens for ${currentScreenPath}: ${e.message}")
-                            ec.logger.error("MCP Screen Discovery: Error details:", e)
-                        }
+                    if (processedScreens.contains(screenPath)) {
+                        ec.logger.info("MCP Screen Discovery: Already processed ${screenPath}, skipping")
+                        return
                     }
                     
-                    return allScreens
-                }
-                
-                // Discover all screens recursively starting from accessible screens
-                def allAccessibleScreens = [] as Set<String>
-                ec.logger.info("MCP Screen Discovery: Starting recursive discovery from ${accessibleScreens.size()} base screens")
-                for (screenPath in accessibleScreens) {
-                    def discoveredScreens = discoverAllScreens(screenPath)
-                    ec.logger.info("MCP Screen Discovery: Found ${discoveredScreens.size()} screens from base ${screenPath}")
-                    allAccessibleScreens.addAll(discoveredScreens)
-                }
-                ec.logger.info("MCP Screen Discovery: Recursive discovery found ${allAccessibleScreens.size()} total screens")
-                
-                // Use recursively discovered screens instead of hardcoded list
-                for (screenPath in allAccessibleScreens) {
+                    processedScreens.add(screenPath)
+                    
                     try {
-                        //ec.logger.info("MCP Screen Discovery: Processing screen ${screenPath}")
-                        
-                        // For MCP, include all accessible screens - LLMs can decide what's useful
-                        // Skip only obviously problematic patterns
+                        // Skip problematic patterns early
                         if (screenPath.contains("/error/") || screenPath.contains("/system/")) {
                             ec.logger.info("MCP Screen Discovery: Skipping system screen ${screenPath}")
-                            continue
+                            return
                         }
                         
-                        // Try to get screen definition, but don't require it for MCP
+                        // Determine if this is a subscreen
+                        def isSubscreen = parentScreenPath != null
+                        
+                        // Try to get screen definition
                         def screenDefinition = null
                         def title = screenPath.split("/")[-1]
                         def description = "Moqui screen: ${screenPath}"
                         
                         try {
                             screenDefinition = ec.screen.getScreenDefinition(screenPath)
-                            // Screen XML doesn't have description elements, so use screen path as description
-                            // We could potentially use default-menu-title attribute if available
                             if (screenDefinition?.screenNode?.attribute('default-menu-title')) {
                                 title = screenDefinition.screenNode.attribute('default-menu-title')
                                 description = "Moqui screen: ${screenPath} (${title})"
                             }
                         } catch (Exception e) {
                             ec.logger.info("MCP Screen Discovery: No screen definition for ${screenPath}, using basic info")
-                            // Continue anyway - the screen might still be useful for MCP
                         }
                         
                         // Get screen parameters from transitions
@@ -1155,19 +1090,19 @@ try {
                             if (screenInfo?.transitionInfoByName) {
                                 for (transitionEntry in screenInfo.transitionInfoByName) {
                                     def transitionInfo = transitionEntry.value
-                                    // Add path parameters
-                                    transitionInfo.ti?.getPathParameterList()?.each { param ->
-                                        parameters[param] = [
-                                            type: "string",
-                                            description: "Path parameter for transition: ${param}"
-                                        ]
-                                    }
-                                    // Add request parameters
-                                    transitionInfo.ti?.getRequestParameterList()?.each { param ->
-                                        parameters[param.name] = [
-                                            type: "string",
-                                            description: "Request parameter: ${param.name}"
-                                        ]
+                                    if (transitionInfo?.ti) {
+                                        transitionInfo.ti.getPathParameterList()?.each { param ->
+                                            parameters[param] = [
+                                                type: "string",
+                                                description: "Path parameter for transition: ${param}"
+                                            ]
+                                        }
+                                        transitionInfo.ti.getRequestParameterList()?.each { param ->
+                                            parameters[param.name] = [
+                                                type: "string",
+                                                description: "Request parameter: ${param.name}"
+                                            ]
+                                        }
                                     }
                                 }
                             }
@@ -1175,13 +1110,94 @@ try {
                             ec.logger.debug("Could not extract parameters from screen ${screenPath}: ${e.message}")
                         }
                         
-                        ec.logger.info("MCP Screen Discovery: Adding accessible screen ${screenPath}")
-                        tools << createScreenTool(screenPath, title, description, parameters)
+                        // Create tool with proper naming
+                        def toolName
+                        if (isSubscreen && parentScreenPath) {
+                            toolName = screenPathToToolNameWithSubscreens(screenPath, parentScreenPath)
+                            ec.logger.info("MCP Screen Discovery: Creating subscreen tool ${toolName} for ${screenPath} (parent: ${parentScreenPath})")
+                        } else {
+                            toolName = screenPathToToolName(screenPath)
+                            ec.logger.info("MCP Screen Discovery: Creating main screen tool ${toolName} for ${screenPath}")
+                        }
+                        
+                        def tool = [
+                            name: toolName,
+                            title: title,
+                            description: "Moqui screen: ${screenPath}",
+                            inputSchema: [
+                                type: "object",
+                                properties: parameters,
+                                required: []
+                            ]
+                        ]
+                        
+                        ec.logger.info("MCP Screen Discovery: Adding accessible screen tool ${toolName} for ${screenPath}")
+                        toolsAccumulator << tool
+                        
+                        // Recursively process subscreens
+                        try {
+                            def screenInfoList = ec.screen.getScreenInfoList(screenPath, 1)
+                            def screenInfo = screenInfoList?.first()
+                            ec.logger.info("MCP Screen Discovery: SCREENINFO ${screenInfo}")
+                            if (screenInfo?.subscreenInfoByName) {
+                                ec.logger.info("MCP Screen Discovery: Found ${screenInfo.subscreenInfoByName.size()} subscreens for ${screenPath}")
+                                for (subScreenEntry in screenInfo.subscreenInfoByName) {
+                                    ec.logger.info("MCP Screen Discovery: Process subscreen ${subScreenEntry.key}")
+                                    def subScreenInfo = subScreenEntry.value
+                                    def subScreenPathList = subScreenInfo?.screenPath
+                                    ec.logger.info("MCP Screen Discovery: Processing subscreen entry - key: ${subScreenEntry.key}, location: ${subScreenPathList}")
+                                    // Ensure subScreenPathList is a flat list of strings
+                                    def flatPathList = []
+                                    if (subScreenPathList) {
+                                        if (subScreenPathList instanceof Collection) {
+                                            for (path in subScreenPathList) {
+                                                if (path instanceof Collection) {
+                                                    flatPathList.addAll(path)
+                                                } else {
+                                                    flatPathList.add(path)
+                                                }
+                                            }
+                                        } else {
+                                            flatPathList.add(subScreenPathList)
+                                        }
+                                    }
+                                        for (subScreenPath in flatPathList) {
+                                            if (subScreenPath && !processedScreens.contains(subScreenPath)) {
+                                                ec.logger.info("MCP Screen Discovery: Processing subscreen path: ${subScreenPath}")
+                                                processScreenWithSubscreens(subScreenPath, screenPath, processedScreens, toolsAccumulator)
+                                        } else if (!subScreenPath) {
+                                            ec.logger.info("MCP Screen Discovery: Subscreen entry ${subScreenEntry.key} has no location, skipping")
+                                        } else if (processedScreens.contains(subScreenPath)) {
+                                            ec.logger.info("MCP Screen Discovery: Subscreen ${subScreenPath} already processed, skipping")
+                                        }
+                                    }
+                                }
+                            } else {
+                                ec.logger.info("MCP Screen Discovery: No subscreens found for ${screenPath}")
+                            }
+                        } catch (Exception e) {
+                            ec.logger.info("MCP Screen Discovery: Could not get subscreens for ${screenPath}: ${e.message}")
+                            ec.logger.error("MCP Screen Discovery: Subscreen discovery error details:", e)
+                        }
                         
                     } catch (Exception e) {
                         ec.logger.warn("Error processing screen ${screenPath}: ${e.message}")
                     }
                 }
+                
+                // Process all accessible screens recursively and create tools directly
+                def processedScreens = [] as Set<String>
+                ec.logger.info("MCP Screen Discovery: Starting recursive processing from ${accessibleScreens.size()} base screens")
+                for (screenPath in accessibleScreens) {
+                    ec.logger.info("MCP Screen Discovery: SCREEN PATH ${screenPath}")
+                    processScreenWithSubscreens(screenPath, null, processedScreens, tools)
+                }
+                ec.logger.info("MCP Screen Discovery: Recursive processing found ${tools.size()} total tools")
+                
+                // Note: All screens have already been processed by processScreenWithSubscreens above
+                // The recursive approach handles both parent screens and their subscreens in a single pass
+                // No need for additional processing here
+                
                 
                 ec.logger.info("MCP Screen Discovery: Created ${tools.size()} screen tools for user ${originalUsername}")
                 
@@ -1358,6 +1374,7 @@ try {
             <parameter name="parameters" type="Map"><description>Parameters to pass to the screen</description></parameter>
             <parameter name="renderMode" default="html"><description>Render mode: text, html, xml, vuet, qvt</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
+            <parameter name="subscreenName"><description>Optional subscreen name for dot notation paths</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
@@ -1397,12 +1414,12 @@ def startTime = System.currentTimeMillis()
         def targetScreenDef = null
         def isStandalone = false
         
+            def pathAfterComponent = screenPath.substring(12).replace('.xml','') // Remove "component://"
+            def pathParts = pathAfterComponent.split("/")
                 // If the screen path is already a full component:// path, we need to handle it differently
         if (screenPath.startsWith("component://")) {
             // For component:// paths, we need to use the component's root screen, not webroot
             // Extract the component name and use its root screen
-            def pathAfterComponent = screenPath.substring(12) // Remove "component://"
-            def pathParts = pathAfterComponent.split("/")
             if (pathParts.length >= 2) {
                 def componentName = pathParts[0]
                 def remainingPath = pathParts[1..-1].join("/")
@@ -1470,8 +1487,8 @@ def startTime = System.currentTimeMillis()
                             def componentRootScreen = null
                             def possibleRootScreens = [
                                 "${componentName}.xml",
-                                "${componentName}Root.xml", 
-                                "${componentName}Admin.xml"
+                                "${componentName}Admin.xml",
+                                "${componentName}Root.xml"
                             ]
                             
                             for (rootScreenName in possibleRootScreens) {
@@ -1519,71 +1536,57 @@ def startTime = System.currentTimeMillis()
             }
         }
         
-        // User context should already be correct from MCP servlet restoration
-        // CustomScreenTestImpl will capture current user context automatically
-        ec.logger.info("MCP Screen Execution: Current user context - userId: ${ec.user.userId}, username: ${ec.user.username}")
-        
-        // Regular screen rendering with current user context - use our custom ScreenTestImpl
-        def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
-            .rootScreen(rootScreen)
-            .renderMode(renderMode ? renderMode : "html")
-            .auth(ec.user.username) // Propagate current user to the test renderer
-        
-        ec.logger.info("MCP Screen Execution: ScreenTest object created: ${screenTest?.getClass()?.getSimpleName()}")
+        // Handle subscreen if specified
+        if (subscreenName) {
+            ec.logger.info("MCP Screen Execution: Handling subscreen ${subscreenName} for parent ${screenPath}")
             
-                if (screenTest) {
-                    def renderParams = parameters ?: [:]
-                    
-                    // Add current user info to render context to maintain authentication
-                    renderParams.userId = ec.user.userId
-                    renderParams.username = ec.user.username
-                    
-                    // Set user context in ScreenTest to maintain authentication
-                    // Note: ScreenTestImpl may not have direct userAccountId property, 
-                    // the user context should be inherited from the current ExecutionContext
-                    ec.logger.info("MCP Screen Execution: Current user context - userId: ${ec.user.userId}, username: ${ec.user.username}")
-                    
-                    // Regular screen rendering with timeout
-                    def future = java.util.concurrent.Executors.newSingleThreadExecutor().submit({
-                        return screenTest.render(testScreenPath, renderParams, null)
-                    } as java.util.concurrent.Callable)
-                    
-                    try {
-                        def testRender = future.get(30, java.util.concurrent.TimeUnit.SECONDS)  // 30 second timeout
-                        output = testRender.output
-                        def outputLength = output?.length() ?: 0
-                        
-                        // SIZE PROTECTION: Check response size before returning
-                        def maxResponseSize = 1024 * 1024  // 1MB limit
-                        if (outputLength > maxResponseSize) {
-                            isError = true
-                            ec.logger.warn("MCP Screen Execution: Response too large for ${screenPath}: ${outputLength} bytes (limit: ${maxResponseSize} bytes)")
-                            
-                            // Create truncated response with clear indication
-                            def truncatedOutput = output.substring(0, Math.min(maxResponseSize / 2, outputLength))
-                            output = """SCREEN RESPONSE TRUNCATED
-
-The screen '${screenPath}' generated a response that is too large for MCP processing:
-- Original size: ${outputLength} bytes
-- Size limit: ${maxResponseSize} bytes
-- Truncated to: ${truncatedOutput.length()} bytes
-
-TRUNCATED CONTENT:
-${truncatedOutput}
-
-[Response truncated due to size limits. Consider using more specific screen parameters or limiting data ranges.]"""
-                        }
-                        
-                        ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
-                    } catch (java.util.concurrent.TimeoutException e) {
-                        future.cancel(true)
-                        throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
-                    } finally {
-                        future.cancel(true)
-                    }
-                } else {
-                    throw new Exception("ScreenTest object is null")
-                }
+            // For subscreens, we need to modify the render path to include the subscreen
+            // The pathParts array already contains the full path, so we need to add the subscreen name
+            def subscreenPathParts = pathParts + subscreenName.split('_')
+            ec.logger.info("MCP Screen Execution: Full subscreen path parts: ${subscreenPathParts}")
+            
+            // User context should already be correct from MCP servlet restoration
+            // CustomScreenTestImpl will capture current user context automatically
+            ec.logger.info("MCP Screen Execution: Current user context - userId: ${ec.user.userId}, username: ${ec.user.username}")
+            
+            // Regular screen rendering with current user context - use our custom ScreenTestImpl
+            def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
+                .rootScreen(rootScreen)
+                .renderMode(renderMode ? renderMode : "html")
+                .auth(ec.user.username) // Propagate current user to the test renderer
+            
+            ec.logger.info("MCP Screen Execution: ScreenTest object created for subscreen: ${screenTest?.getClass()?.getSimpleName()}")
+                
+            if (screenTest) {
+                def renderParams = parameters ?: [:]
+                
+                // Add current user info to render context to maintain authentication
+                renderParams.userId = ec.user.userId
+                renderParams.username = ec.user.username
+                
+                // Set user context in ScreenTest to maintain authentication
+                // Note: ScreenTestImpl may not have direct userAccountId property, 
+                // the user context should be inherited from the current ExecutionContext
+                ec.logger.info("MCP Screen Execution: Current user context - userId: ${ec.user.userId}, username: ${ec.user.username}")
+                ec.logger.info("SUBSCREEN PATH PARTS ${subscreenPathParts}")
+                
+            // Regular screen rendering with timeout for subscreen
+                
+            try {
+                ec.logger.info("TESTRENDER ${subscreenPathParts} ${renderParams}")
+                // For subscreens, the path should be relative to the parent screen that's already set as root
+                // Since we're using the parent screen as root, we only need the subscreen name part
+                def testRender = screenTest.render(subscreenName.replaceAll('_','/'), renderParams, "POST")
+                output = testRender.getOutput()
+                def outputLength = output?.length() ?: 0
+                ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
+            } catch (java.util.concurrent.TimeoutException e) {
+                throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
+            }
+        } else {
+            throw new Exception("ScreenTest object is null")
+        }
+        }
     } catch (Exception e) {
         isError = true
         ec.logger.warn("MCP Screen Execution: Could not render screen ${screenPath}, exposing error details: ${e.message}")
@@ -1711,7 +1714,7 @@ ${truncatedOutput}
     
     // Return just the rendered screen content for MCP wrapper to handle
     result = [
-        type: "text",
+        type: "html",
         text: processedOutput,
         screenPath: screenPath,
         screenUrl: screenUrl,

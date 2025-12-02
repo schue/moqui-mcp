@@ -150,10 +150,12 @@ class CustomScreenTestImpl implements McpScreenTest {
     void renderAll(List<String> screenPathList, Map<String, Object> parameters, String requestMethod) {
         // NOTE: using single thread for now, doesn't actually make a lot of difference in overall test run time
         int threads = 1
+        def output
         if (threads == 1) {
             for (String screenPath in screenPathList) {
                 McpScreenTestRender str = render(screenPath, parameters, requestMethod)
-                logger.info("Rendered ${screenPath} in ${str.getRenderTime()}ms, ${str.getOutput()?.length()} characters")
+                output = str.getOutput()
+                logger.info("Rendered ${screenPath} in ${str.getRenderTime()}ms, ${output?.length()} characters")
             }
         } else {
             ExecutionContextImpl eci = ecfi.getEci()
@@ -264,8 +266,26 @@ class CustomScreenTestImpl implements McpScreenTest {
             long startTime = System.currentTimeMillis()
 
             // parse the screenPath
-            ArrayList<String> screenPathList = ScreenUrlInfo.parseSubScreenPath(csti.rootScreenDef, csti.baseScreenDef,
-                    csti.baseScreenPathList, stri.screenPath, stri.parameters, csti.sfi)
+            def screenPathList
+            // Special handling for non-webroot root screens with subscreens
+            if (csti.rootScreenLocation != null && !csti.rootScreenLocation.contains("webroot.xml") && stri.screenPath.contains('/')) {
+                // For non-webroot roots with subscreens, build path list directly
+                // rootScreenDef is the parent screen, screenPath is the subscreen path
+                screenPathList = new ArrayList<>()
+                // Add root screen path (already a full component:// path)
+                screenPathList.add(csti.rootScreenDef.location)
+                // Add subscreen path segments
+                String[] pathSegments = stri.screenPath.split('/')
+                for (String segment in pathSegments) {
+                    if (segment && segment.trim().length() > 0) {
+                        screenPathList.add(segment)
+                    }
+                }
+                logger.info("Custom screen path parsing for non-webroot root: ${screenPathList}")
+            } else {
+                screenPathList = ScreenUrlInfo.parseSubScreenPath(csti.rootScreenDef, csti.baseScreenDef,
+                        csti.baseScreenPathList, stri.screenPath, stri.parameters, csti.sfi)
+            }
             if (screenPathList == null) throw new BaseArtifactException("Could not find screen path ${stri.screenPath} under base screen ${csti.baseScreenDef.location}")
 
             // push the context
@@ -292,7 +312,7 @@ class CustomScreenTestImpl implements McpScreenTest {
             }
 
             // set the screenPath
-            screenRender.screenPath(screenPathList)
+            screenRender.screenPath(screenPathList as java.util.List<String>)
 
             // do the render
             try {

@@ -862,8 +862,13 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 logger.error("Enhanced MCP service ${serviceName} returned null result")
                 return [error: "Service returned null result"]
             }
-            // Service framework returns result in 'result' field, but also might return the result directly
-            return result.result ?: result ?: [error: "Service returned invalid result"]
+            // Service framework returns result in 'result' field when out-parameters are used
+            // Unwrap the Moqui service result to avoid double nesting in JSON-RPC response
+            if (result?.containsKey('result')) {
+                return result.result ?: [error: "Service returned empty result"]
+            } else {
+                return result ?: [error: "Service returned null result"]
+            }
         } catch (Exception e) {
             logger.error("Error calling Enhanced MCP service ${serviceName}", e)
             return [error: e.message]
