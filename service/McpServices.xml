@@ -1044,8 +1044,8 @@ try {
                 
                 // Helper function to recursively process screens and create tools directly
                 def processScreenWithSubscreens 
-                processScreenWithSubscreens = { screenPath, parentScreenPath = null, processedScreens = null, toolsAccumulator = null, parentToolName = null ->
-                    ec.logger.info("MCP Screen Discovery: Processing screen ${screenPath} (parent: ${parentScreenPath}, parentToolName: ${parentToolName})")
+                processScreenWithSubscreens = { screenPath, parentScreenPath = null, processedScreens = null, toolsAccumulator = null, parentToolName = null, level = 1 ->
+                    ec.logger.info("MCP Screen Discovery: Processing screen ${screenPath} (parent: ${parentScreenPath}, parentToolName: ${parentToolName}, level: ${level})")
                     
                     // Initialize processedScreens and toolsAccumulator if null
                     if (processedScreens == null) processedScreens = [] as Set<String>
@@ -1117,27 +1117,10 @@ try {
                             def subscreenName = screenPath.split("/")[-1]
                             if (subscreenName.endsWith(".xml")) subscreenName = subscreenName.substring(0, subscreenName.length() - 4)
                             
-                            // Use dot only for explicitly defined subscreen items, underscore for automatic subscreen discovery
-                            // Check if this screen was explicitly defined in parent's subscreens-item
-                            def isExplicitSubscreen = false
-                            try {
-                                def parentScreenDef = ec.screen.getScreenDefinition(parentScreenPath)
-                                if (parentScreenDef?.screenNode) {
-                                    def subscreensNode = parentScreenDef.screenNode.first("subscreens")
-                                    if (subscreensNode) {
-                                        def subscreenItem = subscreensNode.children().find { 
-                                            it.name() == "subscreens-item" && it.attribute('location') == screenPath 
-                                        }
-                                        isExplicitSubscreen = (subscreenItem != null)
-                                    }
-                                }
-                            } catch (Exception e) {
-                                ec.logger.debug("Could not check explicit subscreen for ${screenPath}: ${e.message}")
-                            }
-                            
-                            def separator = isExplicitSubscreen ? "." : "_"
+                            // Use dot only for first level subscreens, underscore for deeper levels
+                            def separator = (level == 1) ? "." : "_"
                             toolName = parentToolName + separator + subscreenName
-                            ec.logger.info("MCP Screen Discovery: Creating subscreen tool ${toolName} for ${screenPath} (parentToolName: ${parentToolName}, isExplicit: ${isExplicitSubscreen}, separator: ${separator})")
+                            ec.logger.info("MCP Screen Discovery: Creating subscreen tool ${toolName} for ${screenPath} (parentToolName: ${parentToolName}, level: ${level}, separator: ${separator})")
                         } else if (isSubscreen && parentScreenPath) {
                             toolName = screenPathToToolNameWithSubscreens(screenPath, parentScreenPath)
                             ec.logger.info("MCP Screen Discovery: Creating subscreen tool ${toolName} for ${screenPath} (parent: ${parentScreenPath})")
@@ -1224,7 +1207,7 @@ try {
                                     
                                     if (actualSubScreenPath && !processedScreens.contains(actualSubScreenPath)) {
                                         ec.logger.info("MCP Screen Discovery: Processing subscreen path: ${actualSubScreenPath}")
-                                        processScreenWithSubscreens(actualSubScreenPath, screenPath, processedScreens, toolsAccumulator, toolName)
+                                        processScreenWithSubscreens(actualSubScreenPath, screenPath, processedScreens, toolsAccumulator, toolName, level + 1)
                                     } else if (!actualSubScreenPath) {
                                         ec.logger.info("MCP Screen Discovery: Subscreen entry ${subScreenEntry.key} has no location, skipping")
                                     } else if (processedScreens.contains(actualSubScreenPath)) {
@@ -1249,7 +1232,7 @@ try {
                 ec.logger.info("MCP Screen Discovery: Starting recursive processing from ${accessibleScreens.size()} base screens")
                 for (screenPath in accessibleScreens) {
                     ec.logger.info("MCP Screen Discovery: SCREEN PATH ${screenPath}")
-                    processScreenWithSubscreens(screenPath, null, processedScreens, tools, null)
+                    processScreenWithSubscreens(screenPath, null, processedScreens, tools, null, 1)
                 }
                 ec.logger.info("MCP Screen Discovery: Recursive processing found ${tools.size()} total tools")
                 
