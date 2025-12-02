@@ -1146,30 +1146,63 @@ try {
                                     def subScreenInfo = subScreenEntry.value
                                     def subScreenPathList = subScreenInfo?.screenPath
                                     ec.logger.info("MCP Screen Discovery: Processing subscreen entry - key: ${subScreenEntry.key}, location: ${subScreenPathList}")
-                                    // Ensure subScreenPathList is a flat list of strings
-                                    def flatPathList = []
-                                    if (subScreenPathList) {
-                                        if (subScreenPathList instanceof Collection) {
-                                            for (path in subScreenPathList) {
-                                                if (path instanceof Collection) {
-                                                    flatPathList.addAll(path)
-                                                } else {
-                                                    flatPathList.add(path)
+                                    
+                                    // The screenPathList contains the actual subscreen location path
+                                    // We need to get the actual location from the subscreen-item definition
+                                    def actualSubScreenPath = null
+                                    
+                                    // Try to get the subscreen location from the screen definition
+                                    try {
+                                        def parentScreenDef = ec.screen.getScreenDefinition(screenPath)
+                                        if (parentScreenDef?.screenNode) {
+                                            def subscreensNode = parentScreenDef.screenNode.first("subscreens")
+                                            if (subscreensNode) {
+                                                def subscreenItem = subscreensNode.children().find { 
+                                                    it.name() == "subscreens-item" && it.attribute('name') == subScreenEntry.key 
+                                                }
+                                                if (subscreenItem?.attribute('location')) {
+                                                    actualSubScreenPath = subscreenItem.attribute('location')
+                                                    ec.logger.info("MCP Screen Discovery: Found actual subscreen location for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                                 }
                                             }
-                                        } else {
-                                            flatPathList.add(subScreenPathList)
                                         }
+                                    } catch (Exception e) {
+                                        ec.logger.debug("MCP Screen Discovery: Could not get subscreen location for ${subScreenEntry.key}: ${e.message}")
                                     }
-                                        for (subScreenPath in flatPathList) {
-                                            if (subScreenPath && !processedScreens.contains(subScreenPath)) {
-                                                ec.logger.info("MCP Screen Discovery: Processing subscreen path: ${subScreenPath}")
-                                                processScreenWithSubscreens(subScreenPath, screenPath, processedScreens, toolsAccumulator)
-                                        } else if (!subScreenPath) {
-                                            ec.logger.info("MCP Screen Discovery: Subscreen entry ${subScreenEntry.key} has no location, skipping")
-                                        } else if (processedScreens.contains(subScreenPath)) {
-                                            ec.logger.info("MCP Screen Discovery: Subscreen ${subScreenPath} already processed, skipping")
+                                    
+                                    // Fallback: try to construct from screenPathList if we couldn't get the actual location
+                                    if (!actualSubScreenPath && subScreenPathList) {
+                                        // The first element should be subscreen name
+                                        def subscreenName = subScreenEntry.key
+                                        // Try to construct a reasonable path based on CURRENT screen being processed (not always the original parent)
+                                        def currentScreenPath = screenPath  // This is the current screen whose subscreens we're processing
+                                        
+                                        if (currentScreenPath.contains("Catalog/Product.xml")) {
+                                            // We're processing Product.xml's subscreens
+                                            actualSubScreenPath = "component://SimpleScreens/screen/SimpleScreens/Catalog/Product/${subscreenName}.xml"
+                                        } else if (currentScreenPath.contains("Catalog.xml")) {
+                                            // We're processing Catalog.xml's subscreens
+                                            actualSubScreenPath = "component://SimpleScreens/screen/SimpleScreens/Catalog/${subscreenName}.xml"
+                                        } else if (currentScreenPath.contains("PopCommerceAdmin")) {
+                                            actualSubScreenPath = currentScreenPath.replace(".xml", "/${subscreenName}.xml")
+                                        } else {
+                                            // Generic fallback: construct based on current screen path
+                                            def lastSlash = currentScreenPath.lastIndexOf('/')
+                                            if (lastSlash > 0) {
+                                                def basePath = currentScreenPath.substring(0, lastSlash + 1)
+                                                actualSubScreenPath = basePath + subscreenName + ".xml"
+                                            }
                                         }
+                                        ec.logger.info("MCP Screen Discovery: Constructed fallback subscreen location for ${subScreenEntry.key}: ${actualSubScreenPath}")
+                                    }
+                                    
+                                    if (actualSubScreenPath && !processedScreens.contains(actualSubScreenPath)) {
+                                        ec.logger.info("MCP Screen Discovery: Processing subscreen path: ${actualSubScreenPath}")
+                                        processScreenWithSubscreens(actualSubScreenPath, screenPath, processedScreens, toolsAccumulator)
+                                    } else if (!actualSubScreenPath) {
+                                        ec.logger.info("MCP Screen Discovery: Subscreen entry ${subScreenEntry.key} has no location, skipping")
+                                    } else if (processedScreens.contains(actualSubScreenPath)) {
+                                        ec.logger.info("MCP Screen Discovery: Subscreen ${actualSubScreenPath} already processed, skipping")
                                     }
                                 }
                             } else {
