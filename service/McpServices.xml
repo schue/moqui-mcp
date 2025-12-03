@@ -1186,27 +1186,17 @@ try {
                                         // Try to construct a reasonable path based on CURRENT screen being processed (not always the original parent)
                                         def currentScreenPath = screenPath  // This is the current screen whose subscreens we're processing
                                         
-                                        if (currentScreenPath.contains("Catalog/Product.xml")) {
-                                            // We're processing Product.xml's subscreens
-                                            actualSubScreenPath = "component://SimpleScreens/screen/SimpleScreens/Catalog/Product/${subscreenName}.xml"
-                                        } else if (currentScreenPath.contains("Catalog.xml")) {
-                                            // We're processing Catalog.xml's subscreens
-                                            actualSubScreenPath = "component://SimpleScreens/screen/SimpleScreens/Catalog/${subscreenName}.xml"
-                                        } else if (currentScreenPath.contains("PopCommerceAdmin")) {
-                                            actualSubScreenPath = currentScreenPath.replace(".xml", "/${subscreenName}.xml")
-                                        } else {
-                                            // Generic fallback: construct based on current screen path
-                                            def lastSlash = currentScreenPath.lastIndexOf('/')
-                                            if (lastSlash > 0) {
-                                                def basePath = currentScreenPath.substring(0, lastSlash + 1)
-                                                actualSubScreenPath = basePath + subscreenName + ".xml"
-                                            }
+                                        // Generic fallback: construct based on current screen path
+                                        def lastSlash = currentScreenPath.lastIndexOf('/')
+                                        if (lastSlash > 0) {
+                                            def basePath = currentScreenPath.substring(0, lastSlash + 1)
+                                            actualSubScreenPath = basePath + subscreenName + ".xml"
                                         }
                                         ec.logger.info("MCP Screen Discovery: Constructed fallback subscreen location for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                     }
                                     
                                     if (actualSubScreenPath && !processedScreens.contains(actualSubScreenPath)) {
-                                        ec.logger.info("MCP Screen Discovery: Processing subscreen path: ${actualSubScreenPath}")
+                                        ec.logger.info("MCP Screen Discovery: Processing subscreen path: ${actualSubScreenPath} ${screenPath}")
                                         processScreenWithSubscreens(actualSubScreenPath, screenPath, processedScreens, toolsAccumulator, toolName, level + 1)
                                     } else if (!actualSubScreenPath) {
                                         ec.logger.info("MCP Screen Discovery: Subscreen entry ${subScreenEntry.key} has no location, skipping")
@@ -1615,7 +1605,7 @@ def startTime = System.currentTimeMillis()
             // Regular screen rendering with timeout for subscreen
                 
             try {
-                ec.logger.info("TESTRENDER ${subscreenPathParts} ${renderParams}")
+                ec.logger.info("TESTRENDER ${subscreenName.replaceAll('_','/')} ${renderParams}")
                 // For subscreens, the path should be relative to the parent screen that's already set as root
                 // Since we're using the parent screen as root, we only need the subscreen name part
                 def testRender = screenTest.render(subscreenName.replaceAll('_','/'), renderParams, "POST")

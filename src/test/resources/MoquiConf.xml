@@ -67,6 +67,8 @@
     <screen-facade boundary-comments="false">
         <screen-text-output type="html" mime-type="text/html" 
                 macro-template-location="template/screen-macro/ScreenHtmlMacros.ftl"/>
+        <screen-text-output type="markdown" mime-type="text/markdown"
+                macro-template-location="template/screen-macro/DefaultScreenMacros.markdown.ftl"/>
     </screen-facade>
 
     <!-- Test entity facade with in-memory database -->

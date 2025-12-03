@@ -273,7 +273,7 @@ class CustomScreenTestImpl implements McpScreenTest {
                 // rootScreenDef is the parent screen, screenPath is the subscreen path
                 screenPathList = new ArrayList<>()
                 // Add root screen path (already a full component:// path)
-                screenPathList.add(csti.rootScreenDef.location)
+                //screenPathList.add(csti.rootScreenDef.location)
                 // Add subscreen path segments
                 String[] pathSegments = stri.screenPath.split('/')
                 for (String segment in pathSegments) {
@@ -316,7 +316,7 @@ class CustomScreenTestImpl implements McpScreenTest {
 
             // do the render
             try {
-                logger.info("Starting render for ${stri.screenPath} with root ${csti.rootScreenLocation}")
+                logger.info("Starting render for ${screenPathList} with root ${csti.rootScreenLocation}")
                 screenRender.render(wfs.getRequest(), wfs.getResponse())
                 // get the response text from the WebFacadeStub
                 stri.outputString = wfs.getResponseText()
