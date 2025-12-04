@@ -444,7 +444,9 @@
                        
                         // Now call the screen tool with proper user context
                         def screenParams = arguments ?: [:]
-                        def serviceCallParams = [screenPath: screenPath, parameters: screenParams, renderMode: "html", sessionId: sessionId]
+                        // Use requested render mode from arguments, default to html
+                        def renderMode = screenParams.remove('renderMode') ?: "html"
+                        def serviceCallParams = [screenPath: screenPath, parameters: screenParams, renderMode: renderMode, sessionId: sessionId]
                         if (subscreenName) {
                             serviceCallParams.subscreenName = subscreenName
                         }
