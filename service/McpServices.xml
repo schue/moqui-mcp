@@ -107,8 +107,7 @@
                     protocolVersion: "2025-06-18",
                     capabilities: serverCapabilities,
                     serverInfo: serverInfo,
-                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use screen_PopCommerce_screen_PopCommerceAdmin.Catalog for product catalog, screen_PopCommerce_screen_PopCommerceAdmin_Order.FindOrder for order status, screen_PopCommerce_screen_PopCommerceRoot.Customer for customer management, and screen_PopCommerce_screen_PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results.",
-                    sessionId: visit.visitId
+                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use screen_PopCommerce_screen_PopCommerceAdmin.Catalog for product catalog, screen_PopCommerce_screen_PopCommerceAdmin_Order.FindOrder for order status, screen_PopCommerce_screen_PopCommerceRoot.Customer for customer management, and screen_PopCommerce_screen_PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
                 ]
                 
                 ec.logger.info("MCP Initialize for user ${userId} (session ${sessionId}): capabilities negotiated")

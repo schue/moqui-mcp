@@ -812,8 +812,11 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         }
         
         // Set Mcp-Session-Id header BEFORE any response data (per MCP 2025-06-18 spec)
-        if (result?.sessionId) {
-            response.setHeader("Mcp-Session-Id", result.sessionId)
+        // For initialize method, always use sessionId we have (from visit or header)
+        if (rpcRequest.method == "initialize" && sessionId) {
+            response.setHeader("Mcp-Session-Id", sessionId.toString())
+        } else if (result?.sessionId) {
+            response.setHeader("Mcp-Session-Id", result.sessionId.toString())
         }
         
         // Build JSON-RPC response for regular requests
@@ -868,7 +871,8 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                     }
                     params.actualUserId = ec.user.userId
                     logger.info("Initialize - actualUserId: ${params.actualUserId}, sessionId: ${params.sessionId}")
-                    return callMcpService("mcp#Initialize", params, ec)
+                    def serviceResult = callMcpService("mcp#Initialize", params, ec)
+                    return serviceResult
                 case "ping":
                     // Simple ping for testing - bypass service for now
                     return [pong: System.currentTimeMillis(), sessionId: visit?.visitId, user: ec.user.username]
