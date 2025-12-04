@@ -402,18 +402,6 @@
                     def screenPath
                     def subscreenName = null
                     
-                    // Find the actual screen path from the tool definition
-                    def actualScreenPath = null
-                    def toolDefinition = tools.find { it.name == name }
-                    if (toolDefinition?.description) {
-                        // Extract actual screen path from description: "Moqui screen: ${screenPath}"
-                        def descMatch = toolDefinition.description =~ /Moqui screen: (.+)/
-                        if (descMatch.find()) {
-                            actualScreenPath = descMatch.group(1)
-                            ec.logger.info("Found actual screen path from tool description: ${actualScreenPath}")
-                        }
-                    }
-                    
                     // Check if this is a subscreen (contains dot after the initial prefix)
                     if (toolNameSuffix.contains('.')) {
                         // Split on dot to separate parent screen path from subscreen name
@@ -421,25 +409,13 @@
                         def parentPath = toolNameSuffix.substring(0, lastDotIndex)
                         subscreenName = toolNameSuffix.substring(lastDotIndex + 1)
                         
-                        // Use actual screen path if available, otherwise derive from tool name
-                        if (actualScreenPath) {
-                            screenPath = actualScreenPath
-                            ec.logger.info("Using actual screen path for subscreen tool ${name}: ${screenPath}, subscreen=${subscreenName}")
-                        } else {
-                            // Restore parent path: _ -> /, prepend component://, append .xml
-                            screenPath = "component://" + parentPath.replace('_', '/') + ".xml"
-                            ec.logger.info("Decoded subscreen path for tool ${name}: parent=${screenPath}, subscreen=${subscreenName}")
-                        }
+                        // Restore parent path: _ -> /, prepend component://, append .xml
+                        screenPath = "component://" + parentPath.replace('_', '/') + ".xml"
+                        ec.logger.info("Decoded subscreen path for tool ${name}: parent=${screenPath}, subscreen=${subscreenName}")
                     } else {
-                        // Use actual screen path if available, otherwise derive from tool name
-                        if (actualScreenPath) {
-                            screenPath = actualScreenPath
-                            ec.logger.info("Using actual screen path for tool ${name}: ${screenPath}")
-                        } else {
-                            // Regular screen path: _ -> /, prepend component://, append .xml
-                            screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
-                            ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
-                        }
+                        // Regular screen path: _ -> /, prepend component://, append .xml
+                        screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
+                        ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
                     }
                        
                         // Now call the screen tool with proper user context
@@ -1048,7 +1024,7 @@ try {
                     return [
                         name: toolName,
                         title: title,
-                        description: "Moqui screen: ${screenPath}",  // Store original path in description
+                        description: title,  // Use title as description
                         inputSchema: [
                             type: "object",
                             properties: parameters,
@@ -1147,7 +1123,7 @@ try {
                         def tool = [
                             name: toolName,
                             title: title,
-                            description: "Moqui screen: ${screenPath}",
+                            description: title,  // Use title as description instead of redundant path
                             inputSchema: [
                                 type: "object",
                                 properties: parameters,
@@ -1467,7 +1443,7 @@ try {
                     tool = [
                         name: "screen_${screenName}",
                         title: title,
-                        description: "${description}. This tool renders the Moqui screen '${screenPath}' and returns the output.",
+                        description: title,  // Use title as description
                         inputSchema: [
                             type: "object",
                             properties: parameters,
