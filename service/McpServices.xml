@@ -118,7 +118,7 @@
                     protocolVersion: "2025-06-18",
                     capabilities: serverCapabilities,
                     serverInfo: serverInfo,
-                    instructions: "This server provides access to Moqui ERP services and entities through MCP. Tools and resources are filtered based on your permissions.",
+                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use screen_PopCommerce_screen_PopCommerceAdmin.Catalog for product catalog, screen_PopCommerce_screen_PopCommerceAdmin_Order.FindOrder for order status, screen_PopCommerce_screen_PopCommerceRoot.Customer for customer management, and screen_PopCommerce_screen_PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results.",
                     sessionId: visit.visitId
                 ]
                 
@@ -1180,6 +1180,7 @@ try {
                                     def subScreenPathList = subScreenInfo?.screenPath
                                     ec.logger.info("MCP Screen Discovery: Processing subscreen entry - key: ${subScreenEntry.key}, location: ${subScreenPathList}, full info: ${subScreenInfo}")
                                     
+                                    // TODO: Fix these hard coded discoveries
                                     // Special debug for Catalog.xml
                                     if (screenPath.contains("Catalog.xml")) {
                                         ec.logger.info("MCP Screen Discovery: *** CATALOG DEBUG *** Processing ${subScreenEntry.key} from Catalog.xml")
