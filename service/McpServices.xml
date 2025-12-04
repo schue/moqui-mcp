@@ -89,22 +89,11 @@
                 def userId = ec.user.userId
                 def userAccountId = userId ? userId : null
                 
-                // Get user-specific tools and resources in SAME transaction context
-                def toolsResult = ec.service.sync().name("McpServices.mcp#ToolsList")
-                    .parameters([sessionId: visit.visitId])
-                    .requireNewTransaction(false)  // Use current transaction
-                    .disableAuthz()  // Disable authz for internal call
-                    .call()
-                def resourcesResult = ec.service.sync().name("McpServices.mcp#ResourcesList")
-                    .parameters([sessionId: visit.visitId])
-                    .requireNewTransaction(false)  // Use current transaction
-                    .disableAuthz()  // Disable authz for internal call
-                    .call()
-                
-                // Build server capabilities based on what user can access
+                // Build server capabilities - don't fetch actual tools/resources during init
+                // Tools and resources will be discovered via separate list requests per MCP spec
                 def serverCapabilities = [
-                    tools: toolsResult?.result?.tools ? [listChanged: true] : [:],
-                    resources: resourcesResult?.result?.resources ? [subscribe: true, listChanged: true] : [:],
+                    tools: [listChanged: true],
+                    resources: [subscribe: true, listChanged: true],
                     logging: [:]
                 ]
                 
@@ -122,7 +111,7 @@
                     sessionId: visit.visitId
                 ]
                 
-                ec.logger.info("MCP Initialize for user ${userId} (session ${sessionId}): ${toolsResult?.result?.tools?.size() ?: 0} tools, ${resourcesResult?.result?.resources?.size() ?: 0} resources")
+                ec.logger.info("MCP Initialize for user ${userId} (session ${sessionId}): capabilities negotiated")
             ]]></script>
         </actions>
     </service>
