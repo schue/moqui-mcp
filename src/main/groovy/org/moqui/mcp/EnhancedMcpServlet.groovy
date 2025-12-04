@@ -44,11 +44,17 @@ class EnhancedMcpServlet extends HttpServlet {
     
     private JsonSlurper jsonSlurper = new JsonSlurper()
     
+    // Session state constants
+    private static final int STATE_UNINITIALIZED = 0
+    private static final int STATE_INITIALIZING = 1
+    private static final int STATE_INITIALIZED = 2
+    
     // Simple registry for active connections only (transient HTTP connections)
     private final Map<String, PrintWriter> activeConnections = new ConcurrentHashMap<>()
     
     // Session management using Moqui's Visit system directly
     // No need for separate session manager - Visit entity handles persistence
+    private final Map<String, Integer> sessionStates = new ConcurrentHashMap<>()
     
     // Configuration parameters
     private String sseEndpoint = "/sse"
@@ -242,6 +248,7 @@ try {
                 handleMessage(request, response, ec)
             } else if ("POST".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle POST requests to /mcp for JSON-RPC
+                logger.info("About to call handleJsonRpc with visit: ${visit?.visitId}")
                 handleJsonRpc(request, response, ec, webappName, requestBody, visit)
             } else if ("GET".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle GET requests to /mcp - maybe for server info or SSE fallback
@@ -711,8 +718,15 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         String sessionId = request.getHeader("Mcp-Session-Id")
         logger.info("Session ID from header: '${sessionId}', method: '${rpcRequest.method}'")
         
+        // For initialize and notifications/initialized methods, use visit ID as session ID if no header
+        if (!sessionId && ("initialize".equals(rpcRequest.method) || "notifications/initialized".equals(rpcRequest.method)) && visit) {
+            sessionId = visit.visitId
+            logger.info("${rpcRequest.method} method: using visit ID as session ID: ${sessionId}")
+        }
+        
         // Validate session ID for non-initialize requests per MCP spec
-        if (!sessionId && rpcRequest.method != "initialize") {
+        // Allow notifications/initialized without session ID as it completes the initialization process
+        if (!sessionId && rpcRequest.method != "initialize" && rpcRequest.method != "notifications/initialized") {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
             response.writer.write(JsonOutput.toJson([
@@ -773,18 +787,42 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
         }
         
         // Process MCP method using Moqui services with session ID if available
-        def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId, visit)
+        def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId, visit ?: [:])
+        
+        // Check if this is a notification (no id) - notifications get empty response
+        boolean isNotification = !rpcRequest.containsKey('id')
+        
+        if (isNotification) {
+            // For notifications, set session header if needed and return empty JSON-RPC response
+            if (result?.sessionId) {
+                response.setHeader("Mcp-Session-Id", result.sessionId)
+            }
+            
+            // Return empty JSON-RPC response for notifications
+            def rpcResponse = [
+                jsonrpc: "2.0",
+                id: rpcRequest.id,
+                result: null
+            ]
+            
+            response.setContentType("application/json")
+            response.setCharacterEncoding("UTF-8")
+            response.writer.write(JsonOutput.toJson(rpcResponse))
+            return
+        }
         
         // Set Mcp-Session-Id header BEFORE any response data (per MCP 2025-06-18 spec)
         if (result?.sessionId) {
             response.setHeader("Mcp-Session-Id", result.sessionId)
         }
         
-        // Build JSON-RPC response
+        // Build JSON-RPC response for regular requests
+        // Extract the actual result from Moqui service response
+        def actualResult = result?.result ?: result
         def rpcResponse = [
             jsonrpc: "2.0",
             id: rpcRequest.id,
-            result: result
+            result: actualResult
         ]
         
         response.setContentType("application/json")
@@ -803,14 +841,28 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             }
             
             // Add session context to parameters for services
-            params.sessionId = visit.visitId
+            params.sessionId = visit?.visitId
+            
+            // Check session state for methods that require initialization
+            // Use the sessionId from header for consistency (this is what the client tracks)
+            Integer sessionState = sessionId ? sessionStates.get(sessionId) : null
+            
+            // Methods that don't require initialized session
+            if (!["initialize", "ping", "notifications/initialized"].contains(method)) {
+                if (sessionState != STATE_INITIALIZED) {
+                    logger.warn("Method ${method} called but session ${sessionId} not initialized (state: ${sessionState})")
+                    return [error: "Session not initialized. Call initialize first, then send notifications/initialized."]
+                }
+            }
             
             switch (method) {
                 case "initialize":
                     // For initialize, use the visitId we just created instead of null sessionId from request
                     if (visit && visit.visitId) {
                         params.sessionId = visit.visitId
-                        logger.info("Initialize - using visitId: ${visit.visitId}")
+                        // Set session to initializing state using the header sessionId as key (for consistency)
+                        sessionStates.put(sessionId, STATE_INITIALIZING)
+                        logger.info("Initialize - using visitId: ${visit.visitId}, set state ${sessionId} to INITIALIZING")
                     } else {
                         logger.warn("Initialize - no visit available, using null sessionId")
                     }
@@ -819,7 +871,7 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                     return callMcpService("mcp#Initialize", params, ec)
                 case "ping":
                     // Simple ping for testing - bypass service for now
-                    return [pong: System.currentTimeMillis(), sessionId: visit.visitId, user: ec.user.username]
+                    return [pong: System.currentTimeMillis(), sessionId: visit?.visitId, user: ec.user.username]
                 case "tools/list":
                     return callMcpService("mcp#ToolsList", params, ec)
                 case "tools/call":
@@ -829,8 +881,24 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 case "resources/read":
                     return callMcpService("mcp#ResourcesRead", params, ec)
                 case "notifications/initialized":
-                    // Handle notification initialization - return success for now
-                    return [initialized: true, sessionId: sessionId]
+                    // Process notifications/initialized - transition session to initialized state
+                    // Use the header sessionId for consistency
+                    logger.info("Processing notifications/initialized for sessionId: ${sessionId}")
+                    if (sessionId) {
+                        sessionStates.put(sessionId, STATE_INITIALIZED)
+                        logger.info("Session ${sessionId} transitioned to INITIALIZED state")
+                    }
+                    return null
+                case "notifications/tools/list_changed":
+                    // Handle tools list changed notification
+                    logger.info("Tools list changed for sessionId: ${sessionId}")
+                    // Could trigger cache invalidation here if needed
+                    return null
+                case "notifications/resources/list_changed":
+                    // Handle resources list changed notification
+                    logger.info("Resources list changed for sessionId: ${sessionId}")
+                    // Could trigger cache invalidation here if needed
+                    return null
                 case "notifications/send":
                     // Handle notification sending - return success for now  
                     return [sent: true, sessionId: sessionId]
@@ -840,6 +908,10 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 case "notifications/unsubscribe":
                     // Handle notification unsubscription - return success for now
                     return [unsubscribed: true, sessionId: sessionId]
+                case "logging/setLevel":
+                    // Handle logging level change notification
+                    logger.info("Logging level change requested for sessionId: ${sessionId}")
+                    return null
                 default:
                     throw new IllegalArgumentException("Method not found: ${method}")
             }
@@ -863,12 +935,9 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                 return [error: "Service returned null result"]
             }
             // Service framework returns result in 'result' field when out-parameters are used
-            // Unwrap the Moqui service result to avoid double nesting in JSON-RPC response
-            if (result?.containsKey('result')) {
-                return result.result ?: [error: "Service returned empty result"]
-            } else {
-                return result ?: [error: "Service returned null result"]
-            }
+            // Return the entire service result to maintain proper JSON-RPC structure
+            // The MCP services already set the correct 'result' structure
+            return result ?: [error: "Service returned null result"]
         } catch (Exception e) {
             logger.error("Error calling Enhanced MCP service ${serviceName}", e)
             return [error: e.message]
