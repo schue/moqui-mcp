@@ -56,6 +56,9 @@ class EnhancedMcpServlet extends HttpServlet {
     // No need for separate session manager - Visit entity handles persistence
     private final Map<String, Integer> sessionStates = new ConcurrentHashMap<>()
     
+    // Notification queue for server-initiated notifications (for non-SSE clients)
+    private final Map<String, List<Map>> notificationQueues = new ConcurrentHashMap<>()
+    
     // Configuration parameters
     private String sseEndpoint = "/sse"
     private String messageEndpoint = "/message"
@@ -75,9 +78,13 @@ class EnhancedMcpServlet extends HttpServlet {
         String webappName = config.getInitParameter("moqui-name") ?: 
             config.getServletContext().getInitParameter("moqui-name")
         
+        // Register servlet instance in context for service access
+        config.getServletContext().setAttribute("enhancedMcpServlet", this)
+        
         logger.info("EnhancedMcpServlet initialized for webapp ${webappName}")
         logger.info("SSE endpoint: ${sseEndpoint}, Message endpoint: ${messageEndpoint}")
         logger.info("Keep-alive interval: ${keepAliveIntervalSeconds}s, Max connections: ${maxConnections}")
+        logger.info("Servlet instance registered in context as 'enhancedMcpServlet'")
     }
     
     @Override
@@ -828,6 +835,17 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             result: actualResult
         ]
         
+        // Check for pending server notifications and include them in response
+        if (sessionId && notificationQueues.containsKey(sessionId)) {
+            def pendingNotifications = notificationQueues.get(sessionId)
+            if (pendingNotifications && !pendingNotifications.isEmpty()) {
+                rpcResponse.notifications = pendingNotifications
+                // Clear delivered notifications
+                notificationQueues.put(sessionId, [])
+                logger.info("Delivered ${pendingNotifications.size()} pending notifications to session ${sessionId}")
+            }
+        }
+        
         response.setContentType("application/json")
         response.setCharacterEncoding("UTF-8")
         
@@ -872,6 +890,10 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
                     params.actualUserId = ec.user.userId
                     logger.info("Initialize - actualUserId: ${params.actualUserId}, sessionId: ${params.sessionId}")
                     def serviceResult = callMcpService("mcp#Initialize", params, ec)
+                    // Add sessionId to the response for mcp.sh compatibility
+                    if (serviceResult && serviceResult.result) {
+                        serviceResult.result.sessionId = params.sessionId
+                    }
                     return serviceResult
                 case "ping":
                     // Simple ping for testing - bypass service for now
@@ -981,6 +1003,28 @@ logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
             return true
         }
         return false
+    }
+    
+    /**
+     * Queue a server notification for delivery to client
+     */
+    void queueNotification(String sessionId, Map notification) {
+        if (!sessionId) return
+        
+        def queue = notificationQueues.computeIfAbsent(sessionId) { [] }
+        queue << notification
+        logger.info("Queued notification for session ${sessionId}: ${notification}")
+        
+        // Also try to send via SSE if active connection exists
+        def writer = activeConnections.get(sessionId)
+        if (writer && !writer.checkError()) {
+            try {
+                sendSseEvent(writer, "notification", JsonOutput.toJson(notification), System.currentTimeMillis())
+                logger.info("Sent notification via SSE to session ${sessionId}")
+            } catch (Exception e) {
+                logger.warn("Failed to send notification via SSE to session ${sessionId}: ${e.message}")
+            }
+        }
     }
     
     @Override

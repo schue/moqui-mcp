@@ -180,7 +180,10 @@
                         }
                     }
                 }
-                */
+*/
+                 
+                // Start timing for execution metrics
+                def startTime = System.currentTimeMillis()
                 
                 // Store original user context before switching to ADMIN
                 def originalUsername = ec.user.username
@@ -358,12 +361,33 @@
                     result.nextCursor = String.valueOf(endIndex)
                 }
                     
-                    ec.logger.info("MCP ToolsList: Returning ${availableTools.size()} tools for user ${originalUsername}")
-                    
+ec.logger.info("MCP ToolsList: Returning ${availableTools.size()} tools for user ${originalUsername}")
+                     
                 } finally {
                     // Always restore original user context
                     if (adminUserInfo != null) {
                         ec.user.popUser()
+                    }
+                    
+                    // Send a simple notification about tool execution
+                    try {
+                        def servlet = ec.web.getServletContext().getAttribute("enhancedMcpServlet")
+                        ec.logger.info("TOOLS CALL: Got servlet reference: ${servlet != null}, sessionId: ${sessionId}")
+                        if (servlet && sessionId) {
+                            def notification = [
+                                method: "notifications/tool_execution",
+                                params: [
+                                    toolName: "tools/list",
+                                    executionTime: (System.currentTimeMillis() - startTime) / 1000.0,
+                                    success: !result?.result?.isError,
+                                    timestamp: System.currentTimeMillis()
+                                ]
+                            ]
+                            servlet.queueNotification(sessionId, notification)
+                            ec.logger.info("Queued tool execution notification for session ${sessionId}")
+                        }
+                    } catch (Exception e) {
+                        ec.logger.warn("Failed to send tool execution notification: ${e.message}")
                     }
                 }
             ]]></script>
@@ -510,6 +534,27 @@
                     // Always restore original user context
                     if (adminUserInfo != null) {
                         ec.user.popUser()
+                    }
+                    
+                    // Send a simple notification about tool execution
+                    try {
+                        def servlet = ec.web.getServletContext().getAttribute("enhancedMcpServlet")
+                        ec.logger.info("TOOLS CALL: Got servlet reference: ${servlet != null}, sessionId: ${sessionId}")
+                        if (servlet && sessionId) {
+                            def notification = [
+                                method: "notifications/tool_execution",
+                                params: [
+                                    toolName: name,
+                                    executionTime: (System.currentTimeMillis() - startTime) / 1000.0,
+                                    success: !result?.result?.isError,
+                                    timestamp: System.currentTimeMillis()
+                                ]
+                            ]
+                            servlet.queueNotification(sessionId, notification)
+                            ec.logger.info("Queued tool execution notification for session ${sessionId}")
+                        }
+                    } catch (Exception e) {
+                        ec.logger.warn("Failed to send tool execution notification: ${e.message}")
                     }
                 }
             ]]></script>
