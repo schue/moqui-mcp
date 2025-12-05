@@ -37,10 +37,12 @@
                 // Permissions are handled by Moqui's artifact authorization system
                 // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
                 
+                // Disable authz to prevent automatic Visit updates during MCP operations
+                ec.artifactExecution.disableAuthz()
+                
                 // Get Visit (session) created by servlet and validate access
                 def visit = ec.entity.find("moqui.server.Visit")
                     .condition("visitId", sessionId)
-                    .disableAuthz()
                     .one()
                 
                 if (!visit) {
@@ -68,11 +70,8 @@
                     metadata.mcpClientInfo = clientInfo
                     metadata.mcpInitializedAt = System.currentTimeMillis()
                     
-                    visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
-                    ec.artifactExecution.disableAuthz()
-                    ec.logger.info("SESSIONID: ${sessionId}")
-                    sessionId ? visit.update() : visit.store()
-                    ec.artifactExecution.enableAuthz()
+                    // Session metadata stored in memory only - no Visit updates to prevent lock contention
+                    ec.logger.info("SESSIONID: ${sessionId} - metadata stored in memory")
                 } finally {
                     if (adminUserInfo != null) {
                         ec.user.popUser()
@@ -134,53 +133,8 @@
                 // Permissions are handled by Moqui's artifact authorization system
                 // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
                 
-                // Validate session if provided
-                /*
-                if (sessionId) {
-                    def visit = ec.entity.find("moqui.server.Visit")
-                        .condition("visitId", sessionId)
-                        .disableAuthz()
-                        .one()
-                    
-                    if (!visit || visit.userId != ec.user.userId) {
-                        //throw new Exception("Invalid session: ${sessionId}")
-                    }
-                }
-                
-                // Update session activity
-                if (sessionId) {
-                    def visitObj = ec.entity.find("moqui.server.Visit")
-                        .condition("visitId", sessionId)
-                        .disableAuthz()
-                        .one()
-                    
-                    if (visitObj) {
-                        def metadata = [:]
-                        try {
-                            metadata = groovy.json.JsonSlurper().parseText(visitObj.initialRequest ?: "{}") as Map
-                        } catch (Exception e) {
-                            ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
-                        }
-                        
-                        metadata.mcpLastActivity = System.currentTimeMillis()
-                        metadata.mcpLastOperation = "tools/list"
-                        
-                        // Update Visit - need admin context for Visit updates
-                        adminUserInfo = null
-                        try {
-                            adminUserInfo = ec.user.pushUser("ADMIN")
-                            visitObj.initialRequest = groovy.json.JsonOutput.toJson(metadata)
-                            ec.artifactExecution.disableAuthz()
-                            visitObj.update()
-                            ec.artifactExecution.enableAuthz()
-                        } finally {
-                            if (adminUserInfo != null) {
-                                ec.user.popUser()
-                            }
-                        }
-                    }
-                }
-*/
+                // Session validation and activity management moved to servlet layer
+                // Services are now stateless - only receive sessionId for context
                  
                 // Start timing for execution metrics
                 def startTime = System.currentTimeMillis()
@@ -496,11 +450,12 @@ ec.logger.info("MCP ToolsList: Returning ${availableTools.size()} tools for user
                     adminUserInfo = null
                     try {
                         serviceResult = ec.service.sync().name(name).parameters(arguments ?: [:]).call()
-                    } finally {
-                        if (adminUserInfo != null) {
-                                ec.user.popUser()
-                            }
+                } finally {
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
                     }
+                    ec.artifactExecution.enableAuthz()
+                }
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
                     // Convert result to MCP format
@@ -808,11 +763,11 @@ try {
                 def visitInfo = null
                 if (sessionId) {
                     try {
+                        ec.artifactExecution.disableAuthz()
                         def adminUserInfo = ec.user.pushUser("ADMIN")
                         try {
                             def visit = ec.entity.find("moqui.server.Visit")
                                 .condition("visitId", sessionId)
-                                .disableAuthz()
                                 .one()
                             
                             if (visit) {
@@ -826,6 +781,7 @@ try {
                         } finally {
                             ec.user.popUser()
                         }
+                        ec.artifactExecution.enableAuthz()
                     } catch (Exception e) {
                         // Log but don't fail the ping
                         ec.logger.warn("Error getting visit info for sessionId ${sessionId}: ${e.message}")

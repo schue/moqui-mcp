@@ -76,8 +76,7 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
             sendSseEvent("message", jsonMessage)
             messageCount.incrementAndGet()
             
-            // Update session activity in Visit
-            updateSessionActivity()
+            // Session activity now managed at servlet level to avoid lock contention
             
         } catch (Exception e) {
             logger.error("Failed to send message on session ${visit.visitId}: ${e.message}")
@@ -121,9 +120,6 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
         logger.info("Closing MCP session ${visit.visitId} (messages sent: ${messageCount.get()})")
         
         try {
-            // Update Visit with session end info
-            updateSessionEnd()
-            
             // Send final close event if writer is still available
             if (writer && !writer.checkError()) {
                 sendSseEvent("close", groovy.json.JsonOutput.toJson([
@@ -189,49 +185,11 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
         }
     }
     
-    /**
-     * Update session activity in Visit record
-     */
-    private void updateSessionActivity() {
-        try {
-            if (visit && ec) {
-                // Update Visit with latest activity
-                visit.thruDate = ec.user.getNowTimestamp()
-                visit.update()
-                
-                // Update MCP-specific activity in metadata
-                def metadata = getSessionMetadata()
-                metadata.mcpLastActivity = System.currentTimeMillis()
-                metadata.mcpMessageCount = messageCount.get()
-                saveSessionMetadata(metadata)
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to update session activity: ${e.message}")
-        }
-    }
+    // Session activity management moved to servlet level to avoid database lock contention
+    // This method is no longer called - servlet manages session updates throttled
     
-    /**
-     * Update Visit record with session end information
-     */
-    private void updateSessionEnd() {
-        try {
-            if (visit && ec) {
-                // Update Visit with session end info
-                visit.thruDate = ec.user.getNowTimestamp()
-                visit.update()
-                
-                // Store final session metadata
-                def metadata = getSessionMetadata()
-                metadata.mcpEndedAt = System.currentTimeMillis()
-                metadata.mcpFinalMessageCount = messageCount.get()
-                saveSessionMetadata(metadata)
-                
-                logger.info("Updated Visit ${visit.visitId} with MCP session end info")
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to update session end for Visit ${visit.visitId}: ${e.message}")
-        }
-    }
+    // Session end management moved to servlet level to avoid database lock contention
+    // Servlet will handle Visit updates when connections close
     
     /**
      * Get session metadata from Visit's initialRequest field
@@ -261,9 +219,9 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
      * Save session metadata to Visit's initialRequest field
      */
     private void saveSessionMetadata(Map metadata) {
+        // Session metadata stored in memory only - no Visit updates to prevent lock contention
         try {
-            visit.initialRequest = groovy.json.JsonOutput.toJson(metadata)
-            visit.update()
+            sessionMetadata.putAll(metadata)
         } catch (Exception e) {
             logger.debug("Failed to save session metadata: ${e.message}")
         }

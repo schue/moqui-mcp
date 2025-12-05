@@ -20,6 +20,8 @@ import groovy.json.JsonOutput
 import org.moqui.context.ArtifactAuthorizationException
 import org.moqui.context.ArtifactTarpitException
 import org.moqui.impl.context.ExecutionContextImpl
+import org.moqui.entity.EntityValue
+import org.moqui.context.ExecutionContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
@@ -59,6 +61,12 @@ class EnhancedMcpServlet extends HttpServlet {
     // Progress tracking for notifications/progress
     private final Map<String, Map> sessionProgress = new ConcurrentHashMap<>()
     
+    // Visit cache to reduce database access and prevent lock contention
+    private final Map<String, EntityValue> visitCache = new ConcurrentHashMap<>()
+    
+    // In-memory session tracking to avoid database access for read operations
+    private final Map<String, String> sessionUsers = new ConcurrentHashMap<>()
+    
     // Message storage for notifications/message
     private final Map<String, List<Map>> sessionMessages = new ConcurrentHashMap<>()
     
@@ -67,6 +75,10 @@ class EnhancedMcpServlet extends HttpServlet {
     
     // Notification queue for server-initiated notifications (for non-SSE clients)
     private static final Map<String, List<Map>> notificationQueues = new ConcurrentHashMap<>()
+    
+    // Throttled session activity tracking to prevent database lock contention
+    private final Map<String, Long> lastActivityUpdate = new ConcurrentHashMap<>()
+    private static final long ACTIVITY_UPDATE_INTERVAL_MS = 30000 // 30 seconds
     
     // Configuration parameters
     private String sseEndpoint = "/sse"
@@ -198,53 +210,9 @@ try {
                     throw new Exception("Web facade succeeded but no Visit created")
                 }
             } catch (Exception e) {
-                logger.warn("Web facade initialization failed: ${e.message}, trying manual Visit creation")
-                // Try to create Visit manually using the same pattern as handleSseConnection
-                try {
-                    def visitParams = [
-                        sessionId: request.session.id,
-                        webappName: webappName,
-                        fromDate: new Timestamp(System.currentTimeMillis()),
-                        initialLocale: request.locale.toString(),
-                        initialRequest: (request.requestURL.toString() + (request.queryString ? "?" + request.queryString : "")).take(255),
-                        initialReferrer: request.getHeader("Referer")?.take(255),
-                        initialUserAgent: request.getHeader("User-Agent")?.take(255),
-                        clientHostName: request.remoteHost,
-                        clientUser: request.remoteUser,
-                        serverIpAddress: ec.ecfi.getLocalhostAddress().getHostAddress(),
-                        serverHostName: ec.ecfi.getLocalhostAddress().getHostName(),
-                        clientIpAddress: request.remoteAddr,
-                        userId: ec.user.userId,
-                        userCreated: "Y"
-                    ]
-                    
-                    logger.info("Creating Visit with params: ${visitParams}")
-                    def visitResult = ec.service.sync().name("create", "moqui.server.Visit")
-                        .parameters(visitParams)
-                        .disableAuthz()
-                        .call()
-                    logger.info("Visit creation result: ${visitResult}")
-                    
-                    if (!visitResult || !visitResult.visitId) {
-                        throw new Exception("Visit creation service returned null or no visitId")
-                    }
-                    
-                    // Look up the actual Visit EntityValue
-                    visit = ec.entity.find("moqui.server.Visit")
-                        .condition("visitId", visitResult.visitId)
-                        .disableAuthz()
-                        .one()
-                    if (!visit) {
-                        throw new Exception("Failed to look up newly created Visit")
-                    }
-                    ec.web.session.setAttribute("moqui.visitId", visit.visitId)
-                    logger.info("Manually created Visit ${visit.visitId} for user ${ec.user.username}")
-                    
-                } catch (Exception visitEx) {
-                    logger.error("Manual Visit creation failed: ${visitEx.message}", visitEx)
-                    response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to create Visit")
-                    return
-                }
+                logger.error("Web facade initialization failed - this is a system configuration error: ${e.message}", e)
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "System configuration error: Web facade failed to initialize. Check Moqui logs for details.")
+                return
             }
             
             // Final check that we have a Visit
@@ -318,30 +286,29 @@ try {
         String sessionId = request.getHeader("Mcp-Session-Id")
         def visit = null
         
-        // If we have a session ID, try to find existing Visit
+        // If we have a session ID, validate using in-memory tracking
         if (sessionId) {
             try {
-                visit = ec.entity.find("moqui.server.Visit")
-                    .condition("visitId", sessionId)
-                    .disableAuthz()
-                    .one()
+                String sessionUser = sessionUsers.get(sessionId)
                 
-                if (visit) {
-                    // Verify user has access to this Visit
-                    if (!visit.userId || !ec.user.userId || visit.userId.toString() != ec.user.userId.toString()) {
-                        logger.warn("Visit userId ${visit.userId} doesn't match current user userId ${ec.user.userId} - access denied")
+                if (sessionUser) {
+                    // Verify user has access to this session using in-memory data
+                    if (!ec.user.userId || sessionUser != ec.user.userId.toString()) {
+                        logger.warn("Session userId ${sessionUser} doesn't match current user userId ${ec.user.userId} - access denied")
                         response.sendError(HttpServletResponse.SC_FORBIDDEN, "Access denied for session: " + sessionId)
                         return
                     }
-                    
-                    // Set existing visit ID in HTTP session
-                    request.session.setAttribute("moqui.visitId", sessionId)
-                    logger.info("Reusing existing Visit ${sessionId} for user ${ec.user.username}")
+                    // Get Visit from cache for activity updates (but not for validation)
+                    visit = getCachedVisit(ec, sessionId)
                 } else {
-                    logger.warn("Session ID ${sessionId} not found, will create new Visit")
+                    logger.warn("Session not found in memory: ${sessionId}")
+                    response.sendError(HttpServletResponse.SC_NOT_FOUND, "Session not found: " + sessionId)
+                    return
                 }
             } catch (Exception e) {
-                logger.warn("Error looking up existing session ${sessionId}: ${e.message}")
+                logger.error("Error validating session: ${e.message}", e)
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Session validation error")
+                return
             }
         }
         
@@ -354,63 +321,22 @@ try {
             request.setAttribute("javax.servlet.include.request_uri", "/mcp")
             request.setAttribute("javax.servlet.include.path_info", "")
             
-            try {
-                ec.initWebFacade(webappName, request, response)
-                // Web facade was successful, get the Visit it created
-                visit = ec.user.getVisit()
-                if (!visit) {
-                    throw new Exception("Web facade succeeded but no Visit created")
-                }
-                logger.info("Created new Visit ${visit.visitId} for user ${ec.user.username}")
-            } catch (Exception e) {
-                logger.warn("Web facade initialization failed: ${e.message}, trying manual Visit creation")
-                // Try to create Visit manually using the same pattern as UserFacadeImpl
-                try {
-                    def visitParams = [
-                        sessionId: request.session.id,
-                        webappName: webappName,
-                        fromDate: new Timestamp(System.currentTimeMillis()),
-                        initialLocale: request.locale.toString(),
-                        initialRequest: (request.requestURL.toString() + (request.queryString ? "?" + request.queryString : "")).take(255),
-                        initialReferrer: request.getHeader("Referer")?.take(255),
-                        initialUserAgent: request.getHeader("User-Agent")?.take(255),
-                        clientHostName: request.remoteHost,
-                        clientUser: request.remoteUser,
-                        serverIpAddress: ec.ecfi.getLocalhostAddress().getHostAddress(),
-                        serverHostName: ec.ecfi.getLocalhostAddress().getHostName(),
-                        clientIpAddress: request.remoteAddr,
-                        userId: ec.user.userId,
-                        userCreated: "Y"
-                    ]
-                    
-                    logger.info("Creating Visit with params: ${visitParams}")
-                    def visitResult = ec.service.sync().name("create", "moqui.server.Visit")
-                        .parameters(visitParams)
-                        .disableAuthz()
-                        .call()
-                    logger.info("Visit creation result: ${visitResult}")
-                    
-                    if (!visitResult || !visitResult.visitId) {
-                        throw new Exception("Visit creation service returned null or no visitId")
-                    }
-                    
-                    // Look up the actual Visit EntityValue
-                    visit = ec.entity.find("moqui.server.Visit")
-                        .condition("visitId", visitResult.visitId)
-                        .disableAuthz()
-                        .one()
-                    if (!visit) {
-                        throw new Exception("Failed to look up newly created Visit")
-                    }
-                    ec.web.session.setAttribute("moqui.visitId", visit.visitId)
-                    logger.info("Manually created Visit ${visit.visitId} for user ${ec.user.username}")
-                    
-                } catch (Exception visitEx) {
-                    logger.error("Manual Visit creation failed: ${visitEx.message}", visitEx)
-                    response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to create Visit")
-                    return
-                }
+        try {
+            ec.initWebFacade(webappName, request, response)
+            // Web facade should always create a Visit - if it doesn't, that's a system error
+            visit = ec.user.getVisit()
+            if (!visit) {
+                logger.error("Web facade succeeded but no Visit created - this is a system configuration error")
+                throw new Exception("Web facade succeeded but no Visit created - check Moqui configuration")
             }
+            logger.debug("Web facade created Visit ${visit.visitId} for user ${ec.user.username}")
+            // Store user mapping in memory for fast validation
+            sessionUsers.put(visit.visitId.toString(), ec.user.userId.toString())
+            logger.info("Created new Visit ${visit.visitId} for user ${ec.user.username}")
+        } catch (Exception e) {
+            logger.error("Web facade initialization failed - this is a system configuration error: ${e.message}", e)
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "System configuration error: Web facade failed to initialize. Check Moqui logs for details.")
+            return
         }
         
         // Final check that we have a Visit
@@ -473,6 +399,11 @@ try {
                     ]
                     sendSseEvent(response.writer, "ping", JsonOutput.toJson(pingData), pingCount + 2)
                     pingCount++
+                    
+                    // Update session activity throttled (every 6th ping = every 30 seconds)
+                    if (pingCount % 6 == 0) {
+                        updateSessionActivityThrottled(visit.visitId.toString())
+                    }
                 }
             }
             
@@ -506,40 +437,7 @@ try {
                     }
                 }
             }
-    }
-    
-    private void handleMessage(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec) 
-            throws IOException {
-        
-        // Get sessionId from request parameter or header
-        String sessionId = request.getParameter("sessionId") ?: request.getHeader("Mcp-Session-Id")
-        if (!sessionId) {
-            response.setContentType("application/json")
-            response.setCharacterEncoding("UTF-8")
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-            response.writer.write(JsonOutput.toJson([
-                error: "Missing sessionId parameter or header",
-                architecture: "Visit-based sessions"
-            ]))
-            return
-        }
-        
-        // Get Visit directly - this is our session
-        def visit = ec.entity.find("moqui.server.Visit")
-            .condition("visitId", sessionId)
-            .disableAuthz()
-            .one()
-        
-        if (!visit) {
-            response.setContentType("application/json")
-            response.setCharacterEncoding("UTF-8")
-            response.setStatus(HttpServletResponse.SC_NOT_FOUND)
-            response.writer.write(JsonOutput.toJson([
-                error: "Session not found: " + sessionId,
-                architecture: "Visit-based sessions"
-            ]))
-            return
-        }
+}
         
         // Verify user has access to this Visit - rely on Moqui security
         logger.info("Session validation: visit.userId=${visit.userId}, ec.user.userId=${ec.user.userId}, ec.user.username=${ec.user.username}")
@@ -858,7 +756,9 @@ try {
                 logger.info("Processing notifications/initialized for sessionId: ${sessionId}")
                 if (sessionId) {
                     sessionStates.put(sessionId, STATE_INITIALIZED)
-                    logger.info("Session ${sessionId} transitioned to INITIALIZED state")
+                    // Store user mapping in memory for fast validation
+                    sessionUsers.put(sessionId, ec.user.userId.toString())
+                    logger.info("Session ${sessionId} transitioned to INITIALIZED state for user ${ec.user.userId}")
                 }
                 
                 // For notifications/initialized, return 202 Accepted per MCP HTTP Streaming spec
@@ -885,6 +785,11 @@ try {
         // Process MCP method using Moqui services with session ID if available
         def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId, visit ?: [:])
         
+        // Update session activity throttled for actual user actions (not pings)
+        if (sessionId && !"ping".equals(rpcRequest.method)) {
+            updateSessionActivityThrottled(sessionId)
+        }
+        
         // Set Mcp-Session-Id header BEFORE any response data (per MCP 2025-06-18 spec)
         // For initialize method, always use sessionId we have (from visit or header)
         String responseSessionId = null
@@ -893,8 +798,13 @@ try {
         } else if (result?.sessionId) {
             responseSessionId = result.sessionId.toString()
         } else if (sessionId) {
-            // For other methods, ensure we always return the session ID from header
+            // For other methods, ensure we always return session ID from header
             responseSessionId = sessionId.toString()
+        }
+        
+        if (responseSessionId) {
+            response.setHeader("Mcp-Session-Id", responseSessionId)
+            logger.info("Set Mcp-Session-Id header to ${responseSessionId} for method ${rpcRequest.method}")
         }
         
         if (responseSessionId) {
@@ -969,6 +879,9 @@ try {
                     // Add sessionId to the response for mcp.sh compatibility
                     if (serviceResult && serviceResult.result) {
                         serviceResult.result.sessionId = params.sessionId
+                        // Initialize successful - transition session to INITIALIZED state
+                        sessionStates.put(params.sessionId, STATE_INITIALIZED)
+                        logger.info("Initialize - successful, set state ${params.sessionId} to INITIALIZED")
                     }
                     return serviceResult
                 case "ping":
@@ -1191,6 +1104,9 @@ try {
         queue << notification
         logger.info("Queued notification for session ${sessionId}: ${notification}")
         
+        // Session activity updates handled at JSON-RPC level, not notification level
+        // This prevents excessive database updates during notification processing
+        
         // Also try to send via SSE if active connection exists
         def writer = activeConnections.get(sessionId)
         if (writer && !writer.checkError()) {
@@ -1199,6 +1115,77 @@ try {
                 logger.info("Sent notification via SSE to session ${sessionId}")
             } catch (Exception e) {
                 logger.warn("Failed to send notification via SSE to session ${sessionId}: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Get Visit from cache to reduce database access and prevent lock contention
+     */
+    private EntityValue getCachedVisit(ExecutionContext ec, String sessionId) {
+        if (!sessionId) return null
+        
+        EntityValue cachedVisit = visitCache.get(sessionId)
+        if (cachedVisit != null) {
+            return cachedVisit
+        }
+        
+        // Not in cache, load from database with authz disabled
+        try {
+            ec.artifactExecution.disableAuthz()
+            EntityValue visit = ec.entity.find("moqui.server.Visit")
+                .condition("visitId", sessionId)
+                .one()
+            if (visit != null) {
+                visitCache.put(sessionId, visit)
+            }
+            return visit
+        } finally {
+            ec.artifactExecution.enableAuthz()
+        }
+    }
+    
+    /**
+     * Throttled session activity update to prevent database lock contention
+     * Uses synchronized per-session to prevent concurrent updates
+     */
+    private void updateSessionActivityThrottled(String sessionId) {
+        if (!sessionId) return
+        
+        long now = System.currentTimeMillis()
+        Long lastUpdate = lastActivityUpdate.get(sessionId)
+        
+        // Only update if 30 seconds have passed since last update
+        if (lastUpdate == null || (now - lastUpdate) > ACTIVITY_UPDATE_INTERVAL_MS) {
+            // Synchronize per session to prevent concurrent updates
+            synchronized (sessionId.intern()) {
+                // Double-check after acquiring lock
+                lastUpdate = lastActivityUpdate.get(sessionId)
+                if (lastUpdate == null || (now - lastUpdate) > ACTIVITY_UPDATE_INTERVAL_MS) {
+                    try {
+                        // Look up Visit and update activity
+                        ExecutionContextFactoryImpl ecfi = (ExecutionContextFactoryImpl) getServletContext().getAttribute("executionContextFactory")
+                        if (ecfi) {
+                            def ec = ecfi.getEci()
+                            try {
+                                def visit = getCachedVisit(ec, sessionId)
+                                
+                                if (visit) {
+                                    visit.thruDate = ec.user.getNowTimestamp()
+                                    visit.update()
+                                    // Update cache with new thruDate
+                                    visitCache.put(sessionId, visit)
+                                    lastActivityUpdate.put(sessionId, now)
+                                    logger.debug("Updated activity for session ${sessionId} (throttled, synchronized)")
+                                }
+                            } finally {
+                                ec.destroy()
+                            }
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Failed to update session activity for ${sessionId}: ${e.message}")
+                    }
+                }
             }
         }
     }
@@ -1275,10 +1262,11 @@ try {
             } else {
                 logger.warn("No active connection for session ${sessionId}")
             }
-        } catch (Exception e) {
-            logger.error("Error sending message to session ${sessionId}: ${e.message}", e)
-            // Remove broken connection
-            activeConnections.remove(sessionId)
+            } catch (Exception e) {
+                logger.error("Error sending message to session ${sessionId}: ${e.message}", e)
+                activeConnections.remove(sessionId)
+                visitCache.remove(sessionId)
+                sessionUsers.remove(sessionId)
         }
     }
     
