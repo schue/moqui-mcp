@@ -51,7 +51,7 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
             if (!metadata.mcpSession) {
                 // Mark this Visit as an MCP session
                 metadata.mcpSession = true
-                metadata.mcpProtocolVersion = "2025-06-18"
+                metadata.mcpProtocolVersion = "2025-11-25"
                 metadata.mcpCreatedAt = System.currentTimeMillis()
                 metadata.mcpTransportType = "SSE"
                 metadata.mcpMessageCount = 0

@@ -79,8 +79,8 @@
                     }
                 }
                 
-                // Validate protocol version - support common MCP versions
-                def supportedVersions = ["2025-06-18", "2024-11-05", "2024-10-07", "2023-06-05"]
+                // Validate protocol version - support common MCP versions with version negotiation
+                def supportedVersions = ["2025-11-25", "2025-06-18", "2024-11-05", "2024-10-07", "2023-06-05"]
                 if (!supportedVersions.contains(protocolVersion)) {
                     throw new Exception("Unsupported protocol version: ${protocolVersion}. Supported versions: ${supportedVersions.join(', ')}")
                 }
@@ -1878,6 +1878,190 @@ def startTime = System.currentTimeMillis()
     ]
     
     ec.logger.info("MCP Screen Execution: Generated URL for screen ${screenPath} in ${executionTime}s")
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="mcp" noun="ResourcesTemplatesList" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Handle MCP resources/templates/list request</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // For now, return empty templates list - can be extended later
+                def templates = []
+                
+                result = [resourceTemplates: templates]
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="mcp" noun="ResourcesSubscribe" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Handle MCP resources/subscribe request</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+            <parameter name="uri" required="true"><description>Resource URI to subscribe to</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                ec.logger.info("Resource subscription requested for URI: ${uri}, sessionId: ${sessionId}")
+                
+                // For now, just return success - actual subscription tracking could be added
+                result = [subscribed: true, uri: uri]
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="mcp" noun="ResourcesUnsubscribe" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Handle MCP resources/unsubscribe request</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+            <parameter name="uri" required="true"><description>Resource URI to unsubscribe from</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                ec.logger.info("Resource unsubscription requested for URI: ${uri}, sessionId: ${sessionId}")
+                
+                // For now, just return success - actual subscription tracking could be added
+                result = [unsubscribed: true, uri: uri]
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="mcp" noun="PromptsList" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Handle MCP prompts/list request</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // For now, return empty prompts list - can be extended later
+                def prompts = []
+                
+                result = [prompts: prompts]
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="mcp" noun="PromptsGet" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Handle MCP prompts/get request</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+            <parameter name="name" required="true"><description>Prompt name to retrieve</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                ec.logger.info("Prompt requested: ${name}, sessionId: ${sessionId}")
+                
+                // For now, return not found - can be extended later
+                result = [error: "Prompt not found: ${name}"]
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="mcp" noun="RootsList" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Handle MCP roots/list request</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                // For now, return empty roots list - can be extended later
+                def roots = []
+                
+                result = [roots: roots]
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="mcp" noun="SamplingCreateMessage" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Handle MCP sampling/createMessage request</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+            <parameter name="messages" type="List"><description>List of messages to sample</description></parameter>
+            <parameter name="maxTokens" type="Integer"><description>Maximum tokens to generate</description></parameter>
+            <parameter name="temperature" type="BigDecimal"><description>Sampling temperature</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                ec.logger.info("Sampling createMessage requested for sessionId: ${sessionId}")
+                
+                // For now, return not implemented - can be extended with actual LLM integration
+                result = [error: "Sampling not implemented"]
+            ]]></script>
+        </actions>
+    </service>
+    
+    <service verb="mcp" noun="ElicitationCreate" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Handle MCP elicitation/create request</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+            <parameter name="prompt"><description>Prompt for elicitation</description></parameter>
+            <parameter name="context"><description>Context for elicitation</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                
+                ec.logger.info("Elicitation create requested for sessionId: ${sessionId}")
+                
+                // For now, return not implemented - can be extended later
+                result = [error: "Elicitation not implemented"]
             ]]></script>
         </actions>
     </service>
