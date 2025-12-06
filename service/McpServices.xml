@@ -171,6 +171,8 @@
                 try {
                     def availableTools = []
                     
+                    ec.logger.info("MCP ToolsList: DEBUG - Starting tools list generation")
+                    
                     // Get only services user has access to via artifact groups
                     def accessibleServiceNames = []
                     for (serviceName in userAccessibleServices) {
@@ -289,6 +291,87 @@
                     } catch (Exception e) {
                         ec.logger.warn("Error discovering screen tools: ${e.message}")
                     }
+                    
+                    // Add standard MCP protocol methods that clients can discover (add at end so they appear on first page)
+                    def standardMcpMethods = [
+                        [
+                            name: "tools/list",
+                            title: "List Available Tools",
+                            description: "Get a list of all available MCP tools including Moqui services and screens",
+                            inputSchema: [
+                                type: "object",
+                                properties: [
+                                    cursor: [
+                                        type: "string",
+                                        description: "Pagination cursor for large tool lists"
+                                    ]
+                                ],
+                                required: []
+                            ]
+                        ],
+                        [
+                            name: "tools/call",
+                            title: "Execute Tool",
+                            description: "Execute a specific MCP tool by name with parameters",
+                            inputSchema: [
+                                type: "object",
+                                properties: [
+                                    name: [
+                                        type: "string",
+                                        description: "Name of the tool to execute"
+                                    ],
+                                    arguments: [
+                                        type: "object",
+                                        description: "Parameters to pass to the tool"
+                                    ]
+                                ],
+                                required: ["name"]
+                            ]
+                        ],
+                        [
+                            name: "resources/list",
+                            title: "List Resources",
+                            description: "Get a list of available MCP resources (Moqui entities)",
+                            inputSchema: [
+                                type: "object",
+                                properties: [
+                                    cursor: [
+                                        type: "string",
+                                        description: "Pagination cursor for large resource lists"
+                                    ]
+                                ],
+                                required: []
+                            ]
+                        ],
+                        [
+                            name: "resources/read",
+                            title: "Read Resource",
+                            description: "Read data from a specific MCP resource (Moqui entity)",
+                            inputSchema: [
+                                type: "object",
+                                properties: [
+                                    uri: [
+                                        type: "string",
+                                        description: "Resource URI to read (format: entity://EntityName)"
+                                    ]
+                                ],
+                                required: ["uri"]
+                            ]
+                        ],
+                        [
+                            name: "ping",
+                            title: "Ping Server",
+                            description: "Test connectivity to the MCP server and get session info",
+                            inputSchema: [
+                                type: "object",
+                                properties: [:],
+                                required: []
+                            ]
+                        ]
+                    ]
+                    
+                    availableTools.addAll(standardMcpMethods)
+                    ec.logger.info("MCP ToolsList: Added ${standardMcpMethods.size()} standard MCP protocol methods")
                     
                 // Implement pagination according to MCP spec
                 def pageSize = 50  // Reasonable page size for tool lists
@@ -2302,6 +2385,87 @@ def startTime = System.currentTimeMillis()
                         processScreenWithSubscreens(screenPath, null, processedScreens, tools, null, 0)
                     }
                     ec.logger.info("list#Tools: Recursive processing found ${tools.size()} total tools")
+                    
+                    // Add standard MCP protocol methods that clients can discover
+                    def standardMcpMethods = [
+                        [
+                            name: "tools/list",
+                            title: "List Available Tools",
+                            description: "Get a list of all available MCP tools including Moqui services and screens",
+                            inputSchema: [
+                                type: "object",
+                                properties: [
+                                    cursor: [
+                                        type: "string",
+                                        description: "Pagination cursor for large tool lists"
+                                    ]
+                                ],
+                                required: []
+                            ]
+                        ],
+                        [
+                            name: "tools/call",
+                            title: "Execute Tool",
+                            description: "Execute a specific MCP tool by name with parameters",
+                            inputSchema: [
+                                type: "object",
+                                properties: [
+                                    name: [
+                                        type: "string",
+                                        description: "Name of the tool to execute"
+                                    ],
+                                    arguments: [
+                                        type: "object",
+                                        description: "Parameters to pass to the tool"
+                                    ]
+                                ],
+                                required: ["name"]
+                            ]
+                        ],
+                        [
+                            name: "resources/list",
+                            title: "List Resources",
+                            description: "Get a list of available MCP resources (Moqui entities)",
+                            inputSchema: [
+                                type: "object",
+                                properties: [
+                                    cursor: [
+                                        type: "string",
+                                        description: "Pagination cursor for large resource lists"
+                                    ]
+                                ],
+                                required: []
+                            ]
+                        ],
+                        [
+                            name: "resources/read",
+                            title: "Read Resource",
+                            description: "Read data from a specific MCP resource (Moqui entity)",
+                            inputSchema: [
+                                type: "object",
+                                properties: [
+                                    uri: [
+                                        type: "string",
+                                        description: "Resource URI to read (format: entity://EntityName)"
+                                    ]
+                                ],
+                                required: ["uri"]
+                            ]
+                        ],
+                        [
+                            name: "ping",
+                            title: "Ping Server",
+                            description: "Test connectivity to the MCP server and get session info",
+                            inputSchema: [
+                                type: "object",
+                                properties: [:],
+                                required: []
+                            ]
+                        ]
+                    ]
+                    
+                    tools.addAll(0, standardMcpMethods)  // Add at beginning so they appear on first page
+                    ec.logger.info("list#Tools: Added ${standardMcpMethods.size()} standard MCP protocol methods")
                     
                 } finally {
                     if (adminUserInfo != null) {
