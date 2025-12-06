@@ -2022,6 +2022,304 @@ def startTime = System.currentTimeMillis()
         </actions>
     </service>
 
+    <service verb="list" noun="Tools" authenticate="false" allow-remote="true" transaction-timeout="60">
+        <description>Compact tool discovery using ArtifactAuthzCheckView with clean recursion</description>
+        <in-parameters>
+            <parameter name="sessionId"/>
+            <parameter name="cursor"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                
+                ExecutionContext ec = context.ec
+                def startTime = System.currentTimeMillis()
+                
+                // Get user context
+                def originalUsername = ec.user.username
+                def originalUserId = ec.user.userId  
+                def userGroups = ec.user.getUserGroupIdSet().collect { it }
+                
+                def tools = []
+                adminUserInfo = null
+                
+                try {
+                    adminUserInfo = ec.user.pushUser("ADMIN")
+                    
+// Get ALL screens (not just user accessible) - let Moqui security handle access during execution
+                    def allScreens = [] as Set<String>
+                    adminUserInfo = null
+                    try {
+                        adminUserInfo = ec.user.pushUser("ADMIN")
+                        
+                        // Get all screens in the system
+                        def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
+                            .condition("artifactTypeEnumId", "AT_XML_SCREEN")
+                            .useCache(true)
+                            .disableAuthz()
+                            .list()
+                        allScreens = aacvList.collect { it.artifactName } as Set<String>
+                        
+                    } finally {
+                        if (adminUserInfo != null) {
+                            ec.user.popUser()
+                        }
+                    }
+                    
+                    // Helper function to convert screen path to MCP tool name
+                    def screenPathToToolName = { screenPath ->
+                        // Clean Encoding: strip component:// and .xml, replace / with _
+                        def cleanPath = screenPath
+                        if (cleanPath.startsWith("component://")) cleanPath = cleanPath.substring(12)
+                        if (cleanPath.endsWith(".xml")) cleanPath = cleanPath.substring(0, cleanPath.length() - 4)
+                        
+                        return "screen_" + cleanPath.replace('/', '_')
+                    }
+                    
+                    // Helper function to convert screen path to MCP tool name with subscreen support
+                    def screenPathToToolNameWithSubscreens = { screenPath, parentScreenPath = null ->
+                        // If we have a parent screen path, this is a subscreen - use dot notation
+                        if (parentScreenPath) {
+                            def parentCleanPath = parentScreenPath
+                            if (parentCleanPath.startsWith("component://")) parentCleanPath = parentCleanPath.substring(12)
+                            if (parentCleanPath.endsWith(".xml")) parentCleanPath = parentCleanPath.substring(0, parentCleanPath.length() - 4)
+                            
+                            // Extract subscreen name from the full screen path
+                            def subscreenName = screenPath.split("/")[-1]
+                            if (subscreenName.endsWith(".xml")) subscreenName = subscreenName.substring(0, subscreenName.length() - 4)
+                            
+                            return "screen_" + parentCleanPath.replace('/', '_') + "." + subscreenName
+                        }
+                        
+                        // Regular screen path conversion for main screens
+                        return screenPathToToolName(screenPath)
+                    }
+                    
+                    // Helper function to recursively process screens and create tools
+                    def processScreenWithSubscreens 
+                    processScreenWithSubscreens = { screenPath, parentScreenPath = null, processedScreens = null, toolsAccumulator = null, parentToolName = null, level = 1 ->
+                        ec.logger.info("list#Tools: Processing screen ${screenPath} (parent: ${parentScreenPath}, parentToolName: ${parentToolName}, level: ${level})")
+                        
+                        // Initialize processedScreens and toolsAccumulator if null
+                        if (processedScreens == null) processedScreens = [] as Set<String>
+                        if (toolsAccumulator == null) toolsAccumulator = []
+                        
+                        if (processedScreens.contains(screenPath)) {
+                            ec.logger.info("list#Tools: Already processed ${screenPath}, skipping")
+                            return
+                        }
+                        
+                        processedScreens.add(screenPath)
+                        
+                        try {
+                            // Skip problematic patterns early
+                            if (screenPath.contains("/error/") || screenPath.contains("/system/")) {
+                                ec.logger.info("list#Tools: Skipping system screen ${screenPath}")
+                                return
+                            }
+                            
+                            // Determine if this is a subscreen
+                            def isSubscreen = parentScreenPath != null
+                            
+                            // Try to get screen definition
+                            def screenDefinition = null
+                            def title = screenPath.split("/")[-1].replace('.xml', '')
+                            def description = "Moqui screen: ${screenPath}"
+                            
+                            try {
+                                screenDefinition = ec.screen.getScreenDefinition(screenPath)
+                                if (screenDefinition?.screenNode?.attribute('default-menu-title')) {
+                                    title = screenDefinition.screenNode.attribute('default-menu-title')
+                                    description = "Moqui screen: ${screenPath} (${title})"
+                                }
+                            } catch (Exception e) {
+                                ec.logger.debug("list#Tools: No screen definition for ${screenPath}, using basic info")
+                            }
+                            
+                            // Get screen parameters from transitions
+                            def parameters = [:]
+                            try {
+                                def screenInfo = ec.screen.getScreenInfo(screenPath)
+                                if (screenInfo?.transitionInfoByName) {
+                                    for (transitionEntry in screenInfo.transitionInfoByName) {
+                                        def transitionInfo = transitionEntry.value
+                                        if (transitionInfo?.ti) {
+                                            transitionInfo.ti.getPathParameterList()?.each { param ->
+                                                parameters[param] = [
+                                                    type: "string",
+                                                    description: "Path parameter for transition: ${param}"
+                                                ]
+                                            }
+                                            transitionInfo.ti.getRequestParameterList()?.each { param ->
+                                                parameters[param.name] = [
+                                                    type: "string",
+                                                    description: "Request parameter: ${param.name}"
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                ec.logger.debug("Could not extract parameters from screen ${screenPath}: ${e.message}")
+                            }
+                            
+                            // Create tool with proper naming
+                            def toolName
+                            if (isSubscreen && parentToolName) {
+                                // Use the passed hierarchical parent tool name
+                                def subscreenName = screenPath.split("/")[-1]
+                                if (subscreenName.endsWith(".xml")) subscreenName = subscreenName.substring(0, subscreenName.length() - 4)
+                                
+                                // Use dot for first level subscreens (level 1), underscore for deeper levels (level 2+)
+                                def separator = (level == 1) ? "." : "_"
+                                toolName = parentToolName + separator + subscreenName
+                                ec.logger.info("list#Tools: Creating subscreen tool ${toolName} for ${screenPath} (parentToolName: ${parentToolName}, level: ${level}, separator: ${separator})")
+                            } else if (isSubscreen && parentScreenPath) {
+                                toolName = screenPathToToolNameWithSubscreens(screenPath, parentScreenPath)
+                                ec.logger.info("list#Tools: Creating subscreen tool ${toolName} for ${screenPath} (parent: ${parentScreenPath})")
+                            } else {
+                                toolName = screenPathToToolName(screenPath)
+                                ec.logger.info("list#Tools: Creating main screen tool ${toolName} for ${screenPath}")
+                            }
+                            
+                            def tool = [
+                                name: toolName,
+                                title: title,
+                                description: title,  // Use title as description instead of redundant path
+                                inputSchema: [
+                                    type: "object",
+                                    properties: parameters,
+                                    required: []
+                                ]
+                            ]
+                            
+                            ec.logger.info("list#Tools: Adding accessible screen tool ${toolName} for ${screenPath}")
+                            toolsAccumulator << tool
+                            
+                            // Recursively process subscreens
+                            try {
+                                def screenInfoList = ec.screen.getScreenInfoList(screenPath, 1)
+                                def screenInfo = screenInfoList?.first()
+                                if (screenInfo?.subscreenInfoByName) {
+                                    ec.logger.info("list#Tools: Found ${screenInfo.subscreenInfoByName.size()} subscreens for ${screenPath}: ${screenInfo.subscreenInfoByName.keySet()}")
+                                    for (subScreenEntry in screenInfo.subscreenInfoByName) {
+                                        def subScreenInfo = subScreenEntry.value
+                                        def subScreenPathList = subScreenInfo?.screenPath
+                                        
+                                        // Try to get the actual subscreen location from multiple sources
+                                        def actualSubScreenPath = null
+                                        
+                                        // Try to get location from subScreenInfo object (most reliable)
+                                        if (subScreenInfo?.screenPath) {
+                                            if (subScreenInfo.screenPath instanceof List) {
+                                                def pathList = subScreenInfo.screenPath
+                                                for (path in pathList) {
+                                                    if (path && path.toString().contains(".xml")) {
+                                                        actualSubScreenPath = path.toString()
+                                                        break
+                                                    }
+                                                }
+                                            } else {
+                                                actualSubScreenPath = subScreenInfo.screenPath.toString()
+                                            }
+                                        }
+                                        
+                                        // If that didn't work, try XML parsing
+                                        if (!actualSubScreenPath) {
+                                            try {
+                                                def parentScreenDef = ec.screen.getScreenDefinition(screenPath)
+                                                if (parentScreenDef?.screenNode) {
+                                                    def subscreensNode = parentScreenDef.screenNode.first("subscreens")
+                                                    if (subscreensNode) {
+                                                        def subscreenItems = []
+                                                        try {
+                                                            subscreenItems = subscreensNode."subscreens-item"
+                                                        } catch (Exception e) {
+                                                            def allChildren = subscreensNode.children()
+                                                            subscreenItems = allChildren.findAll { 
+                                                                it.name() == "subscreens-item" 
+                                                            }
+                                                        }
+                                                        
+                                                        def subscreenItem = subscreenItems.find { 
+                                                            it.attribute('name') == subScreenEntry.key 
+                                                        }
+                                                        if (subscreenItem?.attribute('location')) {
+                                                            actualSubScreenPath = subscreenItem.attribute('location')
+                                                        }
+                                                    }
+                                                }
+                                            } catch (Exception e) {
+                                                ec.logger.debug("Could not get subscreen location for ${subScreenEntry.key}: ${e.message}")
+                                            }
+                                        }
+                                        
+                                        // Fallback: try to construct from screenPathList if we couldn't get the actual location
+                                        if (!actualSubScreenPath && subScreenPathList) {
+                                            def subscreenName = subScreenEntry.key
+                                            def currentScreenPath = screenPath
+                                            def lastSlash = currentScreenPath.lastIndexOf('/')
+                                            if (lastSlash > 0) {
+                                                def basePath = currentScreenPath.substring(0, lastSlash + 1)
+                                                actualSubScreenPath = basePath + subscreenName + ".xml"
+                                            }
+                                        }
+                                        
+                                        if (actualSubScreenPath && !processedScreens.contains(actualSubScreenPath)) {
+                                            processScreenWithSubscreens(actualSubScreenPath, screenPath, processedScreens, toolsAccumulator, toolName, level + 1)
+                                        } else if (!actualSubScreenPath) {
+                                            // For screens without explicit location, try automatic discovery
+                                            def lastSlash = screenPath.lastIndexOf('/')
+                                            if (lastSlash > 0) {
+                                                def basePath = screenPath.substring(0, lastSlash + 1)
+                                                def autoSubScreenPath = basePath + subScreenEntry.key + ".xml"
+                                                processScreenWithSubscreens(autoSubScreenPath, screenPath, processedScreens, toolsAccumulator, toolName, level + 1)
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                ec.logger.debug("Could not get subscreens for ${screenPath}: ${e.message}")
+                            }
+                            
+                        } catch (Exception e) {
+                            ec.logger.warn("Error processing screen ${screenPath}: ${e.message}")
+                        }
+                    }
+                    
+                    // Process all accessible screens recursively
+                    def processedScreens = [] as Set<String>
+                    ec.logger.info("list#Tools: Starting recursive processing from ${allScreens.size()} base screens")
+                    for (screenPath in allScreens) {
+                        processScreenWithSubscreens(screenPath, null, processedScreens, tools, null, 0)
+                    }
+                    ec.logger.info("list#Tools: Recursive processing found ${tools.size()} total tools")
+                    
+                } finally {
+                    if (adminUserInfo != null) {
+                        ec.user.popUser()
+                    }
+                }
+                
+                // Pagination (same as original)
+                def pageSize = 50
+                def startIndex = cursor ? Integer.parseInt(cursor) : 0
+                def endIndex = Math.min(startIndex + pageSize, tools.size())
+                def paginatedTools = tools.subList(startIndex, endIndex)
+                
+                result = [tools: paginatedTools]
+                if (endIndex < tools.size()) {
+                    result.nextCursor = String.valueOf(endIndex)
+                }
+                
+                ec.logger.info("list#Tools: Found ${tools.size()} tools for user ${originalUsername}")
+            ]]></script>
+        </actions>
+    </service>
+
     <!-- NOTE: handle#McpRequest service removed - functionality moved to screen/webapp.xml for unified handling -->
 
 </services>

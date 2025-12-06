@@ -890,7 +890,7 @@ try {
                 case "tools/list":
                     // Ensure sessionId is available to service for notification consistency
                     if (sessionId) params.sessionId = sessionId
-                    return callMcpService("mcp#ToolsList", params, ec)
+                    return callMcpService("list#Tools", params, ec)
                 case "tools/call":
                     // Ensure sessionId is available to service for notification consistency
                     if (sessionId) params.sessionId = sessionId
