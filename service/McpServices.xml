@@ -1193,29 +1193,7 @@ try {
                                         ec.logger.info("MCP Screen Discovery: SubScreenInfo location for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                     }
                                     
-                                    // If that didn't work, try XML parsing
-                                    if (!actualSubScreenPath) {
-                                        try {
-                                            def parentScreenDef = ec.screen.getScreenDefinition(screenPath)
-                                            ec.logger.info("MCP Screen Discovery: Parent screen def for ${screenPath}: ${parentScreenDef?.screenName}")
-                                            if (parentScreenDef?.screenNode) {
-                                                def subscreensNode = parentScreenDef.screenNode.first("subscreens")
-                                                ec.logger.info("MCP Screen Discovery: Subscreens node: ${subscreensNode}")
-                                                if (subscreensNode) {
-                                                    def subscreenItems = []
-                                                    try {
-                                                        // Try using Groovy's GPath syntax first (most reliable)
-                                                        subscreenItems = subscreensNode."subscreens-item"
-                                                        ec.logger.info("MCP Screen Discovery: GPath found ${subscreenItems.size()} subscreen-item elements")
-                                                    } catch (Exception gpathException) {
-                                                        ec.logger.info("MCP Screen Discovery: GPath approach failed: ${gpathException.message}")
-                                                        try {
-                                                            // Try children() with no parameters
-                                                            def allChildren = subscreensNode.children()
-                                                            ec.logger.info("MCP Screen Discovery: children() found: ${allChildren*.name()}")
-                                                            subscreenItems = allChildren.findAll { 
-                                                                it.name() == "subscreens-item" 
-                                                            }
+
                                                         } catch (Exception childrenException) {
                                                             ec.logger.info("MCP Screen Discovery: children() approach failed: ${childrenException.message}")
                                                             // Fallback: iterate through node values
@@ -2208,26 +2186,47 @@ def startTime = System.currentTimeMillis()
                                     for (subScreenEntry in screenInfo.subscreenInfoByName) {
                                         def subScreenInfo = subScreenEntry.value
                                         def subScreenPathList = subScreenInfo?.screenPath
+                                        ec.logger.info("list#Tools: Processing subscreen ${subScreenEntry.key}, subScreenInfo.screenPath: ${subScreenInfo.screenPath}")
                                         
-                                        // Try to get the actual subscreen location from multiple sources
+                                        // Get the actual subscreen location from screenInfo (should have correct cross-component paths)
                                         def actualSubScreenPath = null
                                         
-                                        // Try to get location from subScreenInfo object (most reliable)
                                         if (subScreenInfo?.screenPath) {
-                                            if (subScreenInfo.screenPath instanceof List) {
-                                                def pathList = subScreenInfo.screenPath
-                                                for (path in pathList) {
-                                                    if (path && path.toString().contains(".xml")) {
-                                                        actualSubScreenPath = path.toString()
-                                                        break
+                                            // Try to get actual screen location from subScreenInfo
+                                            try {
+                                                // Check if subScreenInfo has a method to get actual screen location
+                                                if (subScreenInfo.hasProperty('sd')) {
+                                                    // Try to get location from screen definition
+                                                    def screenDef = subScreenInfo.sd
+                                                    if (screenDef?.hasProperty('screenLocation')) {
+                                                        actualSubScreenPath = screenDef.screenLocation
+                                                        ec.logger.info("list#Tools: Found screenLocation from sd for ${subScreenEntry.key}: ${actualSubScreenPath}")
+                                                    } else if (screenDef?.hasProperty('location')) {
+                                                        actualSubScreenPath = screenDef.location
+                                                        ec.logger.info("list#Tools: Found location from sd for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                                     }
                                                 }
-                                            } else {
-                                                actualSubScreenPath = subScreenInfo.screenPath.toString()
+                                                
+                                                // Fallback to checking if screenPath contains XML path
+                                                if (!actualSubScreenPath) {
+                                                    if (subScreenInfo.screenPath instanceof List) {
+                                                        def pathList = subScreenInfo.screenPath
+                                                        for (path in pathList) {
+                                                            if (path && path.toString().contains(".xml")) {
+                                                                actualSubScreenPath = path.toString()
+                                                                break
+                                                            }
+                                                        }
+                                                    } else {
+                                                        actualSubScreenPath = subScreenInfo.screenPath.toString()
+                                                    }
+                                                }
+                                            } catch (Exception e) {
+                                                ec.logger.debug("list#Tools: Error getting screen location from subScreenInfo for ${subScreenEntry.key}: ${e.message}")
                                             }
                                         }
                                         
-                                        // If that didn't work, try XML parsing
+                                        // Fallback: try XML parsing if screenInfo doesn't have the path
                                         if (!actualSubScreenPath) {
                                             try {
                                                 def parentScreenDef = ec.screen.getScreenDefinition(screenPath)
@@ -2244,27 +2243,33 @@ def startTime = System.currentTimeMillis()
                                                             }
                                                         }
                                                         
-                                                        def subscreenItem = subscreenItems.find { 
-                                                            it.attribute('name') == subScreenEntry.key 
+                                                        def subscreenItem = null
+                                                        for (item in subscreenItems) {
+                                                            if (item.hasAttribute('name') && item.attribute('name') == subScreenEntry.key) {
+                                                                subscreenItem = item
+                                                                break
+                                                            }
                                                         }
-                                                        if (subscreenItem?.attribute('location')) {
+                                                        if (subscreenItem?.hasAttribute('location')) {
                                                             actualSubScreenPath = subscreenItem.attribute('location')
+                                                            ec.logger.info("list#Tools: Found XML location for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                                         }
                                                     }
                                                 }
                                             } catch (Exception e) {
-                                                ec.logger.debug("Could not get subscreen location for ${subScreenEntry.key}: ${e.message}")
+                                                ec.logger.info("Could not get subscreen location from XML for ${subScreenEntry.key}: ${e.message}")
                                             }
                                         }
                                         
-                                        // Fallback: try to construct from screenPathList if we couldn't get the actual location
-                                        if (!actualSubScreenPath && subScreenPathList) {
+                                        // Final fallback: construct from screenPath if we couldn't get the actual location
+                                        if (!actualSubScreenPath) {
                                             def subscreenName = subScreenEntry.key
                                             def currentScreenPath = screenPath
                                             def lastSlash = currentScreenPath.lastIndexOf('/')
                                             if (lastSlash > 0) {
                                                 def basePath = currentScreenPath.substring(0, lastSlash + 1)
                                                 actualSubScreenPath = basePath + subscreenName + ".xml"
+                                                ec.logger.info("list#Tools: Constructed fallback path for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                             }
                                         }
                                         

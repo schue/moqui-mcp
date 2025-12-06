@@ -93,7 +93,7 @@ class McpTestSuite extends Specification {
             // Verify result structure
             result != null
             result.result != null
-            result.result.type == "text"
+            result.result.type == "html"
             result.result.screenPath == "component://moqui-mcp-2/screen/McpTestScreen.xml"
             !result.result.isError
             
