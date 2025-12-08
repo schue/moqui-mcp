@@ -1073,9 +1073,14 @@ try {
                 return [error: "Service returned null result"]
             }
             // Service framework returns result in 'result' field when out-parameters are used
-            // Return the entire service result to maintain proper JSON-RPC structure
+            // Extract the inner result to avoid double nesting in JSON-RPC response
             // The MCP services already set the correct 'result' structure
-            return result ?: [error: "Service returned null result"]
+            // Some services return result directly, others nest it in result.result
+            if (result?.containsKey('result')) {
+                return result.result
+            } else {
+                return result ?: [error: "Service returned null result"]
+            }
         } catch (Exception e) {
             logger.error("Error calling Enhanced MCP service ${serviceName}", e)
             return [error: e.message]
