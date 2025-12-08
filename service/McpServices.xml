@@ -169,10 +169,16 @@
                             actualArguments = [sessionId: sessionId]
                         }
                         
-                        // Recursively call the actual tool
-                        return ec.service.sync().name("McpServices.mcp#ToolsCall")
-                            .parameters([sessionId: sessionId, name: actualToolName, arguments: actualArguments])
-                            .call()
+                        // Route to the actual tool service, not recursive ToolsCall
+                        def actualTargetServiceName = protocolMethodMappings[actualToolName]
+                        if (actualTargetServiceName) {
+                            ec.logger.info("MCP ToolsCall: Routing tools/call with name '${actualToolName}' to ${actualTargetServiceName}")
+                            return ec.service.sync().name(actualTargetServiceName)
+                                .parameters(actualArguments ?: [:])
+                                .call()
+                        } else {
+                            throw new Exception("Unknown tool name: ${actualToolName}")
+                        }
                     } else {
                         // For other protocol methods, call the target service with provided arguments
                         def serviceResult = ec.service.sync().name(targetServiceName)
