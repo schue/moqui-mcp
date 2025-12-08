@@ -80,6 +80,9 @@ class EnhancedMcpServlet extends HttpServlet {
     private final Map<String, Long> lastActivityUpdate = new ConcurrentHashMap<>()
     private static final long ACTIVITY_UPDATE_INTERVAL_MS = 30000 // 30 seconds
     
+    // Session-specific locks to avoid sessionId.intern() deadlocks
+    private final Map<String, Object> sessionLocks = new ConcurrentHashMap<>()
+    
     // Configuration parameters
     private String sseEndpoint = "/sse"
     private String messageEndpoint = "/message"
@@ -785,8 +788,9 @@ try {
         // Process MCP method using Moqui services with session ID if available
         def result = processMcpMethod(rpcRequest.method, rpcRequest.params, ec, sessionId, visit ?: [:])
         
-        // Update session activity throttled for actual user actions (not pings)
-        if (sessionId && !"ping".equals(rpcRequest.method)) {
+        // Update session activity throttled for actual user actions (not pings or tools/list)
+        // tools/list is read-only discovery and shouldn't update session activity to prevent lock contention
+        if (sessionId && !"ping".equals(rpcRequest.method) && !"tools/list".equals(rpcRequest.method)) {
             updateSessionActivityThrottled(sessionId)
         }
         
@@ -821,20 +825,36 @@ try {
             result: actualResult
         ]
         
-        // Check for pending server notifications and include them in response
+        // Standard MCP flow: include notifications in response content array
         if (sessionId && notificationQueues.containsKey(sessionId)) {
             def pendingNotifications = notificationQueues.get(sessionId)
             if (pendingNotifications && !pendingNotifications.isEmpty()) {
-                rpcResponse.notifications = pendingNotifications
+                logger.info("Adding ${pendingNotifications.size()} pending notifications to response content for session ${sessionId}")
+                
+                // Convert notifications to content items and add to result
+                def notificationContent = []
+                for (notification in pendingNotifications) {
+                    notificationContent << [
+                        type: "notification",
+                        text: JsonOutput.toJson(notification.params ?: notification),
+                        method: notification.method
+                    ]
+                }
+                
+                // Merge notification content with existing result content
+                def existingContent = actualResult?.content ?: []
+                actualResult.content = existingContent + notificationContent
+                
                 // Clear delivered notifications
                 notificationQueues.put(sessionId, [])
-                logger.info("Delivered ${pendingNotifications.size()} pending notifications to session ${sessionId}")
+                logger.info("Merged ${pendingNotifications.size()} notifications into response for session ${sessionId}")
             }
         }
         
         response.setContentType("application/json")
         response.setCharacterEncoding("UTF-8")
         
+        // Send the main response
         response.writer.write(JsonOutput.toJson(rpcResponse))
     }
     
@@ -1111,7 +1131,13 @@ try {
         def writer = activeConnections.get(sessionId)
         if (writer && !writer.checkError()) {
             try {
-                sendSseEvent(writer, "notification", JsonOutput.toJson(notification), System.currentTimeMillis())
+                // Send as proper JSON-RPC notification via SSE
+                def notificationMessage = [
+                    jsonrpc: "2.0",
+                    method: notification.method ?: "notifications/message",
+                    params: notification.params ?: notification
+                ]
+                sendSseEvent(writer, "notification", JsonOutput.toJson(notificationMessage), System.currentTimeMillis())
                 logger.info("Sent notification via SSE to session ${sessionId}")
             } catch (Exception e) {
                 logger.warn("Failed to send notification via SSE to session ${sessionId}: ${e.message}")
@@ -1157,8 +1183,9 @@ try {
         
         // Only update if 30 seconds have passed since last update
         if (lastUpdate == null || (now - lastUpdate) > ACTIVITY_UPDATE_INTERVAL_MS) {
-            // Synchronize per session to prevent concurrent updates
-            synchronized (sessionId.intern()) {
+            // Use session-specific lock to avoid sessionId.intern() deadlocks
+            Object sessionLock = sessionLocks.computeIfAbsent(sessionId, { new Object() })
+            synchronized (sessionLock) {
                 // Double-check after acquiring lock
                 lastUpdate = lastActivityUpdate.get(sessionId)
                 if (lastUpdate == null || (now - lastUpdate) > ACTIVITY_UPDATE_INTERVAL_MS) {
