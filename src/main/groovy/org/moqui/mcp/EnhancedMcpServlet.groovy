@@ -534,11 +534,12 @@ try {
             response.setContentType("application/json")
             response.setCharacterEncoding("UTF-8")
             response.setStatus(HttpServletResponse.SC_OK)
+            
+            // Extract actual result from service response (same as regular handler)
+            def actualResult = result?.result ?: result
             response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 id: rpcRequest.id,
-                // Extract actual result from service response (same as regular handler)
-                def actualResult = result?.result ?: result
                 result: actualResult
             ]))
             
