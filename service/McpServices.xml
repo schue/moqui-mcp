@@ -106,6 +106,7 @@
                     protocolVersion: "2025-06-18",
                     capabilities: serverCapabilities,
                     serverInfo: serverInfo,
+                    sessionId: sessionId,
                     instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use screen_PopCommerce_screen_PopCommerceAdmin.Catalog for product catalog, screen_PopCommerce_screen_PopCommerceAdmin_Order.FindOrder for order status, screen_PopCommerce_screen_PopCommerceRoot.Customer for customer management, and screen_PopCommerce_screen_PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
                 ]
                 
@@ -196,7 +197,7 @@
                             ]
                         }
                         
-                        result.result = [
+                        result = [
                             content: content,
                             isError: false
                         ]
@@ -306,9 +307,9 @@
                         ]
                     }
                     
-                    result.result = [
+                    result = [
                         content: content,
-                        isError: false
+                        isError: serviceResult?.result?.isError ?: false
                     ]
                 } catch (Exception e2) {
                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
