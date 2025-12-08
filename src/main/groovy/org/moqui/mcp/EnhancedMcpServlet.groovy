@@ -537,7 +537,9 @@ try {
             response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
                 id: rpcRequest.id,
-                result: [status: "processed", sessionId: sessionId, architecture: "Visit-based"]
+                // Extract actual result from service response (same as regular handler)
+                def actualResult = result?.result ?: result
+                result: actualResult
             ]))
             
         } catch (Exception e) {
