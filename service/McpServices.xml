@@ -265,9 +265,10 @@
                         }
                     }
                     
-                    result.result = [
+                    // Extract content from ScreenAsMcpTool result, don't nest it
+                    result = serviceResult?.result ?: [
                         content: content,
-                        isError: serviceResult?.result?.isError ?: false
+                        isError: false
                     ]
                     return
                 }
