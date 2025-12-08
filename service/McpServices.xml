@@ -215,7 +215,7 @@
                     def screenPath
                     def subscreenName = null
                     
-                    // Check if this is a subscreen (contains dot after the initial prefix)
+                    // Check if this is a subscreen (contains dot after initial prefix)
                     if (toolNameSuffix.contains('.')) {
                         // Split on dot to separate parent screen path from subscreen name
                         def lastDotIndex = toolNameSuffix.lastIndexOf('.')
@@ -229,7 +229,12 @@
                         // Regular screen path: _ -> /, prepend component://, append .xml
                         screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
                         ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
-}
+                    }
+                    } else {
+                        // Regular screen path: _ -> /, prepend component://, append .xml
+                        screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
+                        ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
+                    }
                     
                     // Now call the screen tool with proper user context
                     def screenParams = arguments ?: [:]
