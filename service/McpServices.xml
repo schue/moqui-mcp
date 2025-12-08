@@ -383,7 +383,7 @@
                 // Use curated list of commonly used entities instead of discovering all entities
                 def availableResources = []
                 
-                ec.logger.info("MCP ResourcesList: Starting permissions-based entity discovery ${userGroups}")
+                ec.logger.debug("MCP ResourcesList: Starting permissions-based entity discovery ${userGroups}")
                 
                 // Get user's accessible entities using Moqui's optimized ArtifactAuthzCheckView
                 def userAccessibleEntities = null as Set<String>
@@ -431,7 +431,7 @@
                             description = "Moqui ViewEntity: ${entityName} (pre-joined data for LLM convenience)"
                         }
                         
-                        ec.logger.info("MCP ResourcesList: Adding entity: ${entityName}")
+                        ec.logger.debug("MCP ResourcesList: Adding entity: ${entityName}")
                         availableResources << [
                             uri: "entity://${entityName}",
                             name: entityName,
@@ -1398,7 +1398,7 @@ def startTime = System.currentTimeMillis()
                     // Helper function to recursively process screens and create tools
                     def processScreenWithSubscreens 
                     processScreenWithSubscreens = { screenPath, parentScreenPath = null, processedScreens = null, toolsAccumulator = null, parentToolName = null, level = 1 ->
-                        ec.logger.info("list#Tools: Processing screen ${screenPath} (parent: ${parentScreenPath}, parentToolName: ${parentToolName}, level: ${level})")
+                        ec.logger.debug("list#Tools: Processing screen ${screenPath} (parent: ${parentScreenPath}, parentToolName: ${parentToolName}, level: ${level})")
                         
                         // Initialize processedScreens and toolsAccumulator if null
                         if (processedScreens == null) processedScreens = [] as Set<String>
@@ -1408,7 +1408,7 @@ def startTime = System.currentTimeMillis()
                         def accessPathKey = screenPath + "|" + (parentScreenPath ?: "ROOT")
                         
                         if (processedScreens.contains(accessPathKey)) {
-                            ec.logger.info("list#Tools: Already processed ${screenPath} from parent ${parentScreenPath}, skipping")
+                            ec.logger.debug("list#Tools: Already processed ${screenPath} from parent ${parentScreenPath}, skipping")
                             return
                         }
                         
@@ -1417,7 +1417,7 @@ def startTime = System.currentTimeMillis()
                         try {
                             // Skip problematic patterns early
                             if (screenPath.contains("/error/") || screenPath.contains("/system/")) {
-                                ec.logger.info("list#Tools: Skipping system screen ${screenPath}")
+                                ec.logger.debug("list#Tools: Skipping system screen ${screenPath}")
                                 return
                             }
                             
@@ -1481,13 +1481,13 @@ def startTime = System.currentTimeMillis()
                                     // Replace last dot with underscore and append new subscreen name
                                     toolName = parentToolName + "_" + subscreenName // .replaceAll('\\.[^.]*$', '_' + subscreenName)
                                 }
-                                ec.logger.info("list#Tools: Creating subscreen tool ${toolName} for ${screenPath} (parentToolName: ${parentToolName}, level: ${level})")
+                                ec.logger.debug("list#Tools: Creating subscreen tool ${toolName} for ${screenPath} (parentToolName: ${parentToolName}, level: ${level})")
                             } else if (isSubscreen && parentScreenPath) {
                                 toolName = parentToolName + screenPathToToolNameWithSubscreens(screenPath, parentScreenPath)
-                                ec.logger.info("list#Tools: Creating subscreen tool ${toolName} for ${screenPath} (parent: ${parentScreenPath})")
+                                ec.logger.debug("list#Tools: Creating subscreen tool ${toolName} for ${screenPath} (parent: ${parentScreenPath})")
                             } else {
                                 toolName = parentToolName + screenPathToToolName(screenPath)
-                                ec.logger.info("list#Tools: Creating main screen tool ${toolName} for ${screenPath}")
+                                ec.logger.debug("list#Tools: Creating main screen tool ${toolName} for ${screenPath}")
                             }
                             
                             def tool = [
@@ -1501,7 +1501,7 @@ def startTime = System.currentTimeMillis()
                                 ]
                             ]
                             
-                            ec.logger.info("list#Tools: Adding accessible screen tool ${toolName} for ${screenPath}")
+                            ec.logger.debug("list#Tools: Adding accessible screen tool ${toolName} for ${screenPath}")
                             toolsAccumulator << tool
                             
                             // Recursively process subscreens
@@ -1509,11 +1509,11 @@ def startTime = System.currentTimeMillis()
                                 def screenInfoList = ec.screen.getScreenInfoList(screenPath, 1)
                                 def screenInfo = screenInfoList?.first()
                                 if (screenInfo?.subscreenInfoByName) {
-                                    ec.logger.info("list#Tools: Found ${screenInfo.subscreenInfoByName.size()} subscreens for ${screenPath}: ${screenInfo.subscreenInfoByName.keySet()}")
+                                    ec.logger.debug("list#Tools: Found ${screenInfo.subscreenInfoByName.size()} subscreens for ${screenPath}: ${screenInfo.subscreenInfoByName.keySet()}")
                                     for (subScreenEntry in screenInfo.subscreenInfoByName) {
                                         def subScreenInfo = subScreenEntry.value
                                         def subScreenPathList = subScreenInfo?.screenPath
-                                        ec.logger.info("list#Tools: Processing subscreen ${subScreenEntry.key}, subScreenInfo.screenPath: ${subScreenInfo.screenPath}")
+                                        ec.logger.debug("list#Tools: Processing subscreen ${subScreenEntry.key}, subScreenInfo.screenPath: ${subScreenInfo.screenPath}")
                                         
                                         // Get the actual subscreen location from screenInfo (should have correct cross-component paths)
                                         def actualSubScreenPath = null
@@ -1527,10 +1527,10 @@ def startTime = System.currentTimeMillis()
                                                     def screenDef = subScreenInfo.sd
                                                     if (screenDef?.hasProperty('screenLocation')) {
                                                         actualSubScreenPath = screenDef.screenLocation
-                                                        ec.logger.info("list#Tools: Found screenLocation from sd for ${subScreenEntry.key}: ${actualSubScreenPath}")
+                                                        ec.logger.debug("list#Tools: Found screenLocation from sd for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                                     } else if (screenDef?.hasProperty('location')) {
                                                         actualSubScreenPath = screenDef.location
-                                                        ec.logger.info("list#Tools: Found location from sd for ${subScreenEntry.key}: ${actualSubScreenPath}")
+                                                        ec.logger.debug("list#Tools: Found location from sd for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                                     }
                                                 }
                                                 
@@ -1576,7 +1576,7 @@ def startTime = System.currentTimeMillis()
                                                         }
                                                         if (subscreenItem?.hasAttribute('location')) {
                                                             actualSubScreenPath = subscreenItem.attribute('location')
-                                                            ec.logger.info("list#Tools: Found XML location for ${subScreenEntry.key}: ${actualSubScreenPath}")
+                                                            ec.logger.debug("list#Tools: Found XML location for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                                         }
                                                     }
                                                 }
@@ -1593,12 +1593,12 @@ def startTime = System.currentTimeMillis()
                                             if (lastSlash > 0) {
                                                 def basePath = currentScreenPath.substring(0, lastSlash + 1)
                                                 actualSubScreenPath = basePath + subscreenName + ".xml"
-                                                ec.logger.info("list#Tools: Constructed fallback path for ${subScreenEntry.key}: ${actualSubScreenPath}")
+                                                ec.logger.debug("list#Tools: Constructed fallback path for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                             }
                                         }
                                         
                                         if (actualSubScreenPath) {
-                                            ec.logger.info("list#Tools: Adding subscreen ${actualSubScreenPath} ${screenPath} ${toolName} ${level+1}")
+                                            ec.logger.debug("list#Tools: Adding subscreen ${actualSubScreenPath} ${screenPath} ${toolName} ${level+1}")
                                             processScreenWithSubscreens(actualSubScreenPath, screenPath, processedScreens, toolsAccumulator, toolName, level + 1)
                                         } else if (!actualSubScreenPath) {
                                             // For screens without explicit location, try automatic discovery
@@ -1606,7 +1606,7 @@ def startTime = System.currentTimeMillis()
                                             if (lastSlash > 0) {
                                                 def basePath = screenPath.substring(0, lastSlash + 1)
                                                 def autoSubScreenPath = basePath + subScreenEntry.key + ".xml"
-                                                ec.logger.info("list#Tools: Constructed fallback path for ${subScreenEntry.key}: ${actualSubScreenPath}")
+                                                ec.logger.debug("list#Tools: Constructed fallback path for ${subScreenEntry.key}: ${actualSubScreenPath}")
                                                 processScreenWithSubscreens(autoSubScreenPath, screenPath, processedScreens, toolsAccumulator, toolName, level + 1)
                                             }
                                         }
@@ -1626,7 +1626,7 @@ def startTime = System.currentTimeMillis()
                     ec.logger.info("list#Tools: Starting recursive processing from ${allScreens.size()} base screens")
                     for (screenPath in allScreens) {
                         def parentToolPath = 'screen_' + screenPath.split('/')[-3..-3].join('_').replace('.xml', '') + '_'
-                        ec.logger.info("TOPSCREEN: ${parentToolPath}")
+                        ec.logger.debug("TOPSCREEN: ${parentToolPath}")
                         processScreenWithSubscreens(screenPath, null, processedScreens, tools, parentToolPath, 0)
                     }
                     ec.logger.info("list#Tools: Recursive processing found ${tools.size()} total tools")
@@ -1710,7 +1710,7 @@ def startTime = System.currentTimeMillis()
                     ]
                     
                     tools.addAll(0, standardMcpMethods)  // Add at beginning so they appear on first page
-                    ec.logger.info("list#Tools: Added ${standardMcpMethods.size()} standard MCP protocol methods")
+                    ec.logger.debug("list#Tools: Added ${standardMcpMethods.size()} standard MCP protocol methods")
                     
                 } finally {
                     if (adminUserInfo != null) {
