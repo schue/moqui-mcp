@@ -107,7 +107,7 @@
                     capabilities: serverCapabilities,
                     serverInfo: serverInfo,
                     sessionId: sessionId,
-                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use screen_PopCommerce_screen_PopCommerceAdmin.Catalog for product catalog, screen_PopCommerce_screen_PopCommerceAdmin_Order.FindOrder for order status, screen_PopCommerce_screen_PopCommerceRoot.Customer for customer management, and screen_PopCommerce_screen_PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
+                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Feature_FindFeature to search by features like color or size. Use screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Product_FindProduct for product catalog, screen_PopCommerce_screen_PopCommerceAdmin_Order.FindOrder for order status, screen_PopCommerce_screen_PopCommerceRoot.Customer for customer management, and screen_PopCommerce_screen_PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
                 ]
                 
                 ec.logger.info("MCP Initialize for user ${userId} (session ${sessionId}): capabilities negotiated")
@@ -137,6 +137,7 @@
                 def startTime = System.currentTimeMillis()
                 
                 // Handle stubbed MCP protocol methods by routing to actual Moqui services
+                // Map contains MCP protocol method names to their actual service implementations
                 def protocolMethodMappings = [
                     "tools/list": "McpServices.list#Tools",
                     "tools/call": "McpServices.mcp#ToolsCall", 
@@ -170,15 +171,56 @@
                             actualArguments = [sessionId: sessionId]
                         }
                         
-                        // Route to the actual tool service, not recursive ToolsCall
-                        def actualTargetServiceName = protocolMethodMappings[actualToolName]
-                        if (actualTargetServiceName) {
-                            ec.logger.info("MCP ToolsCall: Routing tools/call with name '${actualToolName}' to ${actualTargetServiceName}")
-                            return ec.service.sync().name(actualTargetServiceName)
-                                .parameters(actualArguments ?: [:])
+                        // Check if this is a screen tool (starts with screen_) - route to screen execution service
+                        if (actualToolName.startsWith("screen_")) {
+                            ec.logger.info("MCP ToolsCall: Routing screen tool '${actualToolName}' to executeScreenAsMcpTool")
+                            // Decode screen path from tool name for screen execution
+                            def toolNameSuffix = actualToolName.substring(7)  // Remove "screen_" prefix
+                            
+                            def screenPath
+                            def subscreenName = null
+                            
+                            // Check if this is a subscreen (contains dot after initial prefix)
+                            if (toolNameSuffix.contains('.')) {
+                                // Split on dot to separate parent screen path from subscreen name
+                                def lastDotIndex = toolNameSuffix.lastIndexOf('.')
+                                def parentPath = toolNameSuffix.substring(0, lastDotIndex)
+                                subscreenName = toolNameSuffix.substring(lastDotIndex + 1)
+                                
+                                // Restore parent path: _ -> /, prepend component://, append .xml
+                                screenPath = "component://" + parentPath.replace('_', '/') + ".xml"
+                                ec.logger.info("MCP ToolsCall: Decoded screen tool - parent=${screenPath}, subscreen=${subscreenName}")
+                            } else {
+                                // Regular screen path: _ -> /, prepend component://, append .xml
+                                screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
+                                ec.logger.info("MCP ToolsCall: Decoded screen tool - screenPath=${screenPath}")
+                            }
+                            
+                            // Call screen execution service with decoded parameters
+                            def screenCallParams = [
+                                screenPath: screenPath,
+                                parameters: actualArguments?.arguments ?: [:],
+                                renderMode: actualArguments?.renderMode ?: "text",
+                                sessionId: sessionId
+                            ]
+                            if (subscreenName) {
+                                screenCallParams.subscreenName = subscreenName
+                            }
+                            
+                            return ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
+                                .parameters(screenCallParams)
                                 .call()
                         } else {
-                            throw new Exception("Unknown tool name: ${actualToolName}")
+                            // For non-screen tools, check if it's another protocol method
+                            def actualTargetServiceName = protocolMethodMappings[actualToolName]
+                            if (actualTargetServiceName) {
+                                ec.logger.info("MCP ToolsCall: Routing tools/call with name '${actualToolName}' to ${actualTargetServiceName}")
+                                return ec.service.sync().name(actualTargetServiceName)
+                                    .parameters(actualArguments ?: [:])
+                                    .call()
+                            } else {
+                                throw new Exception("Unknown tool name: ${actualToolName}")
+                            }
                         }
                     } else {
                         // For other protocol methods, call the target service with provided arguments
@@ -230,16 +272,11 @@
                         screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
                         ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
                     }
-                    } else {
-                        // Regular screen path: _ -> /, prepend component://, append .xml
-                        screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
-                        ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
-                    }
                     
                     // Now call the screen tool with proper user context
                     def screenParams = arguments ?: [:]
                     // Use requested render mode from arguments, default to text for LLM-friendly output
-                    def renderMode = screenParams.remove('renderMode') ?: "text"
+                    def renderMode = screenParams.remove('renderMode') ?: "html"
                     def serviceCallParams = [screenPath: screenPath, parameters: screenParams, renderMode: renderMode, sessionId: sessionId]
                     if (subscreenName) {
                         serviceCallParams.subscreenName = subscreenName
@@ -265,14 +302,15 @@
                             ]
                         } else {
                             content << [
-                                type: "html", 
+                                type: "text", 
                                 text: serviceResult.result.text ?: serviceResult.result.toString() ?: "Screen executed successfully"
                             ]
                         }
                     }
                     
                     // Extract content from ScreenAsMcpTool result, don't nest it
-                    result = serviceResult?.result ?: [
+                    // result = serviceResult?.result ?: [
+                    result = [
                         content: content,
                         isError: false
                     ]
@@ -301,10 +339,10 @@
                     }
                     ec.artifactExecution.enableAuthz()
                 }
-                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
                     // Convert result to MCP format
-                    def content = []
+                    content = []
                     if (serviceResult) {
                         content << [
                             type: "text",
@@ -317,7 +355,7 @@
                         isError: serviceResult?.result?.isError ?: false
                     ]
                 } catch (Exception e2) {
-                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
                     result = [
                         content: [
@@ -977,10 +1015,12 @@ def startTime = System.currentTimeMillis()
             // Regular screen rendering with timeout for subscreen
                 
             try {
-                ec.logger.info("TESTRENDER ${subscreenName.replaceAll('_','/')} ${renderParams}")
-                // For subscreens, the path should be relative to the parent screen that's already set as root
-                // Since we're using the parent screen as root, we only need the subscreen name part
-                def testRender = screenTest.render(subscreenName.replaceAll('_','/'), renderParams, "POST")
+                // Construct the proper relative path from parent screen to target subscreen
+                // The subscreenName contains the full path from parent with underscores, convert to proper path
+                def relativePath = subscreenName.replaceAll('_','/')
+                ec.logger.info("TESTRENDER ${relativePath} ${renderParams}")
+                // For subscreens, use the full relative path from parent screen to target subscreen
+                def testRender = screenTest.render(relativePath, renderParams, "POST")
                 output = testRender.getOutput()
                 def outputLength = output?.length() ?: 0
                 ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
@@ -1120,14 +1160,16 @@ def startTime = System.currentTimeMillis()
     def content = []
     
     // Add execution status as first content item
+    /*
     content << [
         type: "text",
         text: "Screen execution completed for ${screenPath} in ${executionTime}s"
     ]
+    */
     
     // Add screen HTML as main content
     content << [
-        type: "html",
+        type: "text",
         text: processedOutput,
         screenPath: screenPath,
         screenUrl: screenUrl,
