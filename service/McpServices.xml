@@ -1127,27 +1127,7 @@ def startTime = System.currentTimeMillis()
         isError: false
     ]
     
-    // Queue result as notification for real-time delivery
-    try {
-        def servlet = ec.getWeb()?.getServletContext()?.getAttribute("enhancedMcpServlet")
-        if (servlet && sessionId) {
-            def notification = [
-                method: "notifications/tool_result",
-                params: [
-                    toolName: "screen_" + screenPath.replace("/", "_").replace(".", "_"),
-                    result: result,
-                    executionTime: executionTime,
-                    timestamp: System.currentTimeMillis()
-                ]
-            ]
-            servlet.queueNotification(sessionId, notification)
-            ec.logger.info("MCP Screen Execution: Queued result as notification for screen ${screenPath} in ${executionTime}s")
-        } else {
-            ec.logger.warn("MCP Screen Execution: No servlet or sessionId available for notification queuing")
-        }
-    } catch (Exception e) {
-        ec.logger.warn("MCP Screen Execution: Failed to queue notification: ${e.message}")
-    }
+    ec.logger.info("MCP Screen Execution: Returned result directly for screen ${screenPath} in ${executionTime}s")
             ]]></script>
         </actions>
     </service>
