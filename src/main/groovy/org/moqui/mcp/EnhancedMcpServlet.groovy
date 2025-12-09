@@ -1207,7 +1207,7 @@ try {
                                 
                                 if (visit) {
                                     visit.thruDate = ec.user.getNowTimestamp()
-                                    visit.update()
+                                    //visit.update()
                                     // Update cache with new thruDate
                                     visitCache.put(sessionId, visit)
                                     lastActivityUpdate.put(sessionId, now)

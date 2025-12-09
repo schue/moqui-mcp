@@ -107,7 +107,7 @@
                     capabilities: serverCapabilities,
                     serverInfo: serverInfo,
                     sessionId: sessionId,
-                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Feature_FindFeature to search by features like color or size. Use screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Product_FindProduct for product catalog, screen_PopCommerce_screen_PopCommerceAdmin_Order.FindOrder for order status, screen_PopCommerce_screen_PopCommerceRoot.Customer for customer management, and screen_PopCommerce_screen_PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
+                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Feature_FindFeature to search by features like color or size. Use screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Product_FindProduct for product catalog, screen_PopCommerce_screen_PopCommerceAdmin_Order.FindOrder for order status, screen_PopCommerce_screen_PopCommerceRoot.Customer for customer management, screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Product_EditPrices to check prices and screen_PopCommerce_screen_PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
                 ]
                 
                 ec.logger.info("MCP Initialize for user ${userId} (session ${sessionId}): capabilities negotiated")
@@ -199,14 +199,16 @@
                             // Call screen execution service with decoded parameters
                             def screenCallParams = [
                                 screenPath: screenPath,
-                                parameters: actualArguments?.arguments ?: [:],
-                                renderMode: actualArguments?.renderMode ?: "text",
+                                parameters: actualArguments, //actualArguments?.arguments ?: [:],
+                                renderMode: actualArguments?.renderMode ?: "html",
                                 sessionId: sessionId
                             ]
                             if (subscreenName) {
                                 screenCallParams.subscreenName = subscreenName
                             }
                             
+
+                            ec.logger.info("EXECUTESCREEN ${screenCallParams}")
                             return ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
                                 .parameters(screenCallParams)
                                 .call()
@@ -224,6 +226,7 @@
                         }
                     } else {
                         // For other protocol methods, call the target service with provided arguments
+                        ec.logger.info("MCP ToolsCall: ${targetServiceName} ${arguments}")
                         def serviceResult = ec.service.sync().name(targetServiceName)
                             .parameters(arguments ?: [:])
                             .call()
@@ -281,6 +284,8 @@
                     if (subscreenName) {
                         serviceCallParams.subscreenName = subscreenName
                     }
+
+                    ec.logger.info("SCREENASTOOL ${serviceCallParams}")
                     serviceResult = ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
                         .parameters(serviceCallParams)
                         .call()
