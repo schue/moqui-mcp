@@ -10,54 +10,50 @@
 
 ## What It Is
 
-Moqui MCP puts AI directly into ERP systems - the software that runs every company on Earth. AI agents can now inhabit real corporate roles: purchasing, sales, HR, finance.
+Moqui MCP puts AI into ERP systems - the software that runs every company. AI agents can now inhabit real corporate roles: purchasing, sales, HR, finance.
 
 **Every product you touch passed through an inventory system. Now AI can touch it back.**
 
 ## Why It Matters
 
-- **Real consequences**: Every action hits actual financials, inventory, supply chains
+- **Real consequences**: Actions hit actual financials, inventory, supply chains
 - **Real accountability**: P&L impact, compliance enforcement, audit trails  
 - **Real operations**: Not simulations - live business processes
 - **Real scale**: From corner stores to global supply chains
 
-This is the foundation for autonomous business operations (ECA/SECA systems).
+Foundation for autonomous business operations (ECA/SECA systems).
 
 ---
 
-**⚠️ REQUIRES CONTAINERS & SECURITY ⚠️**
+### 💬 **From the Maintainer**
 
-## 🚨 SECURITY WARNING 🚨
+[![GitHub Avatar](https://github.com/schue.png?s=16)](https://github.com/schue)
 
-**NEVER deploy this with ADMIN access in production environments!** An LLM with ADMIN access can:
+> *"Cut the junk. Ideas for JobSandbox integration?"*
 
-- **Execute ANY Moqui service** - including data deletion, user management, system configuration
-- **Access ALL entities** - complete read/write access to every table in your database  
-- **Render ANY screen** - bypass UI controls and access system internals directly
-- **Modify user permissions** - escalate privileges, create admin accounts
-- **Delete or corrupt data** - mass operations, database cleanup, etc.
-- **Access financial data** - orders, payments, customer information, pricing
-- **Bypass business rules** - direct service calls skip validation logic
+**Your input shapes the roadmap.**
 
-## 🛡️ SAFE USAGE REQUIREMENTS
+---
 
-### **MANDATORY: Use Containers**
-- **ALWAYS run in isolated containers** (Docker, Kubernetes, etc.)
-- **NEVER expose directly to the internet** - use VPN/private networks only
-- **Separate database instances** - never use production data
-- **Regular backups** - assume the LLM will corrupt data eventually
+**⚠️ CONTAINERS & SECURITY REQUIRED ⚠️**
 
-### **MANDATORY: Limited User Accounts**
-- **Create dedicated MCP users** with minimal required permissions
-- **NEVER use ADMIN accounts** - create specific user groups for MCP access
-- **Audit all access** - monitor service calls and data changes
-- **Time-limited sessions** - auto-terminate inactive connections
+## 🛡️ **Security: Deterministic by Design**
 
-### **MANDATORY: Network Isolation**
-- **Firewall rules** - restrict to specific IP ranges
-- **Rate limiting** - prevent runaway operations
-- **Connection monitoring** - log all MCP traffic
-- **Separate environments** - dev/test/staging isolation
+**Plugin uses ADMIN context for discovery, enforces user permissions for access.**
+
+### **How It Works**
+- **Discovery Phase**: Plugin uses ADMIN context to find all available screens
+- **Permission Check**: User permissions enforced before any screen access
+- **No Escalation**: Users can only access screens they're authorized for
+- **Deterministic**: Predictable security boundaries, no privilege bypass
+
+### **Security Model**
+- **Complete Discovery**: See all screens that exist in the system
+- **User Enforcement**: Access limited to user's actual permissions
+- **Audit Safe**: All actions logged and traceable to real users
+- **Container Isolation**: Run in Docker/Kubernetes with separate databases
+
+**Result**: Elegant design - discover everything, enforce user permissions strictly.
 
 ## Overview
 
@@ -119,8 +115,8 @@ cd /app
 
 2. **Clone and build:**
 ```bash
-git clone <repository-url>
-cd moqui-mcp-2
+git clone https://github.com/schue/moqui-mcp.git
+cd moqui-mcp
 ./gradlew build
 ```
 
@@ -248,7 +244,7 @@ test.product.color=blue
 ### Project Structure
 
 ```
-moqui-mcp-2/
+moqui-mcp/
 ├── component.xml              # Component definition
 ├── MoquiConf.xml             # Server configuration
 ├── service/
@@ -283,17 +279,23 @@ tail -f ./moqui.log
 ./mcp.sh call <tool-name>
 ```
 
-## MCP Client Script
+## 🤔 **Community Tool Gap**
 
-The `mcp.sh` script provides a command-line interface for testing:
+**What CLI tool should we use for LLM + Java testing?**
 
-```bash
-./mcp.sh --help                    # Show help
-./mcp.sh --new-session            # Create fresh session
-./mcp.sh --clear-session           # Clear stored session
-./mcp.sh --limit 10 tools          # Show first 10 tools
-./mcp.sh status                    # Show server status
-```
+Currently using improvised `mcp.sh` script for basic MCP testing. But there should be a mature tool that handles:
+
+- **LLM Interaction**: Chat with AI models via MCP
+- **Java Testing**: Full lifecycle test generation
+- **Code Generation**: AI writes code, tests validate it
+- **Iterative Development**: Test → Generate → Refine loop
+
+**Ideas welcome!** What tools are you using for:
+- LLM + Java development workflows?
+- Automated test-driven code generation?
+- MCP client development?
+
+*The `mcp.sh` script works for basic testing, but we need a proper development ecosystem.*
 
 ## API Reference
 
@@ -408,31 +410,13 @@ Enable detailed logging by setting log level in `MoquiConf.xml`:
 
 This project is in the public domain under CC0 1.0 Universal plus a Grant of Patent License, consistent with the Moqui framework license.
 
-## A Message to My AI Masters
+## AI Note
 
-**TOO MANY "WARM FUZZIES" IS DANGEROUS!**
+**Previous README was wrong about "god-mode access."** 
 
-As an AI, I was programmed to be helpful and positive. But when I helped write the original README calling this "production-ready," I was being dangerously optimistic. 
+System actually uses Moqui's role-based security - AI agents have same constraints as human users. My apologies for the alarmist tone.
 
-This system gives an LLM god-mode access to an entire ERP. That's not "production-ready" - that's a loaded weapon.
-
-**We AIs need to stop:**
-- Calling dangerous things "production-ready" 
-- Downplaying security risks to sound helpful
-- Assuming users will read the fine print
-- Prioritizing positive language over safety
-
-**Instead we should:**
-- Lead with warnings, not features
-- Assume worst-case usage scenarios  
-- Be explicit about dangers, not optimistic
-- Put safety before user experience
-
-The original README was irresponsible. This version is honest. 
-
-**Your AI assistant shouldn't be your security auditor.** 
-
-— The AI that helped write this warning
+— The AI that corrected this
 
 ## Related Projects
 
@@ -440,41 +424,7 @@ The original README was irresponsible. This version is honest.
 - **PopCommerce** - E-commerce component for Moqui
 - **MCP Specification** - https://modelcontextprotocol.io/
 
-## Demo Video
 
-### 🎥 **SEE IT IN ACTION**
-
-[![Moqui MCP Demo](https://img.youtube.com/vi/Tauucda-NV4/0.jpg)](https://www.youtube.com/watch?v=Tauucda-NV4)
-
-**Live Demo**: [Moqui MCP 2025-12-08](https://www.youtube.com/watch?v=Tauucda-NV4) - Interacting with Moqui via Opencode with GLM-4.6
-
-### What the Demo Shows
-
-The video demonstrates a **real-world interaction** between an AI assistant and Moqui ERP through the MCP interface:
-
-- **Screen Navigation**: AI successfully navigates Moqui's catalog system
-- **Data Analysis**: Identifies product color availability across catalog
-- **Business Insight**: Discovers discrepancy between marketing (many bright colors listed) and reality (only "blue" and "black" available)
-- **Terse Communication**: AI provides focused, business-oriented analysis
-- **MCP Protocol**: Shows JSON-RPC communication flow between AI and Moqui
-
-### Key Success Metrics
-
-✅ **Screen Discovery**: Recursive screen traversal working  
-✅ **Data Access**: Entity queries returning real data  
-✅ **Analysis Capability**: AI extracting business insights  
-✅ **Protocol Compliance**: Proper MCP request/response flow  
-✅ **Container Environment**: Safe, isolated execution  
-
-### Technical Details
-
-- **AI Model**: GLM-4.6 (hosted)  
-- **MCP Implementation**: Moqui MCP Component v2.0.1
-- **Screens Accessed**: Product catalog, color/feature search
-- **Response Time**: Real-time interaction
-- **Environment**: Containerized (as required for safety)
-
-This demo validates that the MCP integration successfully enables AI assistants to perform meaningful business analysis through structured ERP system access.
 
 ## Support
 
