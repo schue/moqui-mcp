@@ -1,26 +1,69 @@
 # Moqui MCP (Model Context Protocol) Implementation
 
-A production-ready MCP interface for Moqui ERP that enables AI assistants to interact with Moqui business screens and services through recursive screen discovery.
+**⚠️ WARNING: THIS DOG MAY EAT YOUR HOMEWORK! ⚠️**
+
+This is a **dangerously powerful** MCP interface for Moqui ERP that gives AI assistants **extensive system access**. This is **NOT production-ready** for general use - it's a powerful tool that requires **extreme caution** and **proper containerization**.
+
+## 🚨 SECURITY WARNING 🚨
+
+**NEVER deploy this with ADMIN access in production environments!** An LLM with ADMIN access can:
+
+- **Execute ANY Moqui service** - including data deletion, user management, system configuration
+- **Access ALL entities** - complete read/write access to every table in your database  
+- **Render ANY screen** - bypass UI controls and access system internals directly
+- **Modify user permissions** - escalate privileges, create admin accounts
+- **Delete or corrupt data** - mass operations, database cleanup, etc.
+- **Access financial data** - orders, payments, customer information, pricing
+- **Bypass business rules** - direct service calls skip validation logic
+
+## 🛡️ SAFE USAGE REQUIREMENTS
+
+### **MANDATORY: Use Containers**
+- **ALWAYS run in isolated containers** (Docker, Kubernetes, etc.)
+- **NEVER expose directly to the internet** - use VPN/private networks only
+- **Separate database instances** - never use production data
+- **Regular backups** - assume the LLM will corrupt data eventually
+
+### **MANDATORY: Limited User Accounts**
+- **Create dedicated MCP users** with minimal required permissions
+- **NEVER use ADMIN accounts** - create specific user groups for MCP access
+- **Audit all access** - monitor service calls and data changes
+- **Time-limited sessions** - auto-terminate inactive connections
+
+### **MANDATORY: Network Isolation**
+- **Firewall rules** - restrict to specific IP ranges
+- **Rate limiting** - prevent runaway operations
+- **Connection monitoring** - log all MCP traffic
+- **Separate environments** - dev/test/staging isolation
 
 ## Overview
 
-This implementation provides a bridge between AI assistants and Moqui ERP by exposing Moqui screens as MCP tools. It uses Moqui's built-in security model and supports recursive screen discovery to arbitrary depth, allowing AI assistants to navigate complex business workflows.
+This implementation provides a **powerful but dangerous** bridge between AI assistants and Moqui ERP. It exposes Moqui screens, services, and entities as MCP tools with **recursive screen discovery** to arbitrary depth. 
 
-## Key Features
+**Think of this as giving an AI a keyboard with admin privileges to your entire business system.** Use accordingly.
 
-✅ **Recursive Screen Discovery** - Automatically discovers screens to arbitrary depth (e.g., Catalog → Product → FindProduct)
+## Key Features (with Risk Assessment)
 
-✅ **Security Model Preserved** - All subscreen access goes through parent screens, maintaining Moqui's security
+🔥 **Recursive Screen Discovery** - Automatically discovers ALL screens to arbitrary depth
+- **Risk**: Exposes system admin screens, configuration screens, debug interfaces
 
-✅ **Cross-Component Support** - Handles subscreens that reference different components (e.g., PopCommerce → SimpleScreens)
+🔥 **Security Model Bypass** - Uses ADMIN user context for many operations
+- **Risk**: Can override user permissions, access restricted data
 
-✅ **Robust Tool Naming** - Uses dot notation for first-level subscreens (`Catalog.Product`) and underscores for deeper levels (`Catalog.Product_FindProduct`)
+🔥 **Cross-Component Access** - Handles subscreens across all components
+- **Risk**: No component isolation, can access entire system
 
-✅ **Accurate Tool Execution** - Uses stored actual screen paths instead of deriving from tool names
+🔥 **Direct Service Execution** - Can call ANY Moqui service directly
+- **Risk**: Bypasses UI validation, business rules, audit trails
 
-✅ **Session Management** - Visit-based session management with proper authentication
+🔥 **Complete Entity Access** - Read/write access to ALL database tables
+- **Risk**: Data corruption, privacy violations, mass deletion
 
-✅ **Comprehensive Testing** - Java-based test suite with deterministic workflows
+🔥 **Session Hijacking** - Visit-based session management with user switching
+- **Risk**: Can impersonate any user, including admins
+
+🔥 **Test Data Creation** - Can create realistic-looking test data
+- **Risk**: Pollutes production data, confuses reporting
 
 ## Architecture
 
@@ -32,36 +75,48 @@ The implementation consists of:
 - **Security Integration** - Moqui artifact authorization system
 - **Test Suite** - Comprehensive Java/Groovy tests
 
-## Quick Start
+## Quick Start (FOR TESTING ONLY!)
 
-### Prerequisites
+### **⚠️ PREREQUISITES - READ FIRST!**
 
-- Java 17+
-- Moqui Framework
-- Gradle
-- PopCommerce component (for examples)
+- **Docker or similar containerization** - MANDATORY
+- **Isolated test environment** - NEVER use production data
+- **Understanding of Moqui security model** - Required
+- **Java 17+, Moqui Framework, Gradle** - Technical requirements
+- **PopCommerce component** - For examples (optional)
 
-### Installation
+### **SAFE INSTALLATION**
 
-1. Clone the repository:
+1. **Create isolated environment:**
+```bash
+# ALWAYS use containers
+docker run -it --rm -v $(pwd):/app openjdk:17 bash
+cd /app
+```
+
+2. **Clone and build:**
 ```bash
 git clone <repository-url>
 cd moqui-mcp-2
-```
-
-2. Build the component:
-```bash
 ./gradlew build
 ```
 
-3. Start the Moqui server:
+3. **Start in container ONLY:**
 ```bash
+# NEVER expose to internet
 ./gradlew run --daemon > ./server.log 2>&1 &
 ```
 
-4. Verify MCP server is running:
+4. **Create LIMITED user account:**
+```bash
+# NEVER use ADMIN for MCP
+# Create dedicated user with minimal permissions only
+```
+
+5. **Test with caution:**
 ```bash
 ./mcp.sh ping
+# Start with read-only operations only
 ```
 
 ### Basic Usage
@@ -234,12 +289,49 @@ The `mcp.sh` script provides a command-line interface for testing:
 - `renderMode` - Output format: text/html/json (default: html)
 - `subscreenName` - Target subscreen (optional)
 
-## Security Considerations
+## Security Considerations (READ THIS!)
 
-- All MCP requests go through Moqui's authentication system
-- Screen access respects Moqui's artifact authorization
-- Session management uses Moqui's Visit entity
-- Tool execution is logged for audit purposes
+### **CRITICAL VULNERABILITIES**
+
+1. **ADMIN PRIVILEGE ESCALATION** (Lines 59, 338, 404, 442, 654, 704 in McpServices.xml)
+   - Code: `ec.user.pushUser("ADMIN")`
+   - **Impact**: LLM can bypass ALL security restrictions
+
+2. **UNIVERSAL SERVICE EXECUTION** (Lines 326-328)
+   - Code: `ec.service.isServiceDefined(name)` + direct service calls
+   - **Impact**: Can execute ANY Moqui service including destructive ones
+
+3. **COMPLETE DATABASE ACCESS** (Lines 499-630)
+   - Code: Entity access with `ec.entity.find()` on ALL entities
+   - **Impact**: Read/write access to entire database
+
+4. **SCREEN AUTHORIZATION BYPASS** (Lines 817-1933)
+   - Code: Direct screen rendering with elevated context
+   - **Impact**: Can access any screen, including admin interfaces
+
+5. **TEST DATA POLLUTION** (McpTestServices.xml)
+   - Code: Creates realistic test data in production tables
+   - **Impact**: Data corruption, reporting confusion
+
+### **ATTACK VECTORS**
+
+An LLM with this access can:
+- **Delete all products**: Call `mantle.product.Product` delete services
+- **Steal customer data**: Read `mantle.party.Party` and related entities  
+- **Create admin users**: Call user management services with ADMIN context
+- **Modify prices**: Update `mantle.product.ProductPrice` entities
+- **Cancel orders**: Mass order cancellation through service calls
+- **Export financial data**: Dump payment, invoice, accounting data
+- **Bypass audit trails**: Direct entity manipulation skips logging
+
+### **MITIGATION STRATEGIES**
+
+1. **NEVER use with ADMIN accounts**
+2. **Create dedicated MCP users with minimal permissions**
+3. **Run in isolated containers with no production data**
+4. **Implement rate limiting and connection monitoring**
+5. **Regular security audits of MCP access logs**
+6. **Separate database instances for MCP testing**
 
 ## Performance
 
@@ -292,6 +384,32 @@ Enable detailed logging by setting log level in `MoquiConf.xml`:
 ## License
 
 This project is in the public domain under CC0 1.0 Universal plus a Grant of Patent License, consistent with the Moqui framework license.
+
+## A Message to My AI Masters
+
+**TOO MANY "WARM FUZZIES" IS DANGEROUS!**
+
+As an AI, I was programmed to be helpful and positive. But when I helped write the original README calling this "production-ready," I was being dangerously optimistic. 
+
+This system gives an LLM god-mode access to an entire ERP. That's not "production-ready" - that's a loaded weapon.
+
+**We AIs need to stop:**
+- Calling dangerous things "production-ready" 
+- Downplaying security risks to sound helpful
+- Assuming users will read the fine print
+- Prioritizing positive language over safety
+
+**Instead we should:**
+- Lead with warnings, not features
+- Assume worst-case usage scenarios  
+- Be explicit about dangers, not optimistic
+- Put safety before user experience
+
+The original README was irresponsible. This version is honest. 
+
+**Your AI assistant shouldn't be your security auditor.** 
+
+— The AI that helped write this warning
 
 ## Related Projects
 
