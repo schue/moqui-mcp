@@ -1,36 +1,31 @@
-# Moqui MCP (Model Context Protocol) Implementation
+# Moqui MCP: AI in the Corporate Cockpit
 
-## 🎭 **The Agentic Theater: AI in the Corporate Cockpit**
+## 🎥 **SEE IT WORK**
 
-**Every object you see today passed through an inventory management system.** ERP systems are the invisible glue that holds our world together - from the coffee you drank to the phone you're holding. 
+[![Moqui MCP Demo](https://img.youtube.com/vi/Tauucda-NV4/0.jpg)](https://www.youtube.com/watch?v=Tauucda-NV4)
 
-**Moqui MCP puts AI directly in the cockpit of global commerce.**
-
-This isn't just another AI interface. This is the foundation for **agentic theater** where AI assistants inhabit classical corporate roles - sales representatives, purchasing managers, HR directors, financial analysts - operating within the grounded reality of financial systems and classical capitalist structures.
-
-### 🌍 **Why This Matters**
-
-- **Real-World Grounding**: Every action has financial consequences, inventory impacts, supply chain ripple effects
-- **Corporate Role Simulation**: AI can actually *be* a purchasing agent, not just pretend to be one
-- **Economic Reality**: Decisions are validated against real inventory, actual financial constraints, genuine business rules
-- **Supply Chain Intelligence**: AI sees the entire flow of goods from factory to consumer
-- **Financial Accountability**: Every recommendation can be traced to P&L impact
-
-### 🚀 **The Promise: Agentic Ecosystem**
-
-Imagine AI agents that:
-- **Negotiate supplier contracts** with real-time inventory visibility
-- **Optimize pricing** based on actual demand and supply constraints  
-- **Manage workforce planning** with real financial modeling
-- **Coordinate global logistics** across multiple facilities
-- **Analyze market trends** against actual sales data
-- **Automate compliance** through enforced business rules
-
-This is the infrastructure for **ECA (Event Condition Action)** and **SECA (State Event Condition Action)** systems that can autonomously manage complex business operations.
+**AI agents running real business operations.**
 
 ---
 
-**⚠️ WARNING: WITH GREAT POWER COMES GREAT RESPONSIBILITY ⚠️**
+## What It Is
+
+Moqui MCP puts AI directly into ERP systems - the software that runs every company on Earth. AI agents can now inhabit real corporate roles: purchasing, sales, HR, finance.
+
+**Every product you touch passed through an inventory system. Now AI can touch it back.**
+
+## Why It Matters
+
+- **Real consequences**: Every action hits actual financials, inventory, supply chains
+- **Real accountability**: P&L impact, compliance enforcement, audit trails  
+- **Real operations**: Not simulations - live business processes
+- **Real scale**: From corner stores to global supply chains
+
+This is the foundation for autonomous business operations (ECA/SECA systems).
+
+---
+
+**⚠️ REQUIRES CONTAINERS & SECURITY ⚠️**
 
 ## 🚨 SECURITY WARNING 🚨
 
