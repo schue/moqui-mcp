@@ -119,8 +119,8 @@ cd /app
 
 2. **Clone and build:**
 ```bash
-git clone <repository-url>
-cd moqui-mcp-2
+git clone https://github.com/schue/moqui-mcp.git
+cd moqui-mcp
 ./gradlew build
 ```
 
@@ -248,7 +248,7 @@ test.product.color=blue
 ### Project Structure
 
 ```
-moqui-mcp-2/
+moqui-mcp/
 ├── component.xml              # Component definition
 ├── MoquiConf.xml             # Server configuration
 ├── service/
