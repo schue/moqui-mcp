@@ -50,6 +50,7 @@ Foundation for autonomous business operations (ECA/SECA systems).
 ### **Security Model**
 - **Complete Discovery**: See all screens that exist in the system
 - **User Enforcement**: Access limited to user's actual permissions
+- **Service Control**: All service invocation strictly controlled by Artifact permissions
 - **Audit Safe**: All actions logged and traceable to real users
 - **Container Isolation**: Run in Docker/Kubernetes with separate databases
 
