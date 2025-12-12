@@ -2,7 +2,7 @@
 
 **⚠️ WARNING: THIS DOG MAY EAT YOUR HOMEWORK! ⚠️**
 
-This system gives AI agents god-mode access to an entire ERP system - that's not a feature, it's a loaded weapon requiring serious security consideration.
+This system can give AI agents god-mode access to an entire ERP system - that's not a feature, it's a loaded weapon requiring serious security consideration.
 
 ## 🎥 **SEE IT WORK**
 
