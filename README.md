@@ -37,23 +37,23 @@ Foundation for autonomous business operations (ECA/SECA systems).
 
 **⚠️ CONTAINERS & SECURITY REQUIRED ⚠️**
 
-## 🛡️ **Security: AI User Avatars**
+## 🛡️ **Security: Deterministic by Design**
 
-AI agents authenticate as **Moqui users** with **role-based permissions** - same security as human employees.
+**Plugin uses ADMIN context for discovery, enforces user permissions for access.**
 
-### **Safe Privilege Escalation**
-- **Start Limited**: AI begins with basic permissions (read-only catalog access)
-- **Earn Trust**: Proven performance triggers Moqui status transitions
-- **Role Progression**: AI "promotes" from trainee → specialist → manager
-- **Business Rules**: All actions constrained by Moqui's compliance framework
+### **How It Works**
+- **Discovery Phase**: Plugin uses ADMIN context to find all available screens
+- **Permission Check**: User permissions enforced before any screen access
+- **No Escalation**: Users can only access screens they're authorized for
+- **Deterministic**: Predictable security boundaries, no privilege bypass
 
-### **Built-In Safety**
-- **Audit Trails**: Every AI action logged and reversible
-- **Financial Limits**: Can't exceed authorized spending thresholds
-- **Multi-Approval**: Critical decisions require human supervisor
+### **Security Model**
+- **Complete Discovery**: See all screens that exist in the system
+- **User Enforcement**: Access limited to user's actual permissions
+- **Audit Safe**: All actions logged and traceable to real users
 - **Container Isolation**: Run in Docker/Kubernetes with separate databases
 
-**Result**: AI agents follow same career progression and safety protocols as human employees.
+**Result**: Elegant design - discover everything, enforce user permissions strictly.
 
 ## Overview
 
