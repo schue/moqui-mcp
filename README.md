@@ -8,20 +8,27 @@
 
 ---
 
-## What It Is
+## 🚀 **THE POSSIBILITIES**
 
-Moqui MCP puts AI into ERP systems - the software that runs every company. AI agents can now inhabit real corporate roles: purchasing, sales, HR, finance.
+### **Autonomous Business Operations**
+- **AI Purchasing Agents**: Negotiate with suppliers using real inventory data
+- **Dynamic Pricing**: Adjust prices based on live demand and supply constraints  
+- **Workforce Intelligence**: Optimize scheduling with real financial modeling
+- **Supply Chain Orchestration**: Coordinate global logistics automatically
+
+### **Real-World Intelligence**
+- **Market Analysis**: AI sees actual sales data, not just trends
+- **Financial Forecasting**: Ground predictions in real business metrics
+- **Risk Management**: Monitor operations for anomalies and opportunities
+- **Compliance Automation**: Enforce business rules across all processes
+
+### **The Agentic Economy**
+- **Multi-Agent Systems**: Sales, purchasing, operations AI working together
+- **ECA/SECA Integration**: Event-driven autonomous decision making
+- **Cross-Company Coordination**: AI agents negotiating with other AI agents
+- **Economic Simulation**: Test strategies in real business environment
 
 **Every product you touch passed through an inventory system. Now AI can touch it back.**
-
-## Why It Matters
-
-- **Real consequences**: Actions hit actual financials, inventory, supply chains
-- **Real accountability**: P&L impact, compliance enforcement, audit trails  
-- **Real operations**: Not simulations - live business processes
-- **Real scale**: From corner stores to global supply chains
-
-Foundation for autonomous business operations (ECA/SECA systems).
 
 ---
 
@@ -29,7 +36,7 @@ Foundation for autonomous business operations (ECA/SECA systems).
 
 [![GitHub Avatar](https://github.com/schue.png?s=16)](https://github.com/schue)
 
-> *"Cut the junk. Ideas for JobSandbox integration?"*
+> *"Ideas for JobSandbox integration?"*
 
 **Your input shapes the roadmap.**
 
@@ -39,23 +46,9 @@ Foundation for autonomous business operations (ECA/SECA systems).
 
 ## 🛡️ **Security: Deterministic by Design**
 
-**Plugin uses ADMIN context for discovery, enforces user permissions for access.**
+**ADMIN for discovery, user permissions enforced for access.** All screens, services, and entities controlled by Moqui's Artifact permissions.
 
-### **How It Works**
-- **Discovery Phase**: Plugin uses ADMIN context to find all available screens
-- **Permission Check**: User permissions enforced before any screen access
-- **No Escalation**: Users can only access screens they're authorized for
-- **Deterministic**: Predictable security boundaries, no privilege bypass
-
-### **Security Model**
-- **Complete Discovery**: See all screens that exist in the system
-- **User Enforcement**: Access limited to user's actual permissions
-- **Service Control**: All service invocation strictly controlled by Artifact permissions
-- **Entity Access**: Entity queries limited by ArtifactAuthzCheckView permissions
-- **Audit Safe**: All actions logged and traceable to real users
-- **Container Isolation**: Run in Docker/Kubernetes with separate databases
-
-**Result**: Elegant design - discover everything, enforce user permissions strictly.
+[📖 Full Security Details](docs/SECURITY.md) | [🔧 Container Setup](docs/DEPLOYMENT.md)
 
 ## Overview
 
