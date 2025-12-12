@@ -419,6 +419,10 @@ The original README was irresponsible. This version is honest.
 
 ## Demo Video
 
+### 🎥 **SEE IT IN ACTION**
+
+[![Moqui MCP Demo](https://img.youtube.com/vi/Tauucda-NV4/0.jpg)](https://www.youtube.com/watch?v=Tauucda-NV4)
+
 **Live Demo**: [Moqui MCP 2025-12-08](https://www.youtube.com/watch?v=Tauucda-NV4) - Interacting with Moqui via Opencode with GLM-4.6
 
 ### What the Demo Shows
