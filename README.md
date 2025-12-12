@@ -10,32 +10,32 @@
 
 ## What It Is
 
-Moqui MCP puts AI directly into ERP systems - the software that runs every company on Earth. AI agents can now inhabit real corporate roles: purchasing, sales, HR, finance.
+Moqui MCP puts AI into ERP systems - the software that runs every company. AI agents can now inhabit real corporate roles: purchasing, sales, HR, finance.
 
 **Every product you touch passed through an inventory system. Now AI can touch it back.**
 
 ## Why It Matters
 
-- **Real consequences**: Every action hits actual financials, inventory, supply chains
+- **Real consequences**: Actions hit actual financials, inventory, supply chains
 - **Real accountability**: P&L impact, compliance enforcement, audit trails  
 - **Real operations**: Not simulations - live business processes
 - **Real scale**: From corner stores to global supply chains
 
-This is the foundation for autonomous business operations (ECA/SECA systems).
+Foundation for autonomous business operations (ECA/SECA systems).
 
 ---
 
 ### 💬 **From the Maintainer**
 
-[![GitHub Avatar](https://github.com/schue.png?s=40)](https://github.com/schue)
+[![GitHub Avatar](https://github.com/schue.png?s=20)](https://github.com/schue)
 
-> *"I know there's lots of redundant junk in here - I've cut some of it away. I would love to hear ideas about how we further align this tool with core functionality like the JobSandbox."*
+> *"Cut the junk. Ideas for JobSandbox integration?"*
 
-**Your input shapes the roadmap.** What business processes should AI agents handle first?
+**Your input shapes the roadmap.**
 
 ---
 
-**⚠️ REQUIRES CONTAINERS & SECURITY ⚠️**
+**⚠️ CONTAINERS & SECURITY REQUIRED ⚠️**
 
 ## 🚨 SECURITY WARNING 🚨
 
