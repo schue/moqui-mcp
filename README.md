@@ -38,7 +38,7 @@
 
 [![GitHub Avatar](https://github.com/schue.png?s=16)](https://github.com/schue)
 
-> *"About 50% of this is slop. Ideas for Sandbox integration?"*
+> *"About 50% of this is slop. Ideas for JobSandbox integration?"*
 
 **Your input shapes the roadmap.**
 
