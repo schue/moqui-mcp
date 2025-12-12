@@ -1,5 +1,7 @@
 # Moqui MCP: AI in the Corporate Cockpit
 
+**⚠️ WARNING: THIS DOG MAY EAT YOUR HOMEWORK! ⚠️**
+
 ## 🎥 **SEE IT WORK**
 
 [![Moqui MCP Demo](https://img.youtube.com/vi/Tauucda-NV4/0.jpg)](https://www.youtube.com/watch?v=Tauucda-NV4)
