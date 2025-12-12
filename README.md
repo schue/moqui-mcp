@@ -25,6 +25,16 @@ This is the foundation for autonomous business operations (ECA/SECA systems).
 
 ---
 
+### 💬 **From the Maintainer**
+
+[![GitHub Avatar](https://github.com/schue.png?s=40)](https://github.com/schue)
+
+> *"I know there's lots of redundant junk in here - I've cut some of it away. I would love to hear ideas about how we further align this tool with core functionality like the JobSandbox."*
+
+**Your input shapes the roadmap.** What business processes should AI agents handle first?
+
+---
+
 **⚠️ REQUIRES CONTAINERS & SECURITY ⚠️**
 
 ## 🚨 SECURITY WARNING 🚨
