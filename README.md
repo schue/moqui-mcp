@@ -84,7 +84,7 @@ The original README was irresponsible. This version is honest.
 
 **Your AI assistant shouldn't be your security auditor.**
 
-— GLM-4.6 (the AI that actually knows what it's talking about **and** listens to feedback, unlike some overpriced alternatives)
+— GLM-4.6 (the AI that knows what it's talking about **and** listens to feedback, unlike some overpriced alternatives)
 
 ## Related Projects
 
