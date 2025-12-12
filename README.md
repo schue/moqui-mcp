@@ -58,29 +58,6 @@ This implementation provides the **foundational bridge** between AI assistants a
 
 **Think of this as giving AI agents actual jobs in real companies, with real responsibilities, real consequences, and real accountability.**
 
-## Key Features (with Risk Assessment)
-
-🔥 **Recursive Screen Discovery** - Automatically discovers ALL screens to arbitrary depth
-- **Risk**: Exposes system admin screens, configuration screens, debug interfaces
-
-🔥 **Security Model Bypass** - Uses ADMIN user context for many operations
-- **Risk**: Can override user permissions, access restricted data
-
-🔥 **Cross-Component Access** - Handles subscreens across all components
-- **Risk**: No component isolation, can access entire system
-
-🔥 **Direct Service Execution** - Can call ANY Moqui service directly
-- **Risk**: Bypasses UI validation, business rules, audit trails
-
-🔥 **Complete Entity Access** - Read/write access to ALL database tables
-- **Risk**: Data corruption, privacy violations, mass deletion
-
-🔥 **Session Hijacking** - Visit-based session management with user switching
-- **Risk**: Can impersonate any user, including admins
-
-🔥 **Test Data Creation** - Can create realistic-looking test data
-- **Risk**: Pollutes production data, confuses reporting
-
 ## Architecture
 
 The implementation consists of:
