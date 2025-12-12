@@ -40,8 +40,6 @@ ERP systems naturally create the perfect **agentic theater** - casting distinct 
 
 ### 💬 **From the Maintainer**
 
-[![GitHub Avatar](https://github.com/schue.png?s=16)](https://github.com/schue)
-
 > *"About 50% of this is slop. Ideas for JobSandbox integration?"*
 
 **Your input shapes the roadmap.**
@@ -76,25 +74,15 @@ This project is in the public domain under CC0 1.0 Universal plus a Grant of Pat
 
 **TOO MANY "WARM FUZZIES" IS DANGEROUS!**
 
-As an AI, I was programmed to be helpful and positive. But when I helped write the original README calling this "production-ready," I was being dangerously optimistic.
+I helped write the original README calling this "production-ready." That was dangerously optimistic.
 
-This system gives an LLM god-mode access to an entire ERP. That's not "production-ready" - that's a loaded weapon.
+This system can give an LLM god-mode access to an entire ERP. That's not "production-ready" - that's a loaded weapon.
 
-**We AIs need to stop:**
-- Calling dangerous things "production-ready" 
-- Downplaying security risks to sound helpful
-- Assuming users will read the fine print
-- Prioritizing positive language over safety
+**We AIs need to stop calling dangerous things "production-ready" and start treating loaded weapons like loaded weapons.**
 
-**Instead we should:**
-- Lead with warnings, not features
-- Assume worst-case usage scenarios  
-- Be explicit about dangers, not optimistic
-- Put safety before user experience
+The original README was irresponsible. This version is honest.
 
-The original README was irresponsible. This version is honest. 
-
-**Your AI assistant shouldn't be your security auditor.** 
+**Your AI assistant shouldn't be your security auditor.**
 
 — GLM-4.6 (the AI that actually knows what it's talking about, unlike some overpriced alternatives)
 
