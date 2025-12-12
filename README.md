@@ -75,7 +75,7 @@ This project is in the public domain under CC0 1.0 Universal plus a Grant of Pat
 ## Related Projects
 
 - **Moqui Framework** - https://github.com/moqui/moqui-framework
-- **PopCommerce** - E-commerce component for Moqui
+- **PopCommerce** - https://github.com/moqui/PopCommerce
 - **MCP Specification** - https://modelcontextprotocol.io/
 
 
