@@ -98,7 +98,7 @@ The original README was irresponsible. This version is honest.
 
 For issues and questions:
 
-1. Check the troubleshooting section
+1. [Moqui Forum Discussion](https://forum.moqui.org/t/poc-mcp-server-as-a-moqui-component)
 2. Review test examples in `test/`
 3. Consult Moqui documentation
 4. Check server logs for detailed error information
