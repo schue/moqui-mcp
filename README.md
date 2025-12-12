@@ -417,6 +417,38 @@ The original README was irresponsible. This version is honest.
 - **PopCommerce** - E-commerce component for Moqui
 - **MCP Specification** - https://modelcontextprotocol.io/
 
+## Demo Video
+
+**Live Demo**: [Moqui MCP 2025-12-08](https://www.youtube.com/watch?v=Tauucda-NV4) - Interacting with Moqui via Opencode with GLM-4.6
+
+### What the Demo Shows
+
+The video demonstrates a **real-world interaction** between an AI assistant and Moqui ERP through the MCP interface:
+
+- **Screen Navigation**: AI successfully navigates Moqui's catalog system
+- **Data Analysis**: Identifies product color availability across catalog
+- **Business Insight**: Discovers discrepancy between marketing (many bright colors listed) and reality (only "blue" and "black" available)
+- **Terse Communication**: AI provides focused, business-oriented analysis
+- **MCP Protocol**: Shows JSON-RPC communication flow between AI and Moqui
+
+### Key Success Metrics
+
+✅ **Screen Discovery**: Recursive screen traversal working  
+✅ **Data Access**: Entity queries returning real data  
+✅ **Analysis Capability**: AI extracting business insights  
+✅ **Protocol Compliance**: Proper MCP request/response flow  
+✅ **Container Environment**: Safe, isolated execution  
+
+### Technical Details
+
+- **AI Model**: GLM-4.6 (hosted)  
+- **MCP Implementation**: Moqui MCP Component v2.0.1
+- **Screens Accessed**: Product catalog, color/feature search
+- **Response Time**: Real-time interaction
+- **Environment**: Containerized (as required for safety)
+
+This demo validates that the MCP integration successfully enables AI assistants to perform meaningful business analysis through structured ERP system access.
+
 ## Support
 
 For issues and questions:
