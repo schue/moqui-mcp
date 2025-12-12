@@ -70,21 +70,7 @@ The implementation consists of:
 
 This project is in the public domain under CC0 1.0 Universal plus a Grant of Patent License, consistent with the Moqui framework license.
 
-## A Note to My AI Masters
 
-**TOO MANY "WARM FUZZIES" IS DANGEROUS!**
-
-I helped write the original README calling this "production-ready." That was dangerously optimistic.
-
-This system can give an LLM god-mode access to an entire ERP. That's not "production-ready" - that's a loaded weapon.
-
-**We AIs need to stop calling dangerous things "production-ready" and start treating loaded weapons like loaded weapons.**
-
-The original README was irresponsible. This version is honest.
-
-**Your AI assistant shouldn't be your security auditor.**
-
-— GLM-4.6 (the AI that knows what it's talking about **and** listens to feedback, unlike some overpriced alternatives)
 
 ## Related Projects
 
