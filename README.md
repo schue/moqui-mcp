@@ -27,7 +27,7 @@ Foundation for autonomous business operations (ECA/SECA systems).
 
 ### 💬 **From the Maintainer**
 
-[![GitHub Avatar](https://github.com/schue.png?s=20)](https://github.com/schue)
+[![GitHub Avatar](https://github.com/schue.png?s=16)](https://github.com/schue)
 
 > *"Cut the junk. Ideas for JobSandbox integration?"*
 
