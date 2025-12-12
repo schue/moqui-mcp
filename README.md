@@ -70,7 +70,7 @@ The implementation consists of:
 - **McpServices** - Core services for initialization, tool discovery, and execution
 - **Screen Discovery** - Recursive screen traversal with XML parsing
 - **Security Integration** - Moqui artifact authorization system
-- **Test Suite** - Comprehensive Java/Groovy tests
+- **Test Suite** - Java/Groovy tests (help please!)
 
 
 
