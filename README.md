@@ -42,7 +42,7 @@ ERP systems naturally create the perfect **agentic theater** - casting distinct 
 
 > *"About 50% of this is slop. Ideas for JobSandbox integration?"*
 
-**Your input shapes the roadmap.**
+**Your input shapes the roadmap.** (that listens to feedback, unlike...)
 
 ---
 
