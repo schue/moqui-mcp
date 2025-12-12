@@ -48,13 +48,7 @@ ERP systems naturally create the perfect **agentic theater** - casting distinct 
 
 ---
 
-**⚠️ CONTAINERS & SECURITY REQUIRED ⚠️**
 
-## 🛡️ **Security: Deterministic by Design**
-
-**ADMIN for discovery, user permissions enforced for access.** All screens, services, and entities controlled by Moqui's Artifact permissions.
-
-[📖 Full Security Details](docs/SECURITY.md) | [🔧 Container Setup](docs/DEPLOYMENT.md)
 
 ## Overview
 
