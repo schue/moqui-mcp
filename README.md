@@ -34,7 +34,7 @@ This system gives AI agents god-mode access to an entire ERP system - that's not
 
 ERP systems naturally create the perfect **agentic theater** - casting distinct roles around HR, Sales, Production, Accounting, and more. This organizational structure provides a powerful grounding framework where AI agents can inhabit authentic business personas with clear responsibilities, workflows, and relationships. The departmental boundaries and process flows that govern human collaboration become the stage directions for autonomous agents, turning corporate hierarchy into a narrative engine for AI coordination.
 
-**Every product you touch passed through an inventory system. Now AI can touch it back.**
+**Every product you touch passed through an inventory system. Now AI touches back.**
 
 ---
 
