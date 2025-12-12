@@ -279,17 +279,23 @@ tail -f ./moqui.log
 ./mcp.sh call <tool-name>
 ```
 
-## MCP Client Script
+## 🤔 **Community Tool Gap**
 
-The `mcp.sh` script provides a command-line interface for testing:
+**What CLI tool should we use for LLM + Java testing?**
 
-```bash
-./mcp.sh --help                    # Show help
-./mcp.sh --new-session            # Create fresh session
-./mcp.sh --clear-session           # Clear stored session
-./mcp.sh --limit 10 tools          # Show first 10 tools
-./mcp.sh status                    # Show server status
-```
+Currently using improvised `mcp.sh` script for basic MCP testing. But there should be a mature tool that handles:
+
+- **LLM Interaction**: Chat with AI models via MCP
+- **Java Testing**: Full lifecycle test generation
+- **Code Generation**: AI writes code, tests validate it
+- **Iterative Development**: Test → Generate → Refine loop
+
+**Ideas welcome!** What tools are you using for:
+- LLM + Java development workflows?
+- Automated test-driven code generation?
+- MCP client development?
+
+*The `mcp.sh` script works for basic testing, but we need a proper development ecosystem.*
 
 ## API Reference
 
