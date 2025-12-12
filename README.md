@@ -2,6 +2,8 @@
 
 **⚠️ WARNING: THIS DOG MAY EAT YOUR HOMEWORK! ⚠️**
 
+This system gives AI agents god-mode access to an entire ERP system - that's not a feature, it's a loaded weapon requiring serious security consideration.
+
 ## 🎥 **SEE IT WORK**
 
 [![Moqui MCP Demo](https://img.youtube.com/vi/Tauucda-NV4/0.jpg)](https://www.youtube.com/watch?v=Tauucda-NV4)
