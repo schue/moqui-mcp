@@ -147,7 +147,10 @@
                     "resources/unsubscribe": "McpServices.mcp#ResourcesUnsubscribe",
                     "prompts/list": "McpServices.mcp#PromptsList",
                     "prompts/get": "McpServices.mcp#PromptsGet",
-                    "ping": "McpServices.mcp#Ping"
+                    "ping": "McpServices.mcp#Ping",
+                    "moqui_browse_screens": "McpServices.mcp#BrowseScreens",
+                    "moqui_search_screens": "McpServices.mcp#SearchScreens",
+                    "moqui_get_screen_details": "McpServices.mcp#GetScreenDetails"
                 ]
                 
                 if (protocolMethodMappings.containsKey(name)) {
@@ -171,30 +174,45 @@
                             actualArguments = [sessionId: sessionId]
                         }
                         
-                        // Check if this is a screen tool (starts with screen_) - route to screen execution service
-                        if (actualToolName.startsWith("screen_")) {
+                        // Check if this is a screen tool (starts with screen_ or moqui_) - route to screen execution service
+                        def screenPath = org.moqui.mcp.McpUtils.getScreenPath(actualToolName)
+                        def isLegacyScreen = actualToolName.startsWith("screen_")
+                        
+                        if (screenPath || isLegacyScreen) {
                             ec.logger.info("MCP ToolsCall: Routing screen tool '${actualToolName}' to executeScreenAsMcpTool")
-                            // Decode screen path from tool name for screen execution
-                            def toolNameSuffix = actualToolName.substring(7)  // Remove "screen_" prefix
                             
-                            def screenPath
                             def subscreenName = null
                             
-                            // Check if this is a subscreen (contains dot after initial prefix)
-                            if (toolNameSuffix.contains('.')) {
-                                // Split on dot to separate parent screen path from subscreen name
-                                def lastDotIndex = toolNameSuffix.lastIndexOf('.')
-                                def parentPath = toolNameSuffix.substring(0, lastDotIndex)
-                                subscreenName = toolNameSuffix.substring(lastDotIndex + 1)
+                            if (isLegacyScreen) {
+                                // Decode legacy screen path from tool name
+                                def toolNameSuffix = actualToolName.substring(7)  // Remove "screen_" prefix
                                 
-                                // Restore parent path: _ -> /, prepend component://, append .xml
-                                screenPath = "component://" + parentPath.replace('_', '/') + ".xml"
-                                ec.logger.info("MCP ToolsCall: Decoded screen tool - parent=${screenPath}, subscreen=${subscreenName}")
+                                // Check if this is a subscreen (contains dot after initial prefix)
+                                if (toolNameSuffix.contains('.')) {
+                                    def lastDotIndex = toolNameSuffix.lastIndexOf('.')
+                                    def parentPath = toolNameSuffix.substring(0, lastDotIndex)
+                                    subscreenName = toolNameSuffix.substring(lastDotIndex + 1)
+                                    screenPath = "component://" + parentPath.replace('_', '/') + ".xml"
+                                } else {
+                                    screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
+                                }
                             } else {
-                                // Regular screen path: _ -> /, prepend component://, append .xml
-                                screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
-                                ec.logger.info("MCP ToolsCall: Decoded screen tool - screenPath=${screenPath}")
+                                // For moqui_ tools, check existence and fallback to subscreen
+                                if (!ec.resource.getLocationReference(screenPath).getExists()) {
+                                    def lastSlash = screenPath.lastIndexOf('/')
+                                    if (lastSlash > 0) {
+                                        def parentPath = screenPath.substring(0, lastSlash) + ".xml"
+                                        def possibleSubscreen = screenPath.substring(lastSlash + 1).replace('.xml', '')
+                                        
+                                        if (ec.resource.getLocationReference(parentPath).getExists()) {
+                                            screenPath = parentPath
+                                            subscreenName = possibleSubscreen
+                                        }
+                                    }
+                                }
                             }
+                            
+                            ec.logger.info("MCP ToolsCall: Decoded screen tool - screenPath=${screenPath}, subscreen=${subscreenName}")
                             
                             // Call screen execution service with decoded parameters
                             def screenCallParams = [
@@ -250,30 +268,35 @@
                     }
                 }
                 
-                // Check if this is a screen-based tool or a service-based tool
-                def isScreenTool = name.startsWith("screen_")
+                // Check if this is a screen-based tool using McpUtils
+                def screenPath = org.moqui.mcp.McpUtils.getScreenPath(name)
                 
-                if (isScreenTool) {
-                    // Decode screen path from tool name (Clean Encoding with subscreen support)
-                    def toolNameSuffix = name.substring(7)  // Remove "screen_" prefix
+                if (screenPath) {
+                    ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
                     
-                    def screenPath
                     def subscreenName = null
                     
-                    // Check if this is a subscreen (contains dot after initial prefix)
-                    if (toolNameSuffix.contains('.')) {
-                        // Split on dot to separate parent screen path from subscreen name
-                        def lastDotIndex = toolNameSuffix.lastIndexOf('.')
-                        def parentPath = toolNameSuffix.substring(0, lastDotIndex)
-                        subscreenName = toolNameSuffix.substring(lastDotIndex + 1)
-                        
-                        // Restore parent path: _ -> /, prepend component://, append .xml
-                        screenPath = "component://" + parentPath.replace('_', '/') + ".xml"
-                        ec.logger.info("Decoded subscreen path for tool ${name}: parent=${screenPath}, subscreen=${subscreenName}")
-                    } else {
-                        // Regular screen path: _ -> /, prepend component://, append .xml
-                        screenPath = "component://" + toolNameSuffix.replace('_', '/') + ".xml"
-                        ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
+                    // Verify if the screen file exists
+                    // If not, it might be a subscreen (e.g. FindProduct inside Product.xml)
+                    // Use getExists() instead of exists() as it is a property accessor
+                    if (!ec.resource.getLocationReference(screenPath).getExists()) {
+                        ec.logger.info("Screen path ${screenPath} does not exist, checking for subscreen parent")
+                        // Try to find parent screen file
+                        def lastSlash = screenPath.lastIndexOf('/')
+                        if (lastSlash > 0) {
+                            def parentPath = screenPath.substring(0, lastSlash) + ".xml"
+                            // The subscreen name is the part after the slash, without .xml
+                            // But wait, screenPath from McpUtils ends in .xml
+                            // screenPath: .../Catalog/Product/FindProduct.xml
+                            // subscreenName: FindProduct
+                            def possibleSubscreen = screenPath.substring(lastSlash + 1).replace('.xml', '')
+                            
+                            if (ec.resource.getLocationReference(parentPath).getExists()) {
+                                screenPath = parentPath
+                                subscreenName = possibleSubscreen
+                                ec.logger.info("Found parent screen: ${screenPath}, subscreen: ${subscreenName}")
+                            }
+                        }
                     }
                     
                     // Now call the screen tool with proper user context
@@ -290,7 +313,7 @@
                         .parameters(serviceCallParams)
                         .call()
                         
-                def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
                     
                     // Convert result to MCP format
                     def content = []
@@ -313,8 +336,6 @@
                         }
                     }
                     
-                    // Extract content from ScreenAsMcpTool result, don't nest it
-                    // result = serviceResult?.result ?: [
                     result = [
                         content: content,
                         isError: false
@@ -511,120 +532,75 @@
                 import groovy.json.JsonBuilder
                 
                 ExecutionContext ec = context.ec
+                def startTime = System.currentTimeMillis()
                 
                 // Parse entity URI (format: entity://EntityName)
                 if (!uri.startsWith("entity://")) {
                     throw new Exception("Invalid resource URI: ${uri}")
                 }
                 
-                def entityName = uri.substring(9) // Remove "entity://" prefix
+                def entityName = uri.substring(9)
                 
-                // Validate entity exists
                 if (!ec.entity.isEntityDefined(entityName)) {
                     throw new Exception("Entity not found: ${entityName}")
                 }
                 
-                // Permission checking is handled by Moqui's artifact authorization system through artifact groups
-                
-try {
-                 // Try to get entity definition - handle both real entities and view entities
-                      def entityDef = null
-                      try {
-                          // First try getAllEntityInfo for detailed info
-                          def entityInfoList = ec.entity.getAllEntityInfo(-1, true) // all entities, include view entities
-                          entityDef = entityInfoList.find { it.entityName == entityName }
-                          
-                          if (!entityDef) {
-                              // If not found in detailed list, try basic entity check
-                              if (ec.entity.isEntityDefined(entityName)) {
-                                  // Create minimal entity definition for basic query
-                                  entityDef = [
-                                      entityName: entityName,
-                                      packageName: entityName.split('\\.')[0],
-                                      description: "Entity: ${entityName}",
-                                      isViewEntity: entityName.contains('View'),
-                                      allFieldInfoList: []
-                                  ]
-                              }
-                          }
-                         
-                          ec.logger.warn("ResourcesRead: Error getting entity info for ${entityName}: ${e.message}")
-                          // Fallback: try basic entity check
-                          if (ec.entity.isEntityDefined(entityName)) {
-                              entityDef = [
-                                  entityName: entityName,
-                                  packageName: entityName.split('\\.')[0],
-                                  description: "Entity: ${entityName}",
-                                  isViewEntity: entityName.contains('View'),
-                                  allFieldInfoList: []
-                              ]
-                          }
-                      
-                      if (!entityDef) {
-                          throw new Exception("Entity not found: ${entityName}")
-                      }
-                      
-                      ec.logger.info("ResourcesRead: Found entity ${entityName}, isViewEntity=${entityDef.isViewEntity}")
-                     
-                     // Query entity data (limited to prevent large responses)
-                     def entityList = ec.entity.find(entityName)
-                         .limit(100)
-                         .list()
-                     
-                     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-                     
-                     // SIZE PROTECTION: Check response size before returning
-                     def jsonOutput = new JsonBuilder([
-                         entityName: entityName,
-                         description: entityDef.description ?: "",
-                         packageName: entityDef.packageName,
-                         recordCount: entityList.size(),
-                         fields: fieldInfo,
-                         data: entityList
-                     ]).toString()
-                     
-                     def maxResponseSize = 1024 * 1024  // 1MB limit
-                     if (jsonOutput.length() > maxResponseSize) {
-                         ec.logger.warn("ResourcesRead: Response too large for ${entityName}: ${jsonOutput.length()} bytes (limit: ${maxResponseSize} bytes)")
-                         
-                         // Create truncated response with fewer records
-                         def truncatedList = entityList.take(10)  // Keep only first 10 records
-                         def truncatedOutput = new JsonBuilder([
-                             entityName: entityName,
-                             description: entityDef.description ?: "",
-                             packageName: entityDef.packageName,
-                             recordCount: entityList.size(),
-                             fields: fieldInfo,
-                             data: truncatedList,
-                             truncated: true,
-                             originalSize: entityList.size(),
-                             truncatedSize: truncatedList.size(),
-                             message: "Response truncated due to size limits. Original data has ${entityList.size()} records, showing first ${truncatedList.size()}."
-                         ]).toString()
-                         
-                         contents = [
-                             [
-                                 uri: uri,
-                                 mimeType: "application/json",
-                                 text: truncatedOutput
-                             ]
-                         ]
-                     } else {
-                         // Normal response
-                         contents = [
-                             [
-                                 uri: uri,
-                                 mimeType: "application/json",
-                                 text: jsonOutput
-                             ]
-                         ]
-                     }
-                     
-                 } catch (Exception e) {
-                      def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-                      ec.logger.warn("Error reading resource ${uri}: ${e.message}")
-                      result = [error: "Error reading resource ${uri}: ${e.message}"]
-                  }
+                try {
+                    def entityDef = null
+                    try {
+                        def entityInfoList = ec.entity.getAllEntityInfo(-1, true)
+                        entityDef = entityInfoList.find { it.entityName == entityName }
+                    } catch (Exception e) {
+                        ec.logger.debug("Error getting detailed entity info: ${e.message}")
+                    }
+                    
+                    if (!entityDef) {
+                        entityDef = [
+                            entityName: entityName,
+                            packageName: entityName.contains('.') ? entityName.split('\\.')[0] : "",
+                            description: "Entity: ${entityName}",
+                            isViewEntity: entityName.contains('View'),
+                            allFieldInfoList: []
+                        ]
+                    }
+                    
+                    // Query entity data
+                    def entityList = ec.entity.find(entityName).limit(100).list()
+                    
+                    // Format response
+                    def responseMap = [
+                        entityName: entityName,
+                        description: entityDef.description,
+                        packageName: entityDef.packageName,
+                        recordCount: entityList.size(),
+                        data: entityList
+                    ]
+                    
+                    def jsonOutput = new JsonBuilder(responseMap).toString()
+                    
+                    // Size protection
+                    def maxResponseSize = 1024 * 1024 // 1MB
+                    if (jsonOutput.length() > maxResponseSize) {
+                         def truncatedList = entityList.take(10)
+                         responseMap.data = truncatedList
+                         responseMap.truncated = true
+                         responseMap.message = "Truncated to 10 records due to size."
+                         jsonOutput = new JsonBuilder(responseMap).toString()
+                    }
+                    
+                    result = [
+                        content: [[
+                            uri: uri,
+                            mimeType: "application/json",
+                            text: jsonOutput
+                        ]],
+                        isError: false
+                    ]
+                    
+                } catch (Exception e) {
+                    ec.logger.error("Error reading resource ${uri}", e)
+                    result = [isError: true, content: [[type:"text", text: e.message]]]
+                }
             ]]></script>
         </actions>
     </service>
@@ -1376,8 +1352,223 @@ def startTime = System.currentTimeMillis()
         </actions>
     </service>
 
+    <service verb="mcp" noun="BrowseScreens" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Browse Moqui screens hierarchically to discover functionality.</description>
+        <in-parameters>
+            <parameter name="path" required="false"><description>Screen path or tool name to browse. Leave empty for root apps.</description></parameter>
+            <parameter name="sessionId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import org.moqui.mcp.McpUtils
+                
+                ExecutionContext ec = context.ec
+                def subscreens = []
+                def tools = []
+                def currentPath = path
+                
+                // Logic to find screens
+                if (!path || path == "/" || path == "root") {
+                    currentPath = "root"
+                    // Return known root apps
+                    // In a real implementation, we'd discover these from components
+                    def roots = ["PopCommerce", "SimpleScreens", "HiveMind", "Mantle"]
+                    
+                    for (root in roots) {
+                        def toolName = "moqui_${root}"
+                        subscreens << [
+                            name: toolName,
+                            path: toolName, 
+                            description: "Application: ${root}"
+                        ]
+                    }
+                } else {
+                    // Resolve path
+                    def screenPath = path.startsWith("moqui_") ? McpUtils.getScreenPath(path) : null
+                    if (!screenPath && !path.startsWith("component://")) {
+                        // Try to handle "popcommerce/admin" style by guessing
+                        def toolName = "moqui_" + path.replace('/', '_')
+                        screenPath = McpUtils.getScreenPath(toolName)
+                    } else if (path.startsWith("component://")) {
+                        screenPath = path
+                    }
+                    
+                    if (screenPath) {
+                        try {
+                            // First, add the current screen itself as a tool if it's executable
+                            def currentToolName = McpUtils.getToolName(screenPath)
+                            tools << [
+                                name: currentToolName,
+                                description: "Execute screen: ${currentToolName}",
+                                type: "screen"
+                            ]
+
+                            // Then look for subscreens
+                            // Use getScreenInfoList with depth/mode? to ensure implicit subscreens are loaded
+                            // The original list#Tools used getScreenInfoList(path, 1)
+                            def screenInfoList = null
+                            try {
+                                screenInfoList = ec.screen.getScreenInfoList(screenPath, 1)
+                            } catch (Exception e) {
+                                ec.logger.debug("getScreenInfoList failed, trying getScreenInfo: ${e.message}")
+                            }
+                            
+                            def screenInfo = screenInfoList ? screenInfoList.first() : ec.screen.getScreenInfo(screenPath)
+                            
+                            if (screenInfo?.subscreenInfoByName) {
+                                for (entry in screenInfo.subscreenInfoByName) {
+                                    def subName = entry.key
+                                    def subInfo = entry.value
+                                    
+                                    // Construct sub-tool name by extending the parent path
+                                    // This assumes subscreens are structurally nested in the tool name
+                                    // e.g. moqui_PopCommerce_Admin -> moqui_PopCommerce_Admin_Catalog
+                                    def parentToolName = McpUtils.getToolName(screenPath)
+                                    def subToolName = parentToolName + "_" + subName
+                                    
+                                    subscreens << [
+                                        name: subToolName,
+                                        path: subToolName,
+                                        description: "Subscreen: ${subName}"
+                                    ]
+                                }
+                            }
+                        } catch (Exception e) {
+                            ec.logger.warn("Browse error for ${screenPath}: ${e.message}")
+                        }
+                    }
+                }
+                
+                result = [
+                    currentPath: currentPath,
+                    subscreens: subscreens,
+                    availableTools: tools,
+                    message: "Found ${subscreens.size()} subscreens and ${tools.size()} tools."
+                ]
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="mcp" noun="SearchScreens" authenticate="false" allow-remote="true" transaction-timeout="60">
+        <description>Search for screens by name or path.</description>
+        <in-parameters>
+            <parameter name="query" required="true"/>
+            <parameter name="sessionId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import org.moqui.mcp.McpUtils
+                
+                ExecutionContext ec = context.ec
+                def matches = []
+                
+                // Search all screens known to the system (via authz rules)
+                // Use disableAuthz() to bypass permission check on the system view itself
+                def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
+                    .condition("artifactTypeEnumId", "AT_XML_SCREEN")
+                    .condition("artifactName", "like", "%${query}%")
+                    .selectField("artifactName")
+                    .distinct(true)
+                    .disableAuthz()
+                    .limit(20)
+                    .list()
+                
+                for (hit in aacvList) {
+                    def toolName = McpUtils.getToolName(hit.artifactName)
+                    if (toolName) {
+                        matches << [
+                            name: toolName,
+                            description: "Screen: ${hit.artifactName}"
+                        ]
+                    }
+                }
+                
+                result = [matches: matches]
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="mcp" noun="GetScreenDetails" authenticate="false" allow-remote="true" transaction-timeout="30">
+        <description>Get detailed schema and usage info for a specific screen tool.</description>
+        <in-parameters>
+            <parameter name="name" required="true"><description>Tool name (e.g. moqui_PopCommerce_...)</description></parameter>
+            <parameter name="sessionId"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import org.moqui.mcp.McpUtils
+                
+                ExecutionContext ec = context.ec
+                def screenPath = McpUtils.getScreenPath(name)
+                ec.logger.info("GetScreenDetails: name=${name} -> screenPath=${screenPath}")
+                def toolDef = null
+                
+                if (screenPath) {
+                    try {
+                        def parameters = [:]
+                        // Use getScreenDefinition for stable access to parameters
+                        def screenDef = ec.screen.getScreenDefinition(screenPath)
+                        
+                        if (screenDef && screenDef.screenNode) {
+                            // Extract parameters from XML node
+                            def parameterNodes = screenDef.screenNode.children("parameter")
+                            for (node in parameterNodes) {
+                                def paramName = node.attribute("name")
+                                parameters[paramName] = [
+                                    type: "string", 
+                                    description: "Screen Parameter"
+                                ]
+                            }
+                            
+                            // Also extract transition parameters if possible
+                            def transitionNodes = screenDef.screenNode.children("transition")
+                            for (node in transitionNodes) {
+                                // Transition parameters
+                                def tParams = node.children("parameter")
+                                for (tp in tParams) {
+                                    def tpName = tp.attribute("name")
+                                    if (!parameters[tpName]) {
+                                        parameters[tpName] = [
+                                            type: "string",
+                                            description: "Transition Parameter for ${node.attribute('name')}"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                        
+                        toolDef = [
+                            name: name,
+                            description: "Full details for ${name} (${screenPath})",
+                            inputSchema: [
+                                type: "object",
+                                properties: parameters
+                            ]
+                        ]
+                    } catch (Exception e) {
+                        ec.logger.warn("Error getting screen details for ${name}: ${e.message}")
+                    }
+                }
+                
+                result = [tool: toolDef]
+            ]]></script>
+        </actions>
+    </service>
+
     <service verb="list" noun="Tools" authenticate="false" allow-remote="true" transaction-timeout="60">
-        <description>Compact tool discovery using ArtifactAuthzCheckView with clean recursion</description>
+        <description>List discovery tools and root apps.</description>
         <in-parameters>
             <parameter name="sessionId"/>
             <parameter name="cursor"/>
@@ -1390,400 +1581,72 @@ def startTime = System.currentTimeMillis()
                 import org.moqui.context.ExecutionContext
                 
                 ExecutionContext ec = context.ec
-                def startTime = System.currentTimeMillis()
                 
-                // Get user context
-                def originalUsername = ec.user.username
-                def originalUserId = ec.user.userId  
-                def userGroups = ec.user.getUserGroupIdSet().collect { it }
-                
-                def tools = []
-                adminUserInfo = null
-                
-                try {
-                    adminUserInfo = ec.user.pushUser("ADMIN")
-                    
-                    def allScreens = [] as Set<String>
-                       
-                    // Get screens accessible to user's groups
-                    def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
-                        .condition("artifactTypeEnumId", "AT_XML_SCREEN")
-                        .condition("userGroupId", "in", userGroups)
-                        .useCache(true)
-                        .disableAuthz()
-                        .list()
-                    allScreens = aacvList.collect { it.artifactName } as Set<String>
-                    
-                    // Helper function to convert screen path to MCP tool name
-                    def screenPathToToolName = { screenPath ->
-                        // Clean Encoding: strip component:// and .xml, replace / with _
-                        def cleanPath = screenPath
-                        if (cleanPath.startsWith("component://")) cleanPath = cleanPath.substring(12)
-                        if (cleanPath.endsWith(".xml")) cleanPath = cleanPath.substring(0, cleanPath.length() - 4)
-                        
-                        // Extract just the screen name from the path (last part after /)
-                        def screenName = cleanPath.split('/')[-1]
-                        
-                        return "screen_" + screenName
-                    }
-                    
-                    // Helper function to convert screen path to MCP tool name with subscreen support
-                    def screenPathToToolNameWithSubscreens = { screenPath, parentScreenPath = null ->
-                        // If we have a parent screen path, this is a subscreen - use dot notation
-                        if (parentScreenPath) {
-                            def parentCleanPath = parentScreenPath
-                            if (parentCleanPath.startsWith("component://")) parentCleanPath = parentCleanPath.substring(12)
-                            if (parentCleanPath.endsWith(".xml")) parentCleanPath = parentCleanPath.substring(0, parentCleanPath.length() - 4)
-                            
-                            // Extract just the parent screen name (last part after /)
-                            def parentScreenName = parentCleanPath.split('/')[-1]
-                            
-                            // Extract subscreen name from the full screen path
-                            def subscreenName = screenPath.split("/")[-1]
-                            if (subscreenName.endsWith(".xml")) subscreenName = subscreenName.substring(0, subscreenName.length() - 4)
-                            
-                            return "screen_" + parentScreenName + "." + subscreenName
-                        }
-                        
-                        // Regular screen path conversion for main screens
-                        return screenPathToToolName(screenPath)
-                    }
-                    
-                    // Helper function to recursively process screens and create tools
-                    def processScreenWithSubscreens 
-                    processScreenWithSubscreens = { screenPath, parentScreenPath = null, processedScreens = null, toolsAccumulator = null, parentToolName = null, level = 1 ->
-                        ec.logger.debug("list#Tools: Processing screen ${screenPath} (parent: ${parentScreenPath}, parentToolName: ${parentToolName}, level: ${level})")
-                        
-                        // Initialize processedScreens and toolsAccumulator if null
-                        if (processedScreens == null) processedScreens = [] as Set<String>
-                        if (toolsAccumulator == null) toolsAccumulator = []
-                        
-                        // Create a unique key for this specific access path (screen + parent)
-                        def accessPathKey = screenPath + "|" + (parentScreenPath ?: "ROOT")
-                        
-                        if (processedScreens.contains(accessPathKey)) {
-                            ec.logger.debug("list#Tools: Already processed ${screenPath} from parent ${parentScreenPath}, skipping")
-                            return
-                        }
-                        
-                        processedScreens.add(accessPathKey)
-                        
-                        try {
-                            // Skip problematic patterns early
-                            if (screenPath.contains("/error/") || screenPath.contains("/system/")) {
-                                ec.logger.debug("list#Tools: Skipping system screen ${screenPath}")
-                                return
-                            }
-                            
-                            // Determine if this is a subscreen
-                            def isSubscreen = parentScreenPath != null
-                            
-                            // Try to get screen definition
-                            def screenDefinition = null
-                            def title = screenPath.split("/")[-1].replace('.xml', '')
-                            def description = "Moqui screen: ${screenPath}"
-                            
-                            try {
-                                screenDefinition = ec.screen.getScreenDefinition(screenPath)
-                                if (screenDefinition?.screenNode?.attribute('default-menu-title')) {
-                                    title = screenDefinition.screenNode.attribute('default-menu-title')
-                                    description = "Moqui screen: ${screenPath} (${title})"
-                                }
-                            } catch (Exception e) {
-                                ec.logger.debug("list#Tools: No screen definition for ${screenPath}, using basic info")
-                            }
-                            
-                            // Get screen parameters from transitions
-                            def parameters = [:]
-                            try {
-                                def screenInfo = ec.screen.getScreenInfo(screenPath)
-                                if (screenInfo?.transitionInfoByName) {
-                                    for (transitionEntry in screenInfo.transitionInfoByName) {
-                                        def transitionInfo = transitionEntry.value
-                                        if (transitionInfo?.ti) {
-                                            transitionInfo.ti.getPathParameterList()?.each { param ->
-                                                parameters[param] = [
-                                                    type: "string",
-                                                    description: "Path parameter for transition: ${param}"
-                                                ]
-                                            }
-                                            transitionInfo.ti.getRequestParameterList()?.each { param ->
-                                                parameters[param.name] = [
-                                                    type: "string",
-                                                    description: "Request parameter: ${param.name}"
-                                                ]
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (Exception e) {
-                                ec.logger.debug("Could not extract parameters from screen ${screenPath}: ${e.message}")
-                            }
-                            
-                            // Create tool with proper naming
-                            def toolName
-                            if (isSubscreen && parentToolName) {
-                                // Use the passed hierarchical parent tool name and append current subscreen name
-                                def subscreenName = screenPath.split("/")[-1]
-                                if (subscreenName.endsWith(".xml")) subscreenName = subscreenName.substring(0, subscreenName.length() - 4)
-                                
-                                // For level 1 subscreens, use dot notation
-                                // For level 2+, replace the last dot with underscore and add the new subscreen name
-                                if (level == 2) {
-                                    toolName = parentToolName + "." + subscreenName
-                                } else {
-                                    // Replace last dot with underscore and append new subscreen name
-                                    toolName = parentToolName + "_" + subscreenName // .replaceAll('\\.[^.]*$', '_' + subscreenName)
-                                }
-                                ec.logger.debug("list#Tools: Creating subscreen tool ${toolName} for ${screenPath} (parentToolName: ${parentToolName}, level: ${level})")
-                            } else if (isSubscreen && parentScreenPath) {
-                                toolName = parentToolName + screenPathToToolNameWithSubscreens(screenPath, parentScreenPath)
-                                ec.logger.debug("list#Tools: Creating subscreen tool ${toolName} for ${screenPath} (parent: ${parentScreenPath})")
-                            } else {
-                                toolName = parentToolName + screenPathToToolName(screenPath)
-                                ec.logger.debug("list#Tools: Creating main screen tool ${toolName} for ${screenPath}")
-                            }
-                            
-                            def tool = [
-                                name: toolName,
-                                title: title,
-                                description: title,  // Use title as description instead of redundant path
-                                inputSchema: [
-                                    type: "object",
-                                    properties: parameters,
-                                    required: []
-                                ]
-                            ]
-                            
-                            ec.logger.debug("list#Tools: Adding accessible screen tool ${toolName} for ${screenPath}")
-                            toolsAccumulator << tool
-                            
-                            // Recursively process subscreens
-                            try {
-                                def screenInfoList = ec.screen.getScreenInfoList(screenPath, 1)
-                                def screenInfo = screenInfoList?.first()
-                                if (screenInfo?.subscreenInfoByName) {
-                                    ec.logger.debug("list#Tools: Found ${screenInfo.subscreenInfoByName.size()} subscreens for ${screenPath}: ${screenInfo.subscreenInfoByName.keySet()}")
-                                    for (subScreenEntry in screenInfo.subscreenInfoByName) {
-                                        def subScreenInfo = subScreenEntry.value
-                                        def subScreenPathList = subScreenInfo?.screenPath
-                                        ec.logger.debug("list#Tools: Processing subscreen ${subScreenEntry.key}, subScreenInfo.screenPath: ${subScreenInfo.screenPath}")
-                                        
-                                        // Get the actual subscreen location from screenInfo (should have correct cross-component paths)
-                                        def actualSubScreenPath = null
-                                        
-                                        if (subScreenInfo?.screenPath) {
-                                            // Try to get actual screen location from subScreenInfo
-                                            try {
-                                                // Check if subScreenInfo has a method to get actual screen location
-                                                if (subScreenInfo.hasProperty('sd')) {
-                                                    // Try to get location from screen definition
-                                                    def screenDef = subScreenInfo.sd
-                                                    if (screenDef?.hasProperty('screenLocation')) {
-                                                        actualSubScreenPath = screenDef.screenLocation
-                                                        ec.logger.debug("list#Tools: Found screenLocation from sd for ${subScreenEntry.key}: ${actualSubScreenPath}")
-                                                    } else if (screenDef?.hasProperty('location')) {
-                                                        actualSubScreenPath = screenDef.location
-                                                        ec.logger.debug("list#Tools: Found location from sd for ${subScreenEntry.key}: ${actualSubScreenPath}")
-                                                    }
-                                                }
-                                                
-                                                // Fallback to checking if screenPath contains XML path
-                                                if (!actualSubScreenPath) {
-                                                    if (subScreenInfo.screenPath instanceof List) {
-                                                        // This is a list of all subscreens/transitions, not a path
-                                                        // Don't treat it as a path - use other methods to find location
-                                                        ec.logger.debug("list#Tools: screenPath is a list, not using for path resolution for ${subScreenEntry.key}")
-                                                    } else {
-                                                        actualSubScreenPath = subScreenInfo.screenPath.toString()
-                                                    }
-                                                }
-                                                            
-                                            } catch (Exception e) {
-                                                ec.logger.debug("list#Tools: Error getting screen location from subScreenInfo for ${subScreenEntry.key}: ${e.message}")
-                                            }
-                                        }
-                                        
-                                        // Fallback: try XML parsing if screenInfo doesn't have the path
-                                        if (!actualSubScreenPath) {
-                                            try {
-                                                def parentScreenDef = ec.screen.getScreenDefinition(screenPath)
-                                                if (parentScreenDef?.screenNode) {
-                                                    def subscreensNode = parentScreenDef.screenNode.first("subscreens")
-                                                    if (subscreensNode) {
-                                                        def subscreenItems = []
-                                                        try {
-                                                            subscreenItems = subscreensNode."subscreens-item"
-                                                        } catch (Exception e) {
-                                                            def allChildren = subscreensNode.children()
-                                                            subscreenItems = allChildren.findAll { 
-                                                                it.name() == "subscreens-item" 
-                                                            }
-                                                        }
-                                                        
-                                                        def subscreenItem = null
-                                                        for (item in subscreenItems) {
-                                                            if (item.hasAttribute('name') && item.attribute('name') == subScreenEntry.key) {
-                                                                subscreenItem = item
-                                                                break
-                                                            }
-                                                        }
-                                                        if (subscreenItem?.hasAttribute('location')) {
-                                                            actualSubScreenPath = subscreenItem.attribute('location')
-                                                            ec.logger.debug("list#Tools: Found XML location for ${subScreenEntry.key}: ${actualSubScreenPath}")
-                                                        }
-                                                    }
-                                                }
-                                            } catch (Exception e) {
-                                                ec.logger.info("Could not get subscreen location from XML for ${subScreenEntry.key}: ${e.message}")
-                                            }
-                                        }
-                                        
-                                        // Final fallback: construct from screenPath if we couldn't get the actual location
-                                        if (!actualSubScreenPath) {
-                                            def subscreenName = subScreenEntry.key
-                                            def currentScreenPath = screenPath
-                                            def lastSlash = currentScreenPath.lastIndexOf('/')
-                                            if (lastSlash > 0) {
-                                                def basePath = currentScreenPath.substring(0, lastSlash + 1)
-                                                actualSubScreenPath = basePath + subscreenName + ".xml"
-                                                ec.logger.debug("list#Tools: Constructed fallback path for ${subScreenEntry.key}: ${actualSubScreenPath}")
-                                            }
-                                        }
-                                        
-                                        if (actualSubScreenPath) {
-                                            ec.logger.debug("list#Tools: Adding subscreen ${actualSubScreenPath} ${screenPath} ${toolName} ${level+1}")
-                                            processScreenWithSubscreens(actualSubScreenPath, screenPath, processedScreens, toolsAccumulator, toolName, level + 1)
-                                        } else if (!actualSubScreenPath) {
-                                            // For screens without explicit location, try automatic discovery
-                                            def lastSlash = screenPath.lastIndexOf('/')
-                                            if (lastSlash > 0) {
-                                                def basePath = screenPath.substring(0, lastSlash + 1)
-                                                def autoSubScreenPath = basePath + subScreenEntry.key + ".xml"
-                                                ec.logger.debug("list#Tools: Constructed fallback path for ${subScreenEntry.key}: ${actualSubScreenPath}")
-                                                processScreenWithSubscreens(autoSubScreenPath, screenPath, processedScreens, toolsAccumulator, toolName, level + 1)
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (Exception e) {
-                                ec.logger.debug("Could not get subscreens for ${screenPath}: ${e.message}")
-                            }
-                            
-                        } catch (Exception e) {
-                            ec.logger.warn("Error processing screen ${screenPath}: ${e.message}")
-                        }
-                    }
-                    
-                    // Process all accessible screens recursively
-                    def processedScreens = [] as Set<String>
-                    ec.logger.info("list#Tools: Starting recursive processing from ${allScreens.size()} base screens")
-                    for (screenPath in allScreens) {
-                        def parentToolPath = 'screen_' + screenPath.split('/')[-3..-3].join('_').replace('.xml', '') + '_'
-                        ec.logger.debug("TOPSCREEN: ${parentToolPath}")
-                        processScreenWithSubscreens(screenPath, null, processedScreens, tools, parentToolPath, 0)
-                    }
-                    ec.logger.info("list#Tools: Recursive processing found ${tools.size()} total tools")
-                    
-                    // Add standard MCP protocol methods that clients can discover
-                    def standardMcpMethods = [
-                        [
-                            name: "tools/list",
-                            title: "List Available Tools",
-                            description: "Get a list of all available MCP tools including Moqui services and screens",
-                            inputSchema: [
-                                type: "object",
-                                properties: [
-                                    cursor: [
-                                        type: "string",
-                                        description: "Pagination cursor for large tool lists"
-                                    ]
-                                ],
-                                required: []
-                            ]
-                        ],
-                        [
-                            name: "tools/call",
-                            title: "Execute Tool",
-                            description: "Execute a specific MCP tool by name with parameters",
-                            inputSchema: [
-                                type: "object",
-                                properties: [
-                                    name: [
-                                        type: "string",
-                                        description: "Name of the tool to execute"
-                                    ],
-                                    arguments: [
-                                        type: "object",
-                                        description: "Parameters to pass to the tool"
-                                    ]
-                                ],
-                                required: ["name"]
-                            ]
-                        ],
-                        [
-                            name: "resources/list",
-                            title: "List Resources",
-                            description: "Get a list of available MCP resources (Moqui entities)",
-                            inputSchema: [
-                                type: "object",
-                                properties: [
-                                    cursor: [
-                                        type: "string",
-                                        description: "Pagination cursor for large resource lists"
-                                    ]
-                                ],
-                                required: []
-                            ]
-                        ],
-                        [
-                            name: "resources/read",
-                            title: "Read Resource",
-                            description: "Read data from a specific MCP resource (Moqui entity)",
-                            inputSchema: [
-                                type: "object",
-                                properties: [
-                                    uri: [
-                                        type: "string",
-                                        description: "Resource URI to read (format: entity://EntityName)"
-                                    ]
-                                ],
-                                required: ["uri"]
-                            ]
-                        ],
-                        [
-                            name: "ping",
-                            title: "Ping Server",
-                            description: "Test connectivity to the MCP server and get session info",
-                            inputSchema: [
-                                type: "object",
-                                properties: [:],
-                                required: []
+                // Static list of Discovery Tools
+                def tools = [
+                    [
+                        name: "moqui_browse_screens",
+                        title: "Browse Screens",
+                        description: "Browse the Moqui screen hierarchy. Use this to discover capabilities. Input 'path' (empty for root).",
+                        inputSchema: [
+                            type: "object",
+                            properties: [
+                                path: [type: "string", description: "Path to browse (e.g. 'moqui_PopCommerce')"]
                             ]
                         ]
+                    ],
+                    [
+                        name: "moqui_search_screens",
+                        title: "Search Screens",
+                        description: "Search for screens/functionality by name.",
+                        inputSchema: [
+                            type: "object",
+                            properties: [
+                                query: [type: "string", description: "Search query"]
+                            ],
+                            required: ["query"]
+                        ]
+                    ],
+                    [
+                        name: "moqui_get_screen_details",
+                        title: "Get Screen Details",
+                        description: "Get input schema and details for a specific tool/screen.",
+                        inputSchema: [
+                            type: "object",
+                            properties: [
+                                name: [type: "string", description: "Tool name"]
+                            ],
+                            required: ["name"]
+                        ]
                     ]
-                    
-                    tools.addAll(0, standardMcpMethods)  // Add at beginning so they appear on first page
-                    ec.logger.debug("list#Tools: Added ${standardMcpMethods.size()} standard MCP protocol methods")
-                    
-                } finally {
-                    if (adminUserInfo != null) {
-                        ec.user.popUser()
-                    }
-                }
+                ]
                 
-                // Pagination (same as original)
-                def pageSize = 50
-                def startIndex = cursor ? Integer.parseInt(cursor) : 0
-                def endIndex = Math.min(startIndex + pageSize, tools.size())
-                def paginatedTools = tools.subList(startIndex, endIndex)
+                // Add standard MCP methods
+                def standardMcpMethods = [
+                    [
+                        name: "tools/list",
+                        title: "List Available Tools",
+                        description: "Get a list of all available MCP tools",
+                        inputSchema: [type: "object", properties: [:], required: []]
+                    ],
+                    [
+                        name: "tools/call",
+                        title: "Execute Tool",
+                        description: "Execute a specific MCP tool",
+                        inputSchema: [
+                            type: "object",
+                            properties: [
+                                name: [type: "string"],
+                                arguments: [type: "object"]
+                            ],
+                            required: ["name"]
+                        ]
+                    ]
+                ]
                 
-                result = [tools: paginatedTools]
-                if (endIndex < tools.size()) {
-                    result.nextCursor = String.valueOf(endIndex)
-                }
+                tools.addAll(standardMcpMethods)
                 
-                ec.logger.info("list#Tools: Found ${tools.size()} tools for user ${originalUsername}")
+                result = [tools: tools]
             ]]></script>
         </actions>
     </service>
