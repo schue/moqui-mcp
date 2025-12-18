@@ -198,18 +198,28 @@
                                 }
                             } else {
                                 // For moqui_ tools, check existence and fallback to subscreen
-                                if (!ec.resource.getLocationReference(screenPath).getExists()) {
-                                    def lastSlash = screenPath.lastIndexOf('/')
-                                    if (lastSlash > 0) {
-                                        def parentPath = screenPath.substring(0, lastSlash) + ".xml"
-                                        def possibleSubscreen = screenPath.substring(lastSlash + 1).replace('.xml', '')
-                                        
-                                        if (ec.resource.getLocationReference(parentPath).getExists()) {
-                                            screenPath = parentPath
-                                            subscreenName = possibleSubscreen
-                                        }
+                                // Walk down from component root to find the actual screen file and the subscreen path below it
+                                def cleanName = actualToolName.substring(6) // Remove moqui_
+                                def parts = cleanName.split('_').toList()
+                                def component = parts[0]
+                                def currentPath = "component://${component}/screen"
+                                def subNameParts = []
+                                
+                                // Parts start from index 1 (after component)
+                                for (int i = 1; i < parts.size(); i++) {
+                                    def part = parts[i]
+                                    def nextPath = "${currentPath}/${part}"
+                                    if (ec.resource.getLocationReference(nextPath + ".xml").getExists()) {
+                                        currentPath = nextPath
+                                        // Reset subNameParts when we find a deeper screen file
+                                        subNameParts = []
+                                    } else {
+                                        subNameParts << part
                                     }
                                 }
+                                
+                                screenPath = currentPath + ".xml"
+                                if (subNameParts) subscreenName = subNameParts.join("_")
                             }
                             
                             ec.logger.info("MCP ToolsCall: Decoded screen tool - screenPath=${screenPath}, subscreen=${subscreenName}")
@@ -269,35 +279,33 @@
                 }
                 
                 // Check if this is a screen-based tool using McpUtils
-                def screenPath = org.moqui.mcp.McpUtils.getScreenPath(name)
-                
-                if (screenPath) {
-                    ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}")
+                def screenPath = null
+                def subscreenName = null
+                if (name.startsWith("moqui_")) {
+                    def cleanName = name.substring(6)
+                    def parts = cleanName.split('_').toList()
+                    def component = parts[0]
+                    def currentPath = "component://${component}/screen"
+                    def subNameParts = []
                     
-                    def subscreenName = null
-                    
-                    // Verify if the screen file exists
-                    // If not, it might be a subscreen (e.g. FindProduct inside Product.xml)
-                    // Use getExists() instead of exists() as it is a property accessor
-                    if (!ec.resource.getLocationReference(screenPath).getExists()) {
-                        ec.logger.info("Screen path ${screenPath} does not exist, checking for subscreen parent")
-                        // Try to find parent screen file
-                        def lastSlash = screenPath.lastIndexOf('/')
-                        if (lastSlash > 0) {
-                            def parentPath = screenPath.substring(0, lastSlash) + ".xml"
-                            // The subscreen name is the part after the slash, without .xml
-                            // But wait, screenPath from McpUtils ends in .xml
-                            // screenPath: .../Catalog/Product/FindProduct.xml
-                            // subscreenName: FindProduct
-                            def possibleSubscreen = screenPath.substring(lastSlash + 1).replace('.xml', '')
-                            
-                            if (ec.resource.getLocationReference(parentPath).getExists()) {
-                                screenPath = parentPath
-                                subscreenName = possibleSubscreen
-                                ec.logger.info("Found parent screen: ${screenPath}, subscreen: ${subscreenName}")
-                            }
+                    for (int i = 1; i < parts.size(); i++) {
+                        def part = parts[i]
+                        def nextPath = "${currentPath}/${part}"
+                        if (ec.resource.getLocationReference(nextPath + ".xml").getExists()) {
+                            currentPath = nextPath
+                            subNameParts = []
+                        } else {
+                            subNameParts << part
                         }
                     }
+                    screenPath = currentPath + ".xml"
+                    if (subNameParts) subscreenName = subNameParts.join("_")
+                } else {
+                    screenPath = org.moqui.mcp.McpUtils.getScreenPath(name)
+                }
+                
+                if (screenPath) {
+                    ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}, subscreen: ${subscreenName}")
                     
                     // Now call the screen tool with proper user context
                     def screenParams = arguments ?: [:]
@@ -993,24 +1001,46 @@ def startTime = System.currentTimeMillis()
                 ec.logger.info("MCP Screen Execution: Current user context - userId: ${ec.user.userId}, username: ${ec.user.username}")
                 ec.logger.info("SUBSCREEN PATH PARTS ${subscreenPathParts}")
                 
-            // Regular screen rendering with timeout for subscreen
-                
-            try {
-                // Construct the proper relative path from parent screen to target subscreen
-                // The subscreenName contains the full path from parent with underscores, convert to proper path
-                def relativePath = subscreenName.replaceAll('_','/')
-                ec.logger.info("TESTRENDER ${relativePath} ${renderParams}")
-                // For subscreens, use the full relative path from parent screen to target subscreen
-                def testRender = screenTest.render(relativePath, renderParams, "POST")
-                output = testRender.getOutput()
-                def outputLength = output?.length() ?: 0
-                ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
-            } catch (java.util.concurrent.TimeoutException e) {
-                throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
+                // Regular screen rendering with timeout for subscreen
+                try {
+                    // Construct the proper relative path from parent screen to target subscreen
+                    // The subscreenName contains the full path from parent with underscores, convert to proper path
+                    def relativePath = subscreenName.replaceAll('_','/')
+                    ec.logger.info("TESTRENDER ${relativePath} ${renderParams}")
+                    // For subscreens, use the full relative path from parent screen to target subscreen
+                    def testRender = screenTest.render(relativePath, renderParams, "POST")
+                    output = testRender.getOutput()
+                    def outputLength = output?.length() ?: 0
+                    ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
+                } catch (java.util.concurrent.TimeoutException e) {
+                    throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
+                }
+            } else {
+                throw new Exception("ScreenTest object is null")
             }
         } else {
-            throw new Exception("ScreenTest object is null")
-        }
+            // Direct screen execution (no subscreen)
+            ec.logger.info("MCP Screen Execution: Rendering direct screen ${screenPath} (root: ${rootScreen}, path: ${testScreenPath})")
+            
+            def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
+                .rootScreen(rootScreen)
+                .renderMode(renderMode ? renderMode : "html")
+                .auth(ec.user.username)
+            
+            if (screenTest) {
+                def renderParams = parameters ?: [:]
+                renderParams.userId = ec.user.userId
+                renderParams.username = ec.user.username
+                
+                try {
+                    ec.logger.info("TESTRENDER ${testScreenPath} ${renderParams}")
+                    def testRender = screenTest.render(testScreenPath, renderParams, "POST")
+                    output = testRender.getOutput()
+                    ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
+                } catch (java.util.concurrent.TimeoutException e) {
+                    throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
+                }
+            }
         }
     } catch (Exception e) {
         isError = true
@@ -1068,17 +1098,18 @@ def startTime = System.currentTimeMillis()
     // Helper function to convert web paths to MCP tool names
     def convertWebPathToMcpTool = { path ->
         try {
+            ec.logger.info("Converting web path to MCP tool: ${path}")
             // Handle simple catalog paths (dropdown menu items)
-            if (path == "Category" || path.startsWith("Category/")) {
-                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Category"
+            if (path == "Category" || path.startsWith("Category/") || path == "Product/FindProduct/getCategoryList") {
+                return "moqui_SimpleScreens_SimpleScreens_Catalog_Category"
             } else if (path == "Feature" || path.startsWith("Feature/")) {
-                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Feature"
+                return "moqui_SimpleScreens_SimpleScreens_Catalog_Feature"
             } else if (path == "FeatureGroup" || path.startsWith("FeatureGroup/")) {
-                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_FeatureGroup"
+                return "moqui_SimpleScreens_SimpleScreens_Catalog_FeatureGroup"
             } else if (path == "Product" || path.startsWith("Product/")) {
-                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Product"
+                return "moqui_SimpleScreens_SimpleScreens_Catalog_Product"
             } else if (path.startsWith("Search")) {
-                return "screen_SimpleScreens_screen_SimpleScreens_Search"
+                return "moqui_SimpleScreens_SimpleScreens_Search"
             }
             
             // Handle full catalog paths
@@ -1389,18 +1420,51 @@ def startTime = System.currentTimeMillis()
                 } else {
                     // Resolve path
                     def screenPath = path.startsWith("moqui_") ? McpUtils.getScreenPath(path) : null
+                    // Keep track of the tool name used to reach here, to maintain context
+                    def baseToolName = path.startsWith("moqui_") ? path : null
+
                     if (!screenPath && !path.startsWith("component://")) {
                         // Try to handle "popcommerce/admin" style by guessing
                         def toolName = "moqui_" + path.replace('/', '_')
                         screenPath = McpUtils.getScreenPath(toolName)
+                        if (!baseToolName) baseToolName = toolName
                     } else if (path.startsWith("component://")) {
                         screenPath = path
+                        // If starting with component path, we can't easily establish a base tool name 
+                        // that preserves context if it's not a standard path. 
+                        // But McpUtils.getToolName will try.
+                        if (!baseToolName) baseToolName = McpUtils.getToolName(path)
                     }
                     
                     if (screenPath) {
+                        // Check if screen exists, if not try to resolve as subscreen
+                        if (!ec.resource.getLocationReference(screenPath).getExists()) {
+                            def lastSlash = screenPath.lastIndexOf('/')
+                            if (lastSlash > 0) {
+                                def parentPath = screenPath.substring(0, lastSlash) + ".xml"
+                                def subscreenName = screenPath.substring(lastSlash + 1).replace('.xml', '')
+                                
+                                if (ec.resource.getLocationReference(parentPath).getExists()) {
+                                    // Found parent, now find the subscreen location
+                                    try {
+                                        def parentDef = ec.screen.getScreenDefinition(parentPath)
+                                        def subscreenItem = parentDef?.getSubscreensItem(subscreenName)
+                                        if (subscreenItem && subscreenItem.getLocation()) {
+                                            ec.logger.info("Redirecting browse from ${screenPath} to ${subscreenItem.getLocation()}")
+                                            screenPath = subscreenItem.getLocation()
+                                        }
+                                    } catch (Exception e) {
+                                        ec.logger.warn("Error resolving subscreen location: ${e.message}")
+                                    }
+                                }
+                            }
+                        }
+
                         try {
                             // First, add the current screen itself as a tool if it's executable
-                            def currentToolName = McpUtils.getToolName(screenPath)
+                            // Use baseToolName if available to preserve context (e.g. moqui_PopCommerce_...)
+                            // even if the implementation is in another component (e.g. SimpleScreens)
+                            def currentToolName = baseToolName ?: McpUtils.getToolName(screenPath)
                             tools << [
                                 name: currentToolName,
                                 description: "Execute screen: ${currentToolName}",
@@ -1427,7 +1491,7 @@ def startTime = System.currentTimeMillis()
                                     // Construct sub-tool name by extending the parent path
                                     // This assumes subscreens are structurally nested in the tool name
                                     // e.g. moqui_PopCommerce_Admin -> moqui_PopCommerce_Admin_Catalog
-                                    def parentToolName = McpUtils.getToolName(screenPath)
+                                    def parentToolName = baseToolName ?: McpUtils.getToolName(screenPath)
                                     def subToolName = parentToolName + "_" + subName
                                     
                                     subscreens << [
