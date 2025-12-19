@@ -582,12 +582,12 @@ try {
         
         // Validate Accept header per MCP 2025-11-25 spec requirement #2
         // Client MUST include Accept header listing both application/json and text/event-stream
-        if (!acceptHeader || !(acceptHeader.contains("application/json") || acceptHeader.contains("text/event-stream"))) {
+        if (!acceptHeader || !(acceptHeader.contains("application/json") && acceptHeader.contains("text/event-stream"))) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
             response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
-                error: [code: -32600, message: "Accept header must include application/json and/or text/event-stream per MCP 2025-11-25 spec"],
+                error: [code: -32600, message: "Accept header must include both application/json and text/event-stream per MCP 2025-11-25 spec"],
                 id: null
             ]))
             return

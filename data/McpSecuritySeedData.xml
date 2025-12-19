@@ -15,76 +15,19 @@
 
     <!-- MCP User Groups -->
     <moqui.security.UserGroup userGroupId="McpUser" description="MCP Server Users"/>
-    <moqui.security.UserGroup userGroupId="MCP_BUSINESS" description="MCP Business Operations - Curated essential services"/>
+    <moqui.security.UserGroup userGroupId="MCP_ALL_ACCESS" description="MCP All Access (Testing)"/>
     
     <!-- MCP Artifact Groups -->
     <moqui.security.ArtifactGroup artifactGroupId="McpServices" description="MCP JSON-RPC Services"/>
     <moqui.security.ArtifactGroup artifactGroupId="McpRestPaths" description="MCP REST API Paths"/>
-    <moqui.security.ArtifactGroup artifactGroupId="McpScreenTransitions" description="MCP Screen Transitions"/>
-    <moqui.security.ArtifactGroup artifactGroupId="McpBusinessServices" description="MCP Essential Business Services"/>
-    <moqui.security.ArtifactGroup artifactGroupId="McpSecurityEntities" description="Security entities needed for permission checks"/>
-    <moqui.security.ArtifactGroup artifactGroupId="McpScreens" description="MCP Screen Access"/>
-    <moqui.security.ArtifactGroup artifactGroupId="McpScreenTools" description="MCP Screen-based Tools"/>
     
     <!-- MCP Artifact Group Members -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.*" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#Ping" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.handle#McpRequest" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#Initialize" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#ToolsList" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#ToolsCall" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#ResourcesList" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.mcp#ResourcesRead" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="mcp#Initialize" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="list#Tools" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="mcp#ToolsCall" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="mcp#Ping" artifactTypeEnumId="AT_SERVICE"/>
     
-    <!-- Screen Discovery and Execution Services -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.discover#ScreensAsMcpTools" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.convert#ScreenToMcpTool" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.execute#ScreenAsMcpTool" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="McpServices.execute#ScreenAsMcpTool" artifactTypeEnumId="AT_SERVICE"/>
-    
-    <!-- MCP Test Screen -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpScreens" artifactName="component://moqui-mcp-2/screen/McpTestScreen.xml" artifactTypeEnumId="AT_XML_SCREEN"/>
-    
-    <!-- Essential Business Services -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.order.OrderServices.create#Order" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.party.PartyServices.find#Party" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.ledger.LedgerServices.find#PartyAcctgPreference" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="org.moqui.impl.BasicServices.send#Email" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="org.moqui.impl.BasicServices.create#CommunicationEvent" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.product.ProductServices.find#ProductByIdValue" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.product.AssetServices.get#AvailableInventory" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="McpServices.list#Products" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.ledger.LedgerServices.find#GlAccount" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.product.PriceServices.get#ProductPrice" artifactTypeEnumId="AT_SERVICE"/>
-    <!-- Entity Services -->
-    <!--
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.find#Entity" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.create#Entity" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.update#Entity" artifactTypeEnumId="AT_SERVICE"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.EntityServices.delete#Entity" artifactTypeEnumId="AT_SERVICE"/>
-    -->
-    
-    <!-- Essential Business Entities -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.order.OrderHeader" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.order.OrderItem" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.party.Party" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.party.FindPartyView" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.account.Customer" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="UserAccount" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.ledger.FinancialAccount" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.product.Product" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="mantle.invoice.Invoice" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="moqui.server.CommunicationEvent" artifactTypeEnumId="AT_ENTITY"/>
-    <!-- MCP Test Services -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpBusinessServices" artifactName="org.moqui.mcp.McpTestServices.*" artifactTypeEnumId="AT_SERVICE"/>
-    <!-- Visit Entity Access -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="moqui.server.Visit" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="create#moqui.server.Visit" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="update#moqui.server.Visit" artifactTypeEnumId="AT_ENTITY"/>
-    <!-- Security Entity Access for permission checking -->
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpSecurityEntities" artifactName="moqui.security.ArtifactGroupMember" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpSecurityEntities" artifactName="moqui.security.UserGroupMember" artifactTypeEnumId="AT_ENTITY"/>
-    <moqui.security.ArtifactGroupMember artifactGroupId="McpSecurityEntities" artifactName="moqui.security.ArtifactAuthz" artifactTypeEnumId="AT_ENTITY"/>
     <!-- Basic Services -->
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.BasicServices.get#ServerNodeInfo" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="McpServices" artifactName="org.moqui.impl.BasicServices.get#SystemInfo" artifactTypeEnumId="AT_SERVICE"/>
@@ -94,41 +37,21 @@
     <!-- MCP Artifact Authz -->
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
     <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpRestPaths" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreens" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_VIEW"/>
-    <!--
-    <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreenTransitions" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="McpUser" artifactGroupId="McpScreenTools" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    -->
-    
-    <!-- Give ALL users access to security entities needed for permission checks -->
-    <!--
-    <moqui.security.ArtifactAuthz userGroupId="ALL_USERS" artifactGroupId="McpSecurityEntities" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    -->
 
-    <!-- Ensure ADMIN user always has access to security entities needed for permission checks -->
+    <!-- Ensure ADMIN user always has access to MCP services -->
     <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpScreens" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpScreenTools" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/>
-    <!-- Explicit permission for screen execution service -->
-    <!-- <moqui.security.ArtifactAuthz userGroupId="ADMIN" artifactGroupId="McpServices" artifactName="McpServices.execute#ScreenAsMcpTool" authzTypeEnumId="AUTHZT_ALWAYS" authzActionEnumId="AUTHZA_ALL"/> -->
     
-    <!-- MCP Business Group Authz -->
-    <moqui.security.ArtifactAuthz userGroupId="MCP_BUSINESS" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="MCP_BUSINESS" artifactGroupId="McpBusinessServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="MCP_BUSINESS" artifactGroupId="McpScreens" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="MCP_BUSINESS" artifactGroupId="McpRestPaths" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="MCP_BUSINESS" artifactGroupId="McpScreens" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-    <moqui.security.ArtifactAuthz userGroupId="MCP_BUSINESS" artifactGroupId="McpScreenTools" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-
     
     <!-- MCP User Accounts -->
     <moqui.security.UserAccount userId="MCP_USER" username="mcp-user" currentPassword="16ac58bbfa332c1c55bd98b53e60720bfa90d394" passwordHashType="SHA"/>
-    <moqui.security.UserAccount userId="MCP_BUSINESS" username="mcp-business" currentPassword="16ac58bbfa332c1c55bd98b53e60720bfa90d394" passwordHashType="SHA"/>
     
     <!-- Add MCP users to MCP user groups -->
     <moqui.security.UserGroupMember userGroupId="McpUser" userId="MCP_USER" fromDate="2025-01-01 00:00:00.000"/>
     <moqui.security.UserGroupMember userGroupId="McpUser" userId="JohnSales" fromDate="2025-01-01 00:00:00.000"/>
-    <moqui.security.UserGroupMember userGroupId="MCP_BUSINESS" userId="MCP_BUSINESS" fromDate="2025-01-01 00:00:00.000"/>
+    <moqui.security.UserGroupMember userGroupId="MCP_ALL_ACCESS" userId="JohnSales" fromDate="2025-01-01 00:00:00.000"/>
+
+    <!-- Permissions for ALL_ACCESS group -->
+    <moqui.security.ArtifactAuthz userGroupId="MCP_ALL_ACCESS" artifactGroupId="McpServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
     <!-- ADMIN user doesn't need to be in MCP groups - should have full access by default -->
     
     <!-- Add existing demo users to MCP business group for focused testing -->
