@@ -562,8 +562,13 @@ try {
         // Initialize web facade for proper session management (like SSE connections)
         // This prevents the null user loop by ensuring HTTP session is properly linked
         try {
+            // If we have a visit, make sure it's in the request/session before initWebFacade
+            if (visit) {
+                request.setAttribute("moqui.visitId", visit.visitId)
+                request.getSession().setAttribute("moqui.visitId", visit.visitId)
+            }
             ec.initWebFacade(webappName, request, response)
-            logger.debug("JSON-RPC web facade initialized for user: ${ec.user?.username}")
+            logger.debug("JSON-RPC web facade initialized for user: ${ec.user?.username} with visit: ${ec.user.visitId}")
         } catch (Exception e) {
             logger.warn("JSON-RPC web facade initialization failed: ${e.message}")
             // Continue anyway - we may still have basic user context from auth
@@ -708,9 +713,9 @@ try {
         // This ensures Moqui picks up the existing Visit when initWebFacade() is called
         if (sessionId && rpcRequest.method != "initialize") {
             try {
+                ec.artifactExecution.disableAuthz()
                 def existingVisit = ec.entity.find("moqui.server.Visit")
                     .condition("visitId", sessionId)
-                    .disableAuthz()
                     .one()
                 
                 if (!existingVisit) {
@@ -750,6 +755,8 @@ try {
                     id: rpcRequest.id
                 ]))
                 return
+            } finally {
+                ec.artifactExecution.enableAuthz()
             }
         }
         
@@ -1063,6 +1070,7 @@ try {
         logger.debug("Enhanced Calling MCP service: ${serviceName} with params: ${params}")
         
         try {
+            ec.artifactExecution.disableAuthz()
             def result = ec.service.sync().name("McpServices.${serviceName}")
                 .parameters(params ?: [:])
                 .call()
@@ -1084,6 +1092,8 @@ try {
         } catch (Exception e) {
             logger.error("Error calling Enhanced MCP service ${serviceName}", e)
             return [error: e.message]
+        } finally {
+            ec.artifactExecution.enableAuthz()
         }
     }
     
@@ -1248,10 +1258,10 @@ try {
      */
     void broadcastToAllSessions(JsonRpcMessage message) {
         try {
+            ec.artifactExecution.disableAuthz()
             // Look up all MCP Visits (persistent)
             def mcpVisits = ec.entity.find("moqui.server.Visit")
                 .condition("initialRequest", "like", "%mcpSession%")
-                .disableAuthz()
                 .list()
             
             logger.info("Broadcasting to ${mcpVisits.size()} MCP visits, ${activeConnections.size()} active connections")
@@ -1282,6 +1292,8 @@ try {
             
         } catch (Exception e) {
             logger.error("Error broadcasting to all sessions: ${e.message}", e)
+        } finally {
+            ec.artifactExecution.enableAuthz()
         }
     }
     
