@@ -143,12 +143,8 @@ class EnhancedMcpServlet extends HttpServlet {
         
         ExecutionContextImpl ec = ecfi.getEci()
         
-try {
-            // Handle Basic Authentication directly without triggering screen system
-            String authzHeader = request.getHeader("Authorization")
-            boolean authenticated = false
-            
-            // Read request body early before any other processing can consume it
+        try {
+            // Read request body VERY early before any other processing can consume it
             String requestBody = null
             if ("POST".equals(request.getMethod())) {
                 try {
@@ -167,6 +163,17 @@ try {
                     logger.error("Failed to read request body early: ${e.message}")
                 }
             }
+
+            // Initialize web facade early to set up session and visit context
+            try {
+                ec.initWebFacade(webappName, request, response)
+            } catch (Exception e) {
+                logger.warn("Web facade initialization warning: ${e.message}")
+            }
+
+            // Handle Basic Authentication directly
+            String authzHeader = request.getHeader("Authorization")
+            boolean authenticated = false
             
             if (authzHeader != null && authzHeader.length() > 6 && authzHeader.startsWith("Basic ")) {
                 String basicAuthEncoded = authzHeader.substring(6).trim()
@@ -176,12 +183,15 @@ try {
                     String username = basicAuthAsString.substring(0, indexOfColon)
                     String password = basicAuthAsString.substring(indexOfColon + 1)
                     try {
-                        logger.info("LOGGING IN ${username} ${password}")
-                        ec.user.loginUser(username, password)
-                        authenticated = true
-                        logger.info("Enhanced MCP Basic auth successful for user: ${ec.user?.username}")
+                        logger.info("LOGGING IN ${username}")
+                        authenticated = ec.user.loginUser(username, password)
+                        if (authenticated) {
+                            logger.info("Enhanced MCP Basic auth successful for user: ${ec.user?.username}")
+                        } else {
+                            logger.warn("Enhanced MCP Basic auth failed for user: ${username}")
+                        }
                     } catch (Exception e) {
-                        logger.warn("Enhanced MCP Basic auth failed for user ${username}: ${e.message}")
+                        logger.warn("Enhanced MCP Basic auth exception for user ${username}: ${e.message}")
                     }
                 } else {
                     logger.warn("Enhanced MCP got bad Basic auth credentials string")
@@ -190,7 +200,7 @@ try {
             
             // Re-enabled proper authentication - UserServices compilation issues resolved
             if (!authenticated || !ec.user?.userId) {
-                logger.warn("Enhanced MCP authentication failed - no valid user authenticated")
+                logger.warn("Enhanced MCP authentication failed - authenticated=${authenticated}, userId=${ec.user?.userId}")
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED)
                 response.setContentType("application/json")
                 response.setHeader("WWW-Authenticate", "Basic realm=\"Moqui MCP\"")
@@ -202,24 +212,10 @@ try {
                 return
             }
             
-            // Create Visit for JSON-RPC requests too
-            def visit = null
-            try {
-                // Initialize web facade for Visit creation
-                ec.initWebFacade(webappName, request, response)
-                // Web facade was successful, get Visit it created
-                visit = ec.user.getVisit()
-                if (!visit) {
-                    throw new Exception("Web facade succeeded but no Visit created")
-                }
-            } catch (Exception e) {
-                logger.error("Web facade initialization failed - this is a system configuration error: ${e.message}", e)
-                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "System configuration error: Web facade failed to initialize. Check Moqui logs for details.")
-                return
-            }
-            
-            // Final check that we have a Visit
+            // Get Visit created by web facade
+            def visit = ec.user.getVisit()
             if (!visit) {
+                logger.error("Web facade initialized but no Visit created")
                 response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to create Visit")
                 return
             }

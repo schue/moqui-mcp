@@ -128,78 +128,86 @@
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
-                import org.moqui.impl.context.UserFacadeImpl.UserInfo
                 import groovy.json.JsonBuilder
                 
                 ExecutionContext ec = context.ec
                 
                 // Start timing for execution metrics
                 def startTime = System.currentTimeMillis()
+                def isError = false
                 
-                // Handle stubbed MCP protocol methods by routing to actual Moqui services
-                def protocolMethodMappings = [
-                    "tools/list": "McpServices.list#Tools",
-                    "tools/call": "McpServices.mcp#ToolsCall", 
-                    "resources/list": "McpServices.mcp#ResourcesList",
-                    "resources/read": "McpServices.mcp#ResourcesRead",
-                    "resources/subscribe": "McpServices.mcp#ResourcesSubscribe",
-                    "resources/unsubscribe": "McpServices.mcp#ResourcesUnsubscribe",
-                    "prompts/list": "McpServices.mcp#PromptsList",
-                    "prompts/get": "McpServices.mcp#PromptsGet",
-                    "ping": "McpServices.mcp#Ping",
-                    "moqui_browse_screens": "McpServices.mcp#BrowseScreens",
-                    "moqui_search_screens": "McpServices.mcp#SearchScreens",
-                    "moqui_get_screen_details": "McpServices.mcp#GetScreenDetails"
-                ]
-                
-                if (protocolMethodMappings.containsKey(name)) {
-                    ec.logger.info("MCP ToolsCall: Routing protocol method ${name} to ${protocolMethodMappings[name]}")
-                    def targetServiceName = protocolMethodMappings[name]
+                try {
+                    // Consolidated Tool Dispatching
                     
-                    if (name == "tools/call") {
-                        def actualToolName = arguments?.name
-                        def actualArguments = arguments?.arguments
-                        if (!actualToolName) throw new Exception("tools/call requires 'name' parameter in arguments")
+                    if (name == "moqui_render_screen") {
+                        def screenPath = arguments?.path
+                        def parameters = arguments?.parameters ?: [:]
+                        def renderMode = arguments?.renderMode ?: "html"
+                        def subscreenName = arguments?.subscreenName
+    
+                        if (!screenPath) throw new Exception("moqui_render_screen requires 'path' parameter")
                         
-                        if (actualArguments instanceof Map) actualArguments.sessionId = sessionId
-                        else actualArguments = [sessionId: sessionId]
+                        ec.logger.info("MCP ToolsCall: Rendering screen path=${screenPath}, subscreen=${subscreenName}")
                         
-                        // Check if this is a screen tool (starts with moqui_)
-                        def screenPath = null
-                        def subscreenName = null
-                        if (actualToolName.startsWith("moqui_")) {
-                            def decoded = org.moqui.mcp.McpUtils.decodeToolName(actualToolName, ec)
-                            screenPath = decoded.screenPath
-                            subscreenName = decoded.subscreenName
-                        }
+                        // Handle component:// or simple dot notation path
+                        def resolvedPath = screenPath
+                        def resolvedSubscreen = subscreenName
                         
-                        if (screenPath) {
-                            ec.logger.info("MCP ToolsCall: Decoded screen tool - screenPath=${screenPath}, subscreen=${subscreenName}")
-                            def screenCallParams = [
-                                screenPath: screenPath,
-                                parameters: actualArguments,
-                                renderMode: actualArguments?.renderMode ?: "html",
-                                sessionId: sessionId
-                            ]
-                            if (subscreenName) screenCallParams.subscreenName = subscreenName
+                        if (!resolvedPath.startsWith("component://")) {
+                            // Simple dot notation or path conversion
+                            // Longest prefix match for XML screen files
+                            def pathParts = resolvedPath.split('\\.')
+                            def componentName = pathParts[0]
+                            def bestPath = null
+                            def bestSubscreen = null
                             
-                            return ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
-                                .parameters(screenCallParams).call()
-                        } else {
-                            def actualTargetServiceName = protocolMethodMappings[actualToolName]
-                            if (actualTargetServiceName) {
-                                return ec.service.sync().name(actualTargetServiceName)
-                                    .parameters(actualArguments ?: [:]).call()
-                            } else {
-                                // Fallback: check if it's a Moqui service
-                                if (ec.service.isServiceDefined(actualToolName)) {
-                                     def serviceResult = ec.service.sync().name(actualToolName).parameters(actualArguments ?: [:]).call()
-                                     return [result: [content: [[type: "text", text: new JsonBuilder(serviceResult).toString()]], isError: false]]
+                            // Start from the longest possible XML path and work backwards
+                            for (int i = pathParts.size(); i >= 1; i--) {
+                                def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                                if (ec.resource.getLocationReference(currentTry).getExists()) {
+                                    bestPath = currentTry
+                                    if (i < pathParts.size()) {
+                                        bestSubscreen = pathParts[i..-1].join('_')
+                                    }
+                                    break
                                 }
-                                throw new Exception("Unknown tool name: ${actualToolName}")
+                            }
+                            
+                            if (bestPath) {
+                                resolvedPath = bestPath
+                                resolvedSubscreen = bestSubscreen
+                            } else {
+                                // Fallback to original logic if nothing found
+                                resolvedPath = "component://${componentName}/screen/${componentName}.xml"
+                                resolvedSubscreen = pathParts.size() > 1 ? pathParts[1..-1].join('_') : null
                             }
                         }
-                    } else {
+
+                        def screenCallParams = [
+                            screenPath: resolvedPath,
+                            parameters: parameters,
+                            renderMode: renderMode,
+                            sessionId: sessionId
+                        ]
+                        if (resolvedSubscreen) screenCallParams.subscreenName = resolvedSubscreen
+                        
+                        def serviceResult = ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
+                            .parameters(screenCallParams).call()
+                            
+                        // ScreenAsMcpTool returns the final result map directly
+                        result = serviceResult
+                        return
+                    }
+                    
+                    // Handle internal discovery/utility tools
+                    def internalToolMappings = [
+                        "moqui_browse_screens": "McpServices.mcp#BrowseScreens",
+                        "moqui_search_screens": "McpServices.mcp#SearchScreens",
+                        "moqui_get_screen_details": "McpServices.mcp#GetScreenDetails"
+                    ]
+                    
+                    def targetServiceName = internalToolMappings[name]
+                    if (targetServiceName) {
                         def serviceResult = ec.service.sync().name(targetServiceName).parameters(arguments ?: [:]).call()
                         def actualRes = serviceResult?.result ?: serviceResult
                         // Ensure standard MCP response format with content array
@@ -210,99 +218,19 @@
                         }
                         return
                     }
-                }
-                
-                // Check if this is a screen-based tool using McpUtils
-                def screenPath = null
-                def subscreenName = null
-                if (name.startsWith("moqui_")) {
-                    def decoded = org.moqui.mcp.McpUtils.decodeToolName(name, ec)
-                    screenPath = decoded.screenPath
-                    subscreenName = decoded.subscreenName
-                }
-                
-                if (screenPath) {
-                    ec.logger.info("Decoded screen path for tool ${name}: ${screenPath}, subscreen: ${subscreenName}")
-                    
-                    def screenParams = arguments ?: [:]
-                    def renderMode = screenParams.remove('renderMode') ?: "html"
-                    def serviceCallParams = [screenPath: screenPath, parameters: screenParams, renderMode: renderMode, sessionId: sessionId]
-                    if (subscreenName) serviceCallParams.subscreenName = subscreenName
-
-                    ec.logger.info("SCREENASTOOL ${serviceCallParams}")
-                    def serviceResult = ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
-                        .parameters(serviceCallParams)
-                        .call()
-                        
-                    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-                    
-                    // Convert result to MCP format
-                    def content = []
-                    
-                    if (serviceResult?.result) {
-                        // Handle screen execution result which has content array
-                        if (serviceResult.result.content && serviceResult.result.content instanceof List) {
-                            // Use the content array directly from the screen execution result
-                            content.addAll(serviceResult.result.content)
-                        } else if (serviceResult.result.type == "text" && serviceResult.result.text) {
-                            content << [
-                                type: "text", 
-                                text: serviceResult.result.text
-                            ]
-                        } else {
-                            content << [
-                                type: "text", 
-                                text: serviceResult.result.text ?: serviceResult.result.toString() ?: "Screen executed successfully"
-                            ]
-                        }
+    
+                    // Fallback: check if it's a general Moqui service (non-screen-based tools)
+                    if (ec.service.isServiceDefined(name)) {
+                        // Execute service with current user context
+                        def serviceResult = ec.service.sync().name(name).parameters(arguments ?: [:]).call()
+                        // Convert result to MCP format for general services
+                        result = [content: [[type: "text", text: new JsonBuilder(serviceResult).toString()]], isError: false]
+                        return
                     }
                     
-                    result = [
-                        content: content,
-                        isError: false
-                    ]
-                    return
-                }
-                
-                // For service tools, validate service exists
-                if (!ec.service.isServiceDefined(name)) {
-                    throw new Exception("Tool not found: ${name}")
-                }
-                
-                // Capture original user for permission context
-                def originalUsername = ec.user.username
-                UserInfo adminUserInfo = null
-                
-                try {
-                    // Execute service with elevated privileges for system access
-                    // but maintain audit context with actual user
-                    def serviceResult
-                    adminUserInfo = null
-                    try {
-                        serviceResult = ec.service.sync().name(name).parameters(arguments ?: [:]).call()
-                } finally {
-                    if (adminUserInfo != null) {
-                        ec.user.popUser()
-                    }
-                    ec.artifactExecution.enableAuthz()
-                }
-                    executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-                    
-                    // Convert result to MCP format
-                    content = []
-                    if (serviceResult) {
-                        content << [
-                            type: "text",
-                            text: new JsonBuilder(serviceResult).toString()
-                        ]
-                    }
-                    
-                    result = [
-                        content: content,
-                        isError: serviceResult?.result?.isError ?: false
-                    ]
-                } catch (Exception e2) {
-                    executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    throw new Exception("Unknown tool name: ${name}")
+                } catch (Exception e) {
+                    isError = true
                     
                     result = [
                         content: [
@@ -316,27 +244,20 @@
                     
                     ec.logger.error("MCP tool execution error", e)
                 } finally {
-                    // Always restore original user context
-                    if (adminUserInfo != null) {
-                        ec.user.popUser()
-                    }
-                    
                     // Send a simple notification about tool execution
                     try {
                         def servlet = ec.web.getServletContext().getAttribute("enhancedMcpServlet")
-                        ec.logger.info("TOOLS CALL: Got servlet reference: ${servlet != null}, sessionId: ${sessionId}")
                         if (servlet && sessionId) {
                             def notification = [
                                 method: "notifications/tool_execution",
                                 params: [
                                     toolName: name,
                                     executionTime: (System.currentTimeMillis() - startTime) / 1000.0,
-                                    success: !result?.result?.isError,
+                                    success: !isError,
                                     timestamp: System.currentTimeMillis()
                                 ]
                             ]
                             servlet.queueNotification(sessionId, notification)
-                            ec.logger.info("Queued tool execution notification for session ${sessionId}")
                         }
                     } catch (Exception e) {
                         ec.logger.warn("Failed to send tool execution notification: ${e.message}")
@@ -690,10 +611,6 @@ import groovy.json.JsonBuilder
 ExecutionContext ec = context.ec
 
 def startTime = System.currentTimeMillis()
-    // Note: Screen validation will happen during render
-    // if (!ec.screen.isScreenDefined(screenPath)) {
-    //     throw new Exception("Screen not found: ${screenPath}")
-    // }
     
     // Set parameters in context
     if (parameters) {
@@ -709,352 +626,111 @@ def startTime = System.currentTimeMillis()
         ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen")
         
         // For ScreenTest to work properly, we need to use the correct root screen
-        // The screenPath should be relative to the appropriate root screen
         def testScreenPath = screenPath
         def rootScreen = "component://webroot/screen/webroot.xml"
         
-        // Initialize standalone flag outside the if block
         def targetScreenDef = null
         def isStandalone = false
         
+        if (screenPath.startsWith("component://")) {
             def pathAfterComponent = screenPath.substring(12).replace('.xml','') // Remove "component://"
             def pathParts = pathAfterComponent.split("/")
-                // If the screen path is already a full component:// path, we need to handle it differently
-        if (screenPath.startsWith("component://")) {
-            // For component:// paths, we need to use the component's root screen, not webroot
-            // Extract the component name and use its root screen
-            if (pathParts.length >= 2) {
-                def componentName = pathParts[0]
-                def remainingPath = pathParts[1..-1].join("/")
-                
-                // Check if the target screen itself is standalone FIRST
-                try {
-                    targetScreenDef = ec.screen.getScreenDefinition(screenPath)
-                    ec.logger.info("MCP Screen Execution: Target screen def for ${screenPath}: ${targetScreenDef?.getClass()?.getSimpleName()}")
-                    if (targetScreenDef?.screenNode) {
-                        def standaloneAttr = targetScreenDef.screenNode.attribute('standalone')
-                        ec.logger.info("MCP Screen Execution: Target screen ${screenPath} standalone attribute: '${standaloneAttr}'")
-                        isStandalone = standaloneAttr == "true"
-                    } else {
-                        ec.logger.warn("MCP Screen Execution: Target screen ${screenPath} has no screenNode")
-                    }
-                    ec.logger.info("MCP Screen Execution: Target screen ${screenPath} standalone=${isStandalone}")
-                    
-                    if (isStandalone) {
-                        // For standalone screens, try to render with minimal context or fall back to URL
-                        ec.logger.info("MCP Screen Execution: Standalone screen detected, will try direct rendering")
-                        rootScreen = screenPath
-                        testScreenPath = ""  // Empty path for standalone screens
-                        // We'll handle standalone screens specially below
-                    }
-                } catch (Exception e) {
-                    ec.logger.warn("MCP Screen Execution: Error checking target screen ${screenPath}: ${e.message}")
-                    ec.logger.error("MCP Screen Execution: Full exception", e)
+
+            // Check if the target screen itself is standalone
+            try {
+                targetScreenDef = ec.screen.getScreenDefinition(screenPath)
+                if (targetScreenDef?.screenNode) {
+                    def standaloneAttr = targetScreenDef.screenNode.attribute('standalone')
+                    isStandalone = standaloneAttr == "true"
                 }
                 
-                // Only look for component root if target is not standalone
-                if (!isStandalone) {
-                    // For component://webroot/screen/... paths, always use webroot as root
-                    if (pathAfterComponent.startsWith("webroot/screen/")) {
-                        // This is a webroot screen, use webroot as root and the rest as path
-                        rootScreen = "component://webroot/screen/webroot.xml"
-                        testScreenPath = pathAfterComponent.substring("webroot/screen/".length())
-                        // Remove any leading "webroot/" from the path since we're already using webroot as root
-                        if (testScreenPath.startsWith("webroot/")) {
-                            testScreenPath = testScreenPath.substring("webroot/".length())
-                        }
-                        ec.logger.info("MCP Screen Execution: Using webroot root for webroot screen: ${rootScreen} with path: ${testScreenPath}")
+                if (isStandalone) {
+                    rootScreen = screenPath
+                    testScreenPath = "" 
+                }
+            } catch (Exception e) {
+                ec.logger.warn("MCP Screen Execution: Error checking target screen ${screenPath}: ${e.message}")
+            }
+            
+            if (!isStandalone) {
+                // Check if the screen path itself is a valid screen definition
+                try {
+                    if (ec.screen.getScreenDefinition(screenPath)) {
+                        rootScreen = screenPath
+                        testScreenPath = ""
                     } else {
-                        // For other component screens, check if this is a direct screen path (not a subscreen path)
-                        def pathSegments = remainingPath.split("/")
-                        def isDirectScreenPath = false
-                        
-                        // Try to check if the full path is a valid screen
-                        try {
-                            def directScreenDef = ec.screen.getScreenDefinition(screenPath)
-                            if (directScreenDef) {
-                                isDirectScreenPath = true
-                                ec.logger.info("MCP Screen Execution: Found direct screen path: ${screenPath}")
+                        // Original component root logic
+                        if (pathAfterComponent.startsWith("webroot/screen/")) {
+                            rootScreen = "component://webroot/screen/webroot.xml"
+                            testScreenPath = pathAfterComponent.substring("webroot/screen/".length())
+                            if (testScreenPath.startsWith("webroot/")) {
+                                testScreenPath = testScreenPath.substring("webroot/".length())
                             }
-                        } catch (Exception e) {
-                            ec.logger.debug("MCP Screen Execution: Direct screen check failed for ${screenPath}: ${e.message}")
-                        }
-                        
-                        if (isDirectScreenPath) {
-                            // For direct screen paths, use the screen itself as root
-                            rootScreen = screenPath
-                            testScreenPath = ""
-                            ec.logger.info("MCP Screen Execution: Using direct screen as root: ${rootScreen}")
                         } else {
+                            def componentName = pathParts[0]
+                            def remainingPath = pathParts[1..-1].join("/")
+                            
                             // Try to find the actual root screen for this component
                             def componentRootScreen = null
-                            def possibleRootScreens = [
-                                "${componentName}.xml",
-                                "${componentName}Admin.xml",
-                                "${componentName}Root.xml"
-                            ]
+                            def possibleRootScreens = ["${componentName}.xml", "${componentName}Admin.xml", "${componentName}Root.xml"]
                             
                             for (rootScreenName in possibleRootScreens) {
                                 def candidateRoot = "component://${componentName}/screen/${rootScreenName}"
                                 try {
-                                    def testDef = ec.screen.getScreenDefinition(candidateRoot)
-                                    if (testDef) {
+                                    if (ec.screen.getScreenDefinition(candidateRoot)) {
                                         componentRootScreen = candidateRoot
-                                        ec.logger.info("MCP Screen Execution: Found component root screen: ${componentRootScreen}")
                                         break
                                     }
-                                } catch (Exception e) {
-                                    ec.logger.debug("MCP Screen Execution: Root screen ${candidateRoot} not found: ${e.message}")
-                                }
+                                } catch (Exception e) {}
                             }
                             
                             if (componentRootScreen) {
                                 rootScreen = componentRootScreen
                                 testScreenPath = remainingPath
-                                ec.logger.info("MCP Screen Execution: Using component root ${rootScreen} for path ${testScreenPath}")
                             } else {
-                                // For mantle and other components, try using the component's screen directory as root
-                                // This is a better fallback than webroot
-                                def componentScreenRoot = "component://${componentName}/screen/"
-                                if (pathAfterComponent.startsWith("${componentName}/screen/")) {
-                                    // Extract the screen file name from the path
-                                    def screenFileName = pathAfterComponent.substring("${componentName}/screen/".length())
-                                    rootScreen = screenPath  // Use the full path as root
-                                    testScreenPath = ""     // Empty path for direct screen access
-                                    ec.logger.info("MCP Screen Execution: Using component screen as direct root: ${rootScreen}")
-                                } else {
-                                    // Final fallback: try webroot
-                                    rootScreen = "component://webroot/screen/webroot.xml"
-                                    testScreenPath = pathAfterComponent
-                                    ec.logger.warn("MCP Screen Execution: Could not find component root for ${componentName}, using webroot fallback: ${testScreenPath}")
-                                }
+                                rootScreen = screenPath
+                                testScreenPath = ""
                             }
                         }
                     }
+                } catch (Exception e) {
+                    // Same as above fallback
+                    rootScreen = screenPath
+                    testScreenPath = ""
                 }
-            } else {
-                // Fallback for malformed component paths
-                testScreenPath = pathAfterComponent
-                ec.logger.warn("MCP Screen Execution: Malformed component path, using fallback: ${testScreenPath}")
             }
         }
         
-        // Handle subscreen if specified
-        if (subscreenName) {
-            ec.logger.info("MCP Screen Execution: Handling subscreen ${subscreenName} for parent ${screenPath}")
-            
-            // For subscreens, we need to modify the render path to include the subscreen
-            // The pathParts array already contains the full path, so we need to add the subscreen name
-            def subscreenPathParts = pathParts + subscreenName.split('_')
-            ec.logger.info("MCP Screen Execution: Full subscreen path parts: ${subscreenPathParts}")
-            
-            // User context should already be correct from MCP servlet restoration
-            // CustomScreenTestImpl will capture current user context automatically
-            ec.logger.info("MCP Screen Execution: Current user context - userId: ${ec.user.userId}, username: ${ec.user.username}")
-            
-            // Regular screen rendering with current user context - use our custom ScreenTestImpl
-            def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
-                .rootScreen(rootScreen)
-                .renderMode(renderMode ? renderMode : "html")
-                .auth(ec.user.username) // Propagate current user to the test renderer
-            
-            ec.logger.info("MCP Screen Execution: ScreenTest object created for subscreen: ${screenTest?.getClass()?.getSimpleName()}")
-                
-            if (screenTest) {
-                def renderParams = parameters ?: [:]
-                
-                // Add current user info to render context to maintain authentication
-                renderParams.userId = ec.user.userId
-                renderParams.username = ec.user.username
-                
-                // Set user context in ScreenTest to maintain authentication
-                // Note: ScreenTestImpl may not have direct userAccountId property, 
-                // the user context should be inherited from the current ExecutionContext
-                ec.logger.info("MCP Screen Execution: Current user context - userId: ${ec.user.userId}, username: ${ec.user.username}")
-                ec.logger.info("SUBSCREEN PATH PARTS ${subscreenPathParts}")
-                
-                // Regular screen rendering with timeout for subscreen
-                try {
-                    // Construct the proper relative path from parent screen to target subscreen
-                    // The subscreenName contains the full path from parent with underscores, convert to proper path
-                    def relativePath = subscreenName.replaceAll('_','/')
-                    ec.logger.info("TESTRENDER ${relativePath} ${renderParams}")
-                    // For subscreens, use the full relative path from parent screen to target subscreen
-                    def testRender = screenTest.render(relativePath, renderParams, "POST")
-                    output = testRender.getOutput()
-                    def outputLength = output?.length() ?: 0
-                    ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
-                } catch (java.util.concurrent.TimeoutException e) {
-                    throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
-                }
-            } else {
-                throw new Exception("ScreenTest object is null")
-            }
-        } else {
-            // Direct screen execution (no subscreen)
-            ec.logger.info("MCP Screen Execution: Rendering direct screen ${screenPath} (root: ${rootScreen}, path: ${testScreenPath})")
-            
-            def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
-                .rootScreen(rootScreen)
-                .renderMode(renderMode ? renderMode : "html")
-                .auth(ec.user.username)
-            
-            if (screenTest) {
-                def renderParams = parameters ?: [:]
-                renderParams.userId = ec.user.userId
-                renderParams.username = ec.user.username
-                
-                try {
-                    ec.logger.info("TESTRENDER ${testScreenPath} ${renderParams}")
-                    def testRender = screenTest.render(testScreenPath, renderParams, "POST")
-                    output = testRender.getOutput()
-                    ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
-                } catch (java.util.concurrent.TimeoutException e) {
-                    throw new Exception("Screen rendering timed out after 30 seconds for ${screenPath}")
-                }
-            }
-        }
+        // Regular screen rendering with current user context - use our custom ScreenTestImpl
+        def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
+            .rootScreen(rootScreen)
+            .renderMode(renderMode ? renderMode : "html")
+            .auth(ec.user.username)
+        
+        def renderParams = parameters ?: [:]
+        renderParams.userId = ec.user.userId
+        renderParams.username = ec.user.username
+        
+        def relativePath = subscreenName ? subscreenName.replaceAll('_','/') : testScreenPath
+        ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
+        
+        def testRender = screenTest.render(relativePath, renderParams, "POST")
+        output = testRender.getOutput()
+        ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
+
     } catch (Exception e) {
         isError = true
-        ec.logger.warn("MCP Screen Execution: Could not render screen ${screenPath}, exposing error details: ${e.message}")
-        ec.logger.warn("MCP Screen Execution: Exception details: ${e.getClass()?.getSimpleName()}: ${e.getMessage()}")
         ec.logger.error("MCP Screen Execution: Full exception for ${screenPath}", e)
-        
-        // Expose detailed error information instead of URL fallback
-        def errorDetails = []
-        errorDetails << "SCREEN RENDERING ERROR"
-        errorDetails << "======================"
-        errorDetails << "Screen Path: ${screenPath}"
-        errorDetails << "Error Type: ${e.getClass()?.getSimpleName()}"
-        errorDetails << "Error Message: ${e.getMessage()}"
-        errorDetails << ""
-        
-        // Add stack trace for debugging (limited depth for readability)
-        if (e.getStackTrace()) {
-            errorDetails << "Stack Trace (top 10 frames):"
-            e.getStackTrace().take(10).eachWithIndex { stackTrace, index ->
-                errorDetails << "  ${index + 1}. ${stackTrace.toString()}"
-            }
-            if (e.getStackTrace().size() > 10) {
-                errorDetails << "  ... and ${e.getStackTrace().size() - 10} more frames"
-            }
-        }
-        
-        // Add cause information if available
-        def cause = e.getCause()
-        if (cause) {
-            errorDetails << ""
-            errorDetails << "Root Cause: ${cause.getClass()?.getSimpleName()}: ${cause.getMessage()}"
-        }
-        
-        // Add context information
-        errorDetails << ""
-        errorDetails << "Context Information:"
-        errorDetails << "- User: ${ec.user.username} (${ec.user.userId})"
-        errorDetails << "- Render Mode: ${renderMode}"
-        errorDetails << "- Parameters: ${parameters ?: 'none'}"
-        errorDetails << "- Execution Time: ${((System.currentTimeMillis() - startTime) / 1000.0)}s"
-        
-        // Add troubleshooting suggestions
-        errorDetails << ""
-        errorDetails << "Troubleshooting Suggestions:"
-        errorDetails << "1. Check if the screen path is correct and the screen exists"
-        errorDetails << "2. Verify user has permission to access this screen"
-        errorDetails << "3. Check if all required parameters are provided"
-        errorDetails << "4. Verify screen dependencies and data access"
-        errorDetails << "5. Check server logs for more detailed error information"
-        
-        output = errorDetails.join("\n")
-    }
-    
-    // Helper function to convert web paths to MCP tool names
-    def convertWebPathToMcpTool = { path ->
-        try {
-            ec.logger.info("Converting web path to MCP tool: ${path}")
-            // Handle simple catalog paths (dropdown menu items)
-            if (path == "Category" || path.startsWith("Category/") || path == "Product/FindProduct/getCategoryList") {
-                return "moqui_SimpleScreens_SimpleScreens_Catalog_Category"
-            } else if (path == "Feature" || path.startsWith("Feature/")) {
-                return "moqui_SimpleScreens_SimpleScreens_Catalog_Feature"
-            } else if (path == "FeatureGroup" || path.startsWith("FeatureGroup/")) {
-                return "moqui_SimpleScreens_SimpleScreens_Catalog_FeatureGroup"
-            } else if (path == "Product" || path.startsWith("Product/")) {
-                return "moqui_SimpleScreens_SimpleScreens_Catalog_Product"
-            } else if (path.startsWith("Search")) {
-                return "moqui_SimpleScreens_SimpleScreens_Search"
-            }
-            
-            // Handle full catalog paths
-            if (path.startsWith("Product/FindProduct")) {
-                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Product"
-            } else if (path.startsWith("Category/FindCategory")) {
-                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Category"  
-            } else if (path.startsWith("Feature/FindFeature")) {
-                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_Feature"
-            } else if (path.startsWith("FeatureGroup/FindFeatureGroup")) {
-                return "screen_SimpleScreens_screen_SimpleScreens_Catalog_FeatureGroup"
-            }
-            
-            // Handle PopCommerce Admin paths
-            if (path.startsWith("PopcAdmin/")) {
-                def cleanPath = path.replace("PopcAdmin/", "PopCommerceAdmin/")
-                def toolName = "screen_PopCommerce_screen_" + cleanPath.replace("/", "_")
-                return toolName
-            }
-            
-            // Handle SimpleScreens paths
-            if (path.startsWith("apps/")) {
-                def cleanPath = path.replace("apps/", "")
-                def toolName = "screen_SimpleScreens_screen_SimpleScreens_" + cleanPath.replace("/", "_")
-                return toolName
-            }
-            
-            return null
-        } catch (Exception e) {
-            ec.logger.debug("Error converting web path ${path} to MCP tool: ${e.message}")
-            return null
-        }
+        output = "SCREEN RENDERING ERROR: ${e.message}\n\nTroubleshooting Suggestions:\n1. Check if the screen path is correct\n2. Verify user permissions\n3. Check server logs"
     }
     
     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
     
-    // Convert web URLs to MCP tool suggestions to keep users in MCP ecosystem
-    def processedOutput = output
-    if (output && !isError) {
-        try {
-            // Convert common web URLs to MCP tool suggestions
-            processedOutput = output.replaceAll(/http:\/\/localhost:8080\/([^\s"'>]+)/) { match ->
-                def path = match[1]
-                def toolName = convertWebPathToMcpTool(path)
-                if (toolName) {
-                    return "MCP_TOOL:${toolName}"
-                } else {
-                    return match[0] // Keep original if no MCP tool found
-                }
-            }
-            
-            ec.logger.info("MCP Screen Execution: Converted web URLs to MCP tool suggestions for ${screenPath}")
-        } catch (Exception e) {
-            ec.logger.warn("MCP Screen Execution: Error converting URLs to MCP tools: ${e.message}")
-            // Keep original output if conversion fails
-        }
-    }
-    
-    // Return screen result directly as content array (standard MCP flow)
-    def content = []
-    
-    // Add execution status as first content item
-    /*
-    content << [
-        type: "text",
-        text: "Screen execution completed for ${screenPath} in ${executionTime}s"
-    ]
-    */
-    
     // Add screen HTML as main content
+    def content = []
     content << [
         type: "text",
-        text: processedOutput,
+        text: output,
         screenPath: screenPath,
         screenUrl: screenUrl,
         executionTime: executionTime,
@@ -1066,7 +742,7 @@ def startTime = System.currentTimeMillis()
         isError: false
     ]
     
-    ec.logger.info("MCP Screen Execution: Returned result directly for screen ${screenPath} in ${executionTime}s")
+    ec.logger.info("MCP Screen Execution: Returned result for screen ${screenPath} in ${executionTime}s")
             ]]></script>
         </actions>
     </service>
@@ -1258,7 +934,7 @@ def startTime = System.currentTimeMillis()
     <service verb="mcp" noun="BrowseScreens" authenticate="false" allow-remote="true" transaction-timeout="30">
         <description>Browse Moqui screens hierarchically to discover functionality.</description>
         <in-parameters>
-            <parameter name="path" required="false"><description>Screen path or tool name to browse. Leave empty for root apps.</description></parameter>
+            <parameter name="path" required="false"><description>Screen path to browse (e.g. 'PopCommerce'). Leave empty for root apps.</description></parameter>
             <parameter name="sessionId"/>
         </in-parameters>
         <out-parameters>
@@ -1267,19 +943,25 @@ def startTime = System.currentTimeMillis()
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
-                import org.moqui.mcp.McpUtils
                 
                 ExecutionContext ec = context.ec
                 def subscreens = []
-                def tools = []
-                def currentPath = path
+                def currentPath = path ?: "root"
                 def userGroups = ec.user.getUserGroupIdSet().collect { it }
                 
-                // Logic to find screens
-                if (!path || path == "/" || path == "root") {
-                    currentPath = "root"
-                    // Discover top-level applications from ArtifactAuthzCheckView
-                    // We look for XML screens that the user has view permission for and are likely app roots
+                // Helper to convert full component path to simple path (PopCommerce/screen/Root.xml -> PopCommerce.Root)
+                def convertToSimplePath = { fullPath ->
+                    if (!fullPath) return null
+                    String cleanPath = fullPath
+                    if (cleanPath.startsWith("component://")) cleanPath = cleanPath.substring(12)
+                    if (cleanPath.endsWith(".xml")) cleanPath = cleanPath.substring(0, cleanPath.length() - 4)
+                    List<String> parts = cleanPath.split('/').toList()
+                    if (parts.size() > 1 && parts[1] == "screen") parts.remove(1)
+                    return parts.join('.')
+                }
+
+                if (currentPath == "root") {
+                    // Discover top-level applications
                     def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
                         .condition("userGroupId", userGroups)
                         .condition("artifactTypeEnumId", "AT_XML_SCREEN")
@@ -1295,7 +977,6 @@ def startTime = System.currentTimeMillis()
                             if (parts.length >= 3 && parts[1] == "screen") {
                                 def filename = parts[parts.length - 1]
                                 def componentName = parts[0]
-                                // Match component://Name/screen/Name.xml OR component://Name/screen/NameAdmin.xml OR component://Name/screen/NameRoot.xml
                                 if (filename == componentName + ".xml" || filename == componentName + "Admin.xml" || filename == componentName + "Root.xml" || filename == "webroot.xml") {
                                     rootScreens.add(name)
                                 }
@@ -1303,109 +984,69 @@ def startTime = System.currentTimeMillis()
                         }
                     }
                     
+                    /* Removed hardcoded list - rely on proper user permissions and artifact discovery */
+
                     for (def screenPath in rootScreens) {
-                        def toolName = McpUtils.getToolName(screenPath)
-                        if (toolName) {
-                            subscreens << [
-                                name: toolName,
-                                path: toolName, 
-                                description: "Application Root: ${screenPath}"
-                            ]
-                        }
-                    }
-                    
-                    // Fallback to basic apps if nothing found (to ensure discoverability)
-                    if (subscreens.isEmpty()) {
-                        ["PopCommerce", "SimpleScreens"].each { root ->
-                            def toolName = "moqui_${root}"
-                            subscreens << [ name: toolName, path: toolName, description: "Application: ${root}" ]
-                        }
+                        def simplePath = convertToSimplePath(screenPath)
+                        subscreens << [
+                            path: simplePath, 
+                            description: "Application: ${simplePath}"
+                        ]
                     }
                 } else {
-                    // Resolve path
-                    def screenPath = path.startsWith("moqui_") ? McpUtils.getScreenPath(path) : null
-                    // Keep track of the tool name used to reach here, to maintain context
-                    def baseToolName = path.startsWith("moqui_") ? path : null
-
-                    if (!screenPath && !path.startsWith("component://")) {
-                        // Try to handle "popcommerce/admin" style by guessing
-                        def toolName = "moqui_" + path.replace('/', '_')
-                        screenPath = McpUtils.getScreenPath(toolName)
-                        if (!baseToolName) baseToolName = toolName
-                    } else if (path.startsWith("component://")) {
-                        screenPath = path
-                        // If starting with component path, we can't easily establish a base tool name 
-                        // that preserves context if it's not a standard path. 
-                        // But McpUtils.getToolName will try.
-                        if (!baseToolName) baseToolName = McpUtils.getToolName(path)
-                    }
+                    // Resolve simple path to component path using longest match and traversal
+                    def pathParts = currentPath.split('\\.')
+                    def componentName = pathParts[0]
+                    def baseScreenPath = null
+                    def subParts = []
                     
-                    if (screenPath) {
-                        def currentScreenPath = screenPath
-                        if (!currentScreenPath.endsWith(".xml")) currentScreenPath += ".xml"
-                        // Check if screen exists, if not try to resolve as subscreen
-                        if (!ec.resource.getLocationReference(currentScreenPath).getExists()) {
-                            def lastSlash = currentScreenPath.lastIndexOf('/')
-                            if (lastSlash > 0) {
-                                def parentPath = currentScreenPath.substring(0, lastSlash) + ".xml"
-                                def subName = currentScreenPath.substring(lastSlash + 1).replace('.xml', '')
-                                
-                                if (ec.resource.getLocationReference(parentPath).getExists()) {
-                                    try {
-                                        def parentDef = ec.screen.getScreenDefinition(parentPath)
-                                        def subscreenItem = parentDef?.getSubscreensItem(subName)
-                                        if (subscreenItem && subscreenItem.getLocation()) {
-                                            ec.logger.info("Redirecting browse from ${currentScreenPath} to ${subscreenItem.getLocation()}")
-                                            currentScreenPath = subscreenItem.getLocation()
-                                        }
-                                    } catch (Exception e) {
-                                        ec.logger.warn("Error resolving subscreen location: ${e.message}")
-                                    }
-                                }
+                    for (int i = pathParts.size(); i >= 1; i--) {
+                        def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                        if (ec.resource.getLocationReference(currentTry).getExists()) {
+                            baseScreenPath = currentTry
+                            if (i < pathParts.size()) subParts = pathParts[i..-1]
+                            break
+                        }
+                    }
+
+                    if (!baseScreenPath) {
+                        baseScreenPath = "component://${componentName}/screen/${componentName}.xml"
+                        if (pathParts.size() > 1) subParts = pathParts[1..-1]
+                    }
+
+                    try {
+                        def screenDef = ec.screen.getScreenDefinition(baseScreenPath)
+                        // Traverse subscreens to find the target screen
+                        for (subName in subParts) {
+                            def subItem = screenDef?.getSubscreensItem(subName)
+                            if (subItem && subItem.getLocation()) {
+                                screenDef = ec.screen.getScreenDefinition(subItem.getLocation())
+                            } else {
+                                // Subscreen not found or defined in-place
+                                break
                             }
                         }
 
-                        try {
-                            def currentToolName = baseToolName ?: McpUtils.getToolName(currentScreenPath)
-                            tools << [
-                                name: currentToolName,
-                                description: "Execute screen: ${currentToolName}",
-                                type: "screen"
-                            ]
-
-                            // Then look for subscreens
-                            def screenDef = null
-                            try {
-                                screenDef = ec.screen.getScreenDefinition(currentScreenPath)
-                            } catch (Exception e) {
-                                ec.logger.warn("Error getting screen definition for ${currentScreenPath}: ${e.message}")
+                        if (screenDef) {
+                            def subItems = screenDef.getSubscreensItemsSorted()
+                            for (subItem in subItems) {
+                                def subName = subItem.getName()
+                                def subPath = currentPath + "." + subName
+                                subscreens << [
+                                    path: subPath,
+                                    description: "Subscreen: ${subName}"
+                                ]
                             }
-                            
-                            if (screenDef) {
-                                def subItems = screenDef.getSubscreensItemsSorted()
-                                for (subItem in subItems) {
-                                    def subName = subItem.getName()
-                                    def parentToolName = baseToolName ?: McpUtils.getToolName(screenPath)
-                                    def subToolName = parentToolName + "_" + subName
-                                    
-                                    subscreens << [
-                                        name: subToolName,
-                                        path: subToolName,
-                                        description: "Subscreen: ${subName}"
-                                    ]
-                                }
-                            }
-                        } catch (Exception e) {
-                            ec.logger.warn("Browse error for ${screenPath}: ${e.message}")
                         }
+                    } catch (Exception e) {
+                        ec.logger.warn("Browse error for ${currentPath}: ${e.message}")
                     }
                 }
                 
                 result = [
                     currentPath: currentPath,
                     subscreens: subscreens,
-                    availableTools: tools,
-                    message: "Found ${subscreens.size()} subscreens and ${tools.size()} tools."
+                    message: "Found ${subscreens.size()} subscreens. Use moqui_render_screen(path='...') to execute."
                 ]
             ]]></script>
         </actions>
@@ -1423,13 +1064,22 @@ def startTime = System.currentTimeMillis()
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
-                import org.moqui.mcp.McpUtils
                 
                 ExecutionContext ec = context.ec
                 def matches = []
                 
-                // Search all screens known to the system (via authz rules)
-                // Use disableAuthz() to bypass permission check on the system view itself
+                // Helper to convert full component path to simple path
+                def convertToSimplePath = { fullPath ->
+                    if (!fullPath) return null
+                    String cleanPath = fullPath
+                    if (cleanPath.startsWith("component://")) cleanPath = cleanPath.substring(12)
+                    if (cleanPath.endsWith(".xml")) cleanPath = cleanPath.substring(0, cleanPath.length() - 4)
+                    List<String> parts = cleanPath.split('/').toList()
+                    if (parts.size() > 1 && parts[1] == "screen") parts.remove(1)
+                    return parts.join('.')
+                }
+
+                // Search all screens known to the system
                 def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
                     .condition("artifactTypeEnumId", "AT_XML_SCREEN")
                     .condition("artifactName", "like", "%${query}%")
@@ -1440,10 +1090,10 @@ def startTime = System.currentTimeMillis()
                     .list()
                 
                 for (hit in aacvList) {
-                    def toolName = McpUtils.getToolName(hit.artifactName)
-                    if (toolName) {
+                    def simplePath = convertToSimplePath(hit.artifactName)
+                    if (simplePath) {
                         matches << [
-                            name: toolName,
+                            path: simplePath,
                             description: "Screen: ${hit.artifactName}"
                         ]
                     }
@@ -1455,9 +1105,9 @@ def startTime = System.currentTimeMillis()
     </service>
 
     <service verb="mcp" noun="GetScreenDetails" authenticate="false" allow-remote="true" transaction-timeout="30">
-        <description>Get detailed schema and usage info for a specific screen tool, including inferred parameters from entities.</description>
+        <description>Get detailed schema and usage info for a specific screen path.</description>
         <in-parameters>
-            <parameter name="name" required="true"><description>Tool name (e.g. moqui_PopCommerce_...)</description></parameter>
+            <parameter name="path" required="true"><description>Screen path (e.g. PopCommerce.Catalog)</description></parameter>
             <parameter name="sessionId"/>
         </in-parameters>
         <out-parameters>
@@ -1466,96 +1116,121 @@ def startTime = System.currentTimeMillis()
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
-                import org.moqui.mcp.McpUtils
                 
                 ExecutionContext ec = context.ec
-                def decoded = McpUtils.decodeToolName(name, ec)
-                def screenPath = decoded.screenPath
-                ec.logger.info("GetScreenDetails: name=${name} -> screenPath=${screenPath}")
+                
+                // Resolve simple path to component path using longest match and traversal
+                def pathParts = path.split('\\.')
+                def componentName = pathParts[0]
+                def baseScreenPath = null
+                def subParts = []
+                
+                for (int i = pathParts.size(); i >= 1; i--) {
+                    def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                    if (ec.resource.getLocationReference(currentTry).getExists()) {
+                        baseScreenPath = currentTry
+                        if (i < pathParts.size()) subParts = pathParts[i..-1]
+                        break
+                    }
+                }
+
+                if (!baseScreenPath) {
+                    baseScreenPath = "component://${componentName}/screen/${componentName}.xml"
+                    if (pathParts.size() > 1) subParts = pathParts[1..-1]
+                }
+
                 def toolDef = null
                 
-                if (screenPath) {
+                if (ec.resource.getLocationReference(baseScreenPath).getExists()) {
                     try {
-                        def properties = [:]
-                        def required = []
-                        def screenDef = null
-                        try {
-                            screenDef = ec.screen.getScreenDefinition(screenPath)
-                        } catch (Exception e) {
-                            ec.logger.warn("Error getting screen definition for ${screenPath}: ${e.message}")
-                        }
+                        def screenDef = ec.screen.getScreenDefinition(baseScreenPath)
                         
+                        // Traverse to final subscreen
+                        for (subName in subParts) {
+                            def subItem = screenDef?.getSubscreensItem(subName)
+                            if (subItem && subItem.getLocation()) {
+                                screenDef = ec.screen.getScreenDefinition(subItem.getLocation())
+                            } else {
+                                break 
+                            }
+                        }
+
                         if (screenDef && screenDef.screenNode) {
-                            // Helper to convert Moqui type to JSON Schema type
+                            def properties = [:]
+                            def required = []
                             def getJsonType = { moquiType ->
                                 def typeRes = ec.service.sync().name("McpServices.convert#MoquiTypeToJsonSchemaType")
                                     .parameter("moquiType", moquiType).call()
                                 return typeRes?.jsonSchemaType ?: "string"
                             }
 
-                            // 1. Extract explicit parameters from screen XML
-                            screenDef.screenNode.children("parameter").each { node ->
-                                def paramName = node.attribute("name")
-                                properties[paramName] = [
-                                    type: "string", 
-                                    description: "Screen Parameter"
-                                ]
-                                if (node.attribute("required") == "true") required << paramName
-                            }
-                            
-                            // 2. Extract transition parameters (actions/links)
-                            screenDef.screenNode.children("transition").each { node ->
-                                node.children("parameter").each { tp ->
-                                    def tpName = tp.attribute("name")
-                                    if (!properties[tpName]) {
-                                        properties[tpName] = [
-                                            type: "string",
-                                            description: "Transition Parameter for ${node.attribute('name')}"
-                                        ]
-                                        if (tp.attribute("required") == "true") required << tpName
-                                    }
-                                }
+                        }
+
+                        if (screenDef) {
+                            def properties = [:]
+                            def required = []
+                            def getJsonType = { moquiType ->
+                                def typeRes = ec.service.sync().name("McpServices.convert#MoquiTypeToJsonSchemaType")
+                                    .parameter("moquiType", moquiType).call()
+                                return typeRes?.jsonSchemaType ?: "string"
                             }
 
-                            // 3. Infer parameters from form-list or form-single if they reference an entity
-                            screenDef.screenNode.depthFirst().findAll { it.name() == "form-single" || it.name() == "form-list" }.each { formNode ->
-                                def entityName = formNode.attribute("entity-name")
-                                if (entityName && ec.entity.isEntityDefined(entityName)) {
-                                    def entityDef = ec.entity.getEntityDefinition(entityName)
-                                    entityDef.getAllFieldNames().each { fieldName ->
-                                        if (!properties[fieldName]) {
-                                            def fieldInfo = entityDef.getFieldNode(fieldName)
-                                            properties[fieldName] = [
-                                                type: getJsonType(fieldInfo.attribute("type")),
-                                                description: "Inferred from entity ${entityName}"
-                                            ]
+                            // Extract parameters from screen definition (using protected field access in Groovy)
+                            if (screenDef.parameterByName) {
+                                screenDef.parameterByName.each { name, param ->
+                                    properties[name] = [type: "string", description: "Screen Parameter"]
+                                }
+                            }
+                            
+                            // Try to get forms and their entities
+                            if (screenDef.formByName) {
+                                screenDef.formByName.each { name, form ->
+                                    def formNode = form.internalFormNode
+                                    if (!formNode) return
+                                    
+                                    def entityName = formNode.attribute("entity-name")
+                                    if (!entityName) {
+                                        def entityFind = formNode.first("entity-find")
+                                        if (entityFind) entityName = entityFind.attribute("entity-name")
+                                    }
+                                    
+                                    if (entityName && ec.entity.isEntityDefined(entityName)) {
+                                        def entityDef = ec.entity.getEntityDefinition(entityName)
+                                        entityDef.getAllFieldNames().each { fieldName ->
+                                            if (!properties[fieldName]) {
+                                                def fieldInfo = entityDef.getFieldNode(fieldName)
+                                                properties[fieldName] = [
+                                                    type: getJsonType(fieldInfo.attribute("type")),
+                                                    description: "Inferred from entity ${entityName} (form ${name})"
+                                                ]
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        
-                        toolDef = [
-                            name: name,
-                            description: "Full details for ${name} (${screenPath})",
-                            inputSchema: [
-                                type: "object",
-                                properties: properties,
-                                required: required
+                            
+                            toolDef = [
+                                path: path,
+                                description: "Details for screen ${path}",
+                                inputSchema: [
+                                    type: "object",
+                                    properties: properties,
+                                    required: required
+                                ]
                             ]
-                        ]
+                        }
                     } catch (Exception e) {
-                        ec.logger.warn("Error getting screen details for ${name}: ${e.message}")
+                        ec.logger.warn("Error getting screen details for ${path}: ${e.message}")
                     }
                 }
                 
-                result = [tool: toolDef]
+                result = [details: toolDef]
             ]]></script>
         </actions>
     </service>
 
     <service verb="list" noun="Tools" authenticate="false" allow-remote="true" transaction-timeout="60">
-        <description>List discovery tools and root apps.</description>
+        <description>List discovery tools and the unified screen renderer.</description>
         <in-parameters>
             <parameter name="sessionId"/>
             <parameter name="cursor"/>
@@ -1569,23 +1244,36 @@ def startTime = System.currentTimeMillis()
                 
                 ExecutionContext ec = context.ec
                 
-                // Static list of Discovery Tools
                 def tools = [
                     [
-                        name: "moqui_browse_screens",
-                        title: "Browse Screens",
-                        description: "Browse the Moqui screen hierarchy. Use this to discover capabilities. Input 'path' (empty for root).",
+                        name: "moqui_render_screen",
+                        title: "Render Screen",
+                        description: "Execute and render a Moqui screen. Use discovery tools to find paths.",
                         inputSchema: [
                             type: "object",
                             properties: [
-                                path: [type: "string", description: "Path to browse (e.g. 'moqui_PopCommerce')"]
+                                path: [type: "string", description: "Screen path (e.g. 'PopCommerce.Catalog.Product')"],
+                                parameters: [type: "object", description: "Parameters for the screen"],
+                                renderMode: [type: "string", description: "html, text, or json", default: "html"]
+                            ],
+                            required: ["path"]
+                        ]
+                    ],
+                    [
+                        name: "moqui_browse_screens",
+                        title: "Browse Screens",
+                        description: "Browse the Moqui screen hierarchy to discover paths. Input 'path' (empty for root).",
+                        inputSchema: [
+                            type: "object",
+                            properties: [
+                                path: [type: "string", description: "Path to browse (e.g. 'PopCommerce')"]
                             ]
                         ]
                     ],
                     [
                         name: "moqui_search_screens",
                         title: "Search Screens",
-                        description: "Search for screens/functionality by name.",
+                        description: "Search for screens by name to find their paths.",
                         inputSchema: [
                             type: "object",
                             properties: [
@@ -1597,41 +1285,16 @@ def startTime = System.currentTimeMillis()
                     [
                         name: "moqui_get_screen_details",
                         title: "Get Screen Details",
-                        description: "Get input schema and details for a specific tool/screen.",
+                        description: "Get detailed schema for a specific screen path.",
                         inputSchema: [
                             type: "object",
                             properties: [
-                                name: [type: "string", description: "Tool name"]
+                                path: [type: "string", description: "Screen path"]
                             ],
-                            required: ["name"]
+                            required: ["path"]
                         ]
                     ]
                 ]
-                
-                // Add standard MCP methods
-                def standardMcpMethods = [
-                    [
-                        name: "tools/list",
-                        title: "List Available Tools",
-                        description: "Get a list of all available MCP tools",
-                        inputSchema: [type: "object", properties: [:], required: []]
-                    ],
-                    [
-                        name: "tools/call",
-                        title: "Execute Tool",
-                        description: "Execute a specific MCP tool",
-                        inputSchema: [
-                            type: "object",
-                            properties: [
-                                name: [type: "string"],
-                                arguments: [type: "object"]
-                            ],
-                            required: ["name"]
-                        ]
-                    ]
-                ]
-                
-                tools.addAll(standardMcpMethods)
                 
                 result = [tools: tools]
             ]]></script>
