@@ -752,6 +752,7 @@ def startTime = System.currentTimeMillis()
                 }
                 
                 // Extract transitions (actions like "Update" buttons)
+                ec.logger.info("MCP Data Extraction: renderMode=${renderMode}, hasScreenDef=${finalScreenDef != null}, hasTransition=${finalScreenDef?.hasTransition(null)}")
                 if (finalScreenDef.hasTransition(null)) {
                     mcpData.actions = []
                     finalScreenDef.getTransitionList().each { trans ->
