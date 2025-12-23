@@ -295,6 +295,10 @@ class CustomScreenTestImpl implements McpScreenTest {
             org.moqui.mcp.WebFacadeStub wfs = (org.moqui.mcp.WebFacadeStub) csti.createWebFacade(csti.ecfi, stri.parameters, csti.sessionAttributes, stri.requestMethod, stri.screenPath)
             // set stub on eci, will also put parameters in the context
             eci.setWebFacade(wfs)
+            
+            // Put web facade objects in context for screen access
+            cs.put("html_scripts", wfs.getHtmlScripts())
+            cs.put("html_stylesheets", wfs.getHtmlStyleSheets())
             // make the ScreenRender
             ScreenRender screenRender = csti.sfi.makeRender()
             stri.screenRender = screenRender

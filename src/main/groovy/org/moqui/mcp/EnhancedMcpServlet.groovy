@@ -228,7 +228,7 @@ class EnhancedMcpServlet extends HttpServlet {
             if ("GET".equals(method) && requestURI.endsWith("/sse")) {
                 handleSseConnection(request, response, ec, webappName)
             } else if ("POST".equals(method) && requestURI.endsWith("/message")) {
-                handleMessage(request, response, ec)
+                handleMessage(request, response, ec, requestBody)
             } else if ("POST".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle POST requests to /mcp for JSON-RPC
                 logger.info("About to call handleJsonRpc with visit: ${visit?.visitId}")
@@ -245,11 +245,8 @@ class EnhancedMcpServlet extends HttpServlet {
             logger.warn("Enhanced MCP Access Forbidden (no authz): " + e.message)
             response.setStatus(HttpServletResponse.SC_FORBIDDEN)
             response.setContentType("application/json")
-            response.writer.write(JsonOutput.toJson([
-                jsonrpc: "2.0",
-                error: [code: -32001, message: "Access Forbidden: " + e.message],
-                id: null
-            ]))
+            def msg = e.message?.toString() ?: "Access forbidden"
+            response.writer.write("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Access Forbidden: ${msg.replace("\"", "\\\"")}\"},\"id\":null}")
         } catch (ArtifactTarpitException e) {
             logger.warn("Enhanced MCP Too Many Requests (tarpit): " + e.message)
             response.setStatus(429)
@@ -266,11 +263,9 @@ class EnhancedMcpServlet extends HttpServlet {
             logger.error("Error in Enhanced MCP request", t)
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
             response.setContentType("application/json")
-            response.writer.write(JsonOutput.toJson([
-                jsonrpc: "2.0",
-                error: [code: -32603, message: "Internal error: " + t.message],
-                id: null
-            ]))
+            // Use simple JSON string to avoid Groovy JSON library issues
+            def errorMsg = t.message?.toString() ?: "Unknown error"
+            response.writer.write("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Internal error: ${errorMsg.replace("\"", "\\\"")}\"},\"id\":null}")
         } finally {
             ec.destroy()
         }
@@ -336,6 +331,7 @@ class EnhancedMcpServlet extends HttpServlet {
             logger.error("Web facade initialization failed - this is a system configuration error: ${e.message}", e)
             response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "System configuration error: Web facade failed to initialize. Check Moqui logs for details.")
             return
+        }
         }
         
         // Final check that we have a Visit
@@ -433,10 +429,20 @@ class EnhancedMcpServlet extends HttpServlet {
                         request.getAsyncContext().complete()
                     } catch (Exception e) {
                         logger.debug("Error completing async context: ${e.message}")
-                    }
                 }
             }
-}
+        }
+    }
+    
+    private void handleMessage(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec, String requestBody) 
+            throws IOException {
+        
+        String sessionId = request.getHeader("Mcp-Session-Id")
+        def visit = getCachedVisit(ec, sessionId)
+        if (!visit) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND, "Session not found: " + sessionId)
+            return
+        }
         
         // Verify user has access to this Visit - rely on Moqui security
         logger.info("Session validation: visit.userId=${visit.userId}, ec.user.userId=${ec.user.userId}, ec.user.username=${ec.user.username}")
@@ -456,29 +462,7 @@ class EnhancedMcpServlet extends HttpServlet {
         VisitBasedMcpSession session = new VisitBasedMcpSession(visit, response.writer, ec)
         
         try {
-            // Read request body
-            StringBuilder body = new StringBuilder()
-            try {
-                BufferedReader reader = request.getReader()
-                String line
-                while ((line = reader.readLine()) != null) {
-                    body.append(line)
-                }
-            } catch (IOException e) {
-                logger.error("Failed to read request body: ${e.message}")
-                response.setContentType("application/json")
-                response.setCharacterEncoding("UTF-8")
-                response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-                response.writer.write(JsonOutput.toJson([
-                    jsonrpc: "2.0",
-                    error: [code: -32700, message: "Failed to read request body: " + e.message],
-                    id: null
-                ]))
-                return
-            }
-            
-            String requestBody = body.toString()
-            if (!requestBody.trim()) {
+            if (!requestBody || !requestBody.trim()) {
                 response.setContentType("application/json")
                 response.setCharacterEncoding("UTF-8")
                 response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
@@ -572,9 +556,8 @@ class EnhancedMcpServlet extends HttpServlet {
         
         String method = request.getMethod()
         String acceptHeader = request.getHeader("Accept")
-        String contentType = request.getContentType()
         
-        logger.info("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}, Content-Type: ${contentType}")
+        logger.info("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}")
         
         // Validate Accept header per MCP 2025-11-25 spec requirement #2
         // Client MUST include Accept header listing both application/json and text/event-stream
@@ -583,7 +566,7 @@ class EnhancedMcpServlet extends HttpServlet {
             response.setContentType("application/json")
             response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
-                error: [code: -32600, message: "Accept header must include both application/json and text/event-stream per MCP 2025-11-25 spec"],
+                error: [code: -32600, message: "Accept header must include application/json and text/event-stream"],
                 id: null
             ]))
             return
@@ -594,28 +577,7 @@ class EnhancedMcpServlet extends HttpServlet {
             response.setContentType("application/json")
             response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
-                error: [code: -32601, message: "Method Not Allowed. Use POST for JSON-RPC or GET /mcp-sse/sse for SSE."],
-                id: null
-            ]))
-            return
-        }
-        
-        // Use pre-read request body
-        logger.info("Using pre-read request body, length: ${requestBody?.length()}")
-        
-        String jsonMethod = request.getMethod()
-        String jsonAcceptHeader = request.getHeader("Accept")
-        String jsonContentType = request.getContentType()
-        
-        logger.info("Enhanced MCP JSON-RPC Request: ${jsonMethod} ${request.requestURI} - Accept: ${jsonAcceptHeader}, Content-Type: ${jsonContentType}")
-        
-        // Handle POST requests for JSON-RPC
-        if (!"POST".equals(jsonMethod)) {
-            response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED)
-            response.setContentType("application/json")
-            response.writer.write(JsonOutput.toJson([
-                jsonrpc: "2.0",
-                error: [code: -32601, message: "Method Not Allowed. Use POST for JSON-RPC or GET /mcp-sse/sse for SSE."],
+                error: [code: -32601, message: "Method Not Allowed. Use POST for JSON-RPC."],
                 id: null
             ]))
             return
@@ -774,6 +736,7 @@ class EnhancedMcpServlet extends HttpServlet {
                 if (sessionId) {
                     response.setHeader("Mcp-Session-Id", sessionId.toString())
                 }
+                response.setContentType("text/event-stream")
                 response.setStatus(HttpServletResponse.SC_ACCEPTED)  // 202 Accepted
                 logger.info("Sent 202 Accepted response for notifications/initialized")
                 response.flushBuffer()  // Commit the response immediately
@@ -817,11 +780,6 @@ class EnhancedMcpServlet extends HttpServlet {
             logger.info("Set Mcp-Session-Id header to ${responseSessionId} for method ${rpcRequest.method}")
         }
         
-        if (responseSessionId) {
-            response.setHeader("Mcp-Session-Id", responseSessionId)
-            logger.info("Set Mcp-Session-Id header to ${responseSessionId} for method ${rpcRequest.method}")
-        }
-        
         // Build JSON-RPC response for regular requests
         // Extract the actual result from Moqui service response
         def actualResult = result?.result ?: result
@@ -841,9 +799,8 @@ class EnhancedMcpServlet extends HttpServlet {
                 def notificationContent = []
                 for (notification in pendingNotifications) {
                     notificationContent << [
-                        type: "notification",
-                        text: JsonOutput.toJson(notification.params ?: notification),
-                        method: notification.method
+                        type: "text",
+                        text: "Notification [${notification.method}]: " + JsonOutput.toJson(notification.params ?: notification)
                     ]
                 }
                 
@@ -1151,7 +1108,7 @@ class EnhancedMcpServlet extends HttpServlet {
                     method: notification.method ?: "notifications/message",
                     params: notification.params ?: notification
                 ]
-                sendSseEvent(writer, "notification", JsonOutput.toJson(notificationMessage), System.currentTimeMillis())
+                sendSseEvent(writer, "message", JsonOutput.toJson(notificationMessage), System.currentTimeMillis())
                 logger.info("Sent notification via SSE to session ${sessionId}")
             } catch (Exception e) {
                 logger.warn("Failed to send notification via SSE to session ${sessionId}: ${e.message}")
@@ -1270,7 +1227,7 @@ class EnhancedMcpServlet extends HttpServlet {
                 PrintWriter writer = activeConnections.get(visit.visitId)
                 if (writer && !writer.checkError()) {
                     try {
-                        sendSseEvent(writer, "broadcast", message.toJson())
+                        sendSseEvent(writer, "message", message.toJson())
                         successCount++
                     } catch (Exception e) {
                         logger.warn("Failed to send broadcast to ${visit.visitId}: ${e.message}")

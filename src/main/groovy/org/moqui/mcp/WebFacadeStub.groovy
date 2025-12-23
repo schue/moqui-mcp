@@ -54,6 +54,10 @@ class WebFacadeStub implements WebFacade {
     
     protected List<Map> screenHistory = []
     
+    // Web context objects needed by screens
+    protected Set<String> html_scripts = new LinkedHashSet<>()
+    protected Set<String> html_stylesheets = new LinkedHashSet<>()
+    
     protected String responseText = null
     protected Object responseJsonObj = null
     boolean skipJsonSerialize = false
@@ -220,6 +224,10 @@ class WebFacadeStub implements WebFacade {
     
     @Override
     List<Map> getScreenHistory() { return screenHistory }
+    
+    List<String> getHtmlScripts() { return new ArrayList<>(html_scripts) }
+    
+    List<String> getHtmlStyleSheets() { return new ArrayList<>(html_stylesheets) }
     
     @Override
     void sendJsonResponse(Object responseObj) {

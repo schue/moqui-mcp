@@ -142,7 +142,7 @@
                     if (name == "moqui_render_screen") {
                         def screenPath = arguments?.path
                         def parameters = arguments?.parameters ?: [:]
-                        def renderMode = arguments?.renderMode ?: "html"
+                        def renderMode = arguments?.renderMode ?: "mcp"
                         def subscreenName = arguments?.subscreenName
     
                         if (!screenPath) throw new Exception("moqui_render_screen requires 'path' parameter")
@@ -257,7 +257,7 @@
                                     timestamp: System.currentTimeMillis()
                                 ]
                             ]
-                            servlet.queueNotification(sessionId, notification)
+                            //servlet.queueNotification(sessionId, notification)
                         }
                     } catch (Exception e) {
                         ec.logger.warn("Failed to send tool execution notification: ${e.message}")
@@ -368,13 +368,24 @@
                     // Query entity data
                     def entityList = ec.entity.find(entityName).limit(100).list()
                     
-                    // Format response
+                    // Format response for MCP - create multiple content objects
+                    def contentList = []
+                    
+                    // Add main content with entity data as text
+                    contentList << [
+                        type: "text",
+                        text: new JsonBuilder([
+                            entityName: entityName,
+                            description: entityDef.description,
+                            packageName: entityDef.packageName,
+                            recordCount: entityList.size(),
+                            data: entityList
+                        ]).toString()
+                    ]
+                    
                     def responseMap = [
-                        entityName: entityName,
-                        description: entityDef.description,
-                        packageName: entityDef.packageName,
-                        recordCount: entityList.size(),
-                        data: entityList
+                        content: contentList,
+                        isError: false
                     ]
                     
                     def jsonOutput = new JsonBuilder(responseMap).toString()
@@ -596,7 +607,7 @@
         <in-parameters>
             <parameter name="screenPath" required="true"/>
             <parameter name="parameters" type="Map"><description>Parameters to pass to the screen</description></parameter>
-            <parameter name="renderMode" default="html"><description>Render mode: text, html, xml, vuet, qvt</description></parameter>
+            <parameter name="renderMode" default="mcp"><description>Render mode: mcp, text, html, xml, vuet, qvt</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
             <parameter name="subscreenName"><description>Optional subscreen name for dot notation paths</description></parameter>
         </in-parameters>
@@ -704,7 +715,7 @@ def startTime = System.currentTimeMillis()
         // Regular screen rendering with current user context - use our custom ScreenTestImpl
         def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
             .rootScreen(rootScreen)
-            .renderMode(renderMode ? renderMode : "html")
+            .renderMode(renderMode ? renderMode : "mcp")
             .auth(ec.user.username)
         
         def renderParams = parameters ?: [:]
@@ -1254,7 +1265,7 @@ def startTime = System.currentTimeMillis()
                             properties: [
                                 path: [type: "string", description: "Screen path (e.g. 'PopCommerce.Catalog.Product')"],
                                 parameters: [type: "object", description: "Parameters for the screen"],
-                                renderMode: [type: "string", description: "html, text, or json", default: "html"]
+                                renderMode: [type: "string", description: "mcp, text, html, xml, vuet, qvt", default: "mcp"]
                             ],
                             required: ["path"]
                         ]
