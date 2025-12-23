@@ -606,7 +606,8 @@
         <description>Execute a screen as an MCP tool</description>
         <in-parameters>
             <parameter name="screenPath" required="true"/>
-            <parameter name="parameters" type="Map"><description>Parameters to pass to the screen</description></parameter>
+            <parameter name="parameters" type="Map"><description>Parameters to pass to screen</description></parameter>
+            <parameter name="action"><description>Action being processed: if not null, use real screen rendering instead of test mock</description></parameter>
             <parameter name="renderMode" default="mcp"><description>Render mode: mcp, text, html, xml, vuet, qvt</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
             <parameter name="subscreenName"><description>Optional subscreen name for dot notation paths</description></parameter>
@@ -623,109 +624,112 @@ ExecutionContext ec = context.ec
 
 def startTime = System.currentTimeMillis()
     
-    // Set parameters in context
-    if (parameters) {
-        ec.context.putAll(parameters)
-    }
-    
-    // Try to render screen content for LLM consumption
-    def output = null
-    def screenUrl = "http://localhost:8080/${screenPath}"
-    def isError = false
-    
-    try {
-        ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen")
+         // Set parameters in context
+        if (parameters) {
+            ec.context.putAll(parameters)
+        }
         
-        // For ScreenTest to work properly, we need to use the correct root screen
-        def testScreenPath = screenPath
-        def rootScreen = "component://webroot/screen/webroot.xml"
+        // Check if action is being processed - use real screen rendering if so
+        def isActionExecution = parameters?.action != null
         
-        def targetScreenDef = null
-        def isStandalone = false
+        // Try to render screen content for LLM consumption
+        def output = null
+        def screenUrl = "http://localhost:8080/${screenPath}"
+        def isError = false
         
-        if (screenPath.startsWith("component://")) {
-            def pathAfterComponent = screenPath.substring(12).replace('.xml','') // Remove "component://"
-            def pathParts = pathAfterComponent.split("/")
-
-            // Check if the target screen itself is standalone
-            try {
-                targetScreenDef = ec.screen.getScreenDefinition(screenPath)
-                if (targetScreenDef?.screenNode) {
-                    def standaloneAttr = targetScreenDef.screenNode.attribute('standalone')
-                    isStandalone = standaloneAttr == "true"
+        try {
+            ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen, action=${parameters?.action}")
+            
+            // For ScreenTest to work properly, we need to use correct root screen
+            def testScreenPath = screenPath
+            def rootScreen = "component://webroot/screen/webroot.xml"
+            
+            def targetScreenDef = null
+            def isStandalone = false
+            
+            if (screenPath.startsWith("component://")) {
+                def pathAfterComponent = screenPath.substring(12).replace('.xml','') // Remove "component://"
+                def pathParts = pathAfterComponent.split("/")
+                
+                // Check if target screen itself is standalone
+                try {
+                    targetScreenDef = ec.screen.getScreenDefinition(screenPath)
+                    if (targetScreenDef?.screenNode) {
+                        def standaloneAttr = targetScreenDef.screenNode.attribute('standalone')
+                        isStandalone = standaloneAttr == "true"
+                    }
+                    
+                    if (isStandalone) {
+                        rootScreen = screenPath
+                        testScreenPath = "" 
+                    }
+                } catch (Exception e) {
+                    ec.logger.warn("MCP Screen Execution: Error checking target screen ${screenPath}: ${e.message}")
                 }
                 
-                if (isStandalone) {
-                    rootScreen = screenPath
-                    testScreenPath = "" 
-                }
-            } catch (Exception e) {
-                ec.logger.warn("MCP Screen Execution: Error checking target screen ${screenPath}: ${e.message}")
-            }
-            
-            if (!isStandalone) {
-                // Check if the screen path itself is a valid screen definition
-                try {
-                    if (ec.screen.getScreenDefinition(screenPath)) {
-                        rootScreen = screenPath
-                        testScreenPath = ""
-                    } else {
-                        // Original component root logic
-                        if (pathAfterComponent.startsWith("webroot/screen/")) {
-                            rootScreen = "component://webroot/screen/webroot.xml"
-                            testScreenPath = pathAfterComponent.substring("webroot/screen/".length())
-                            if (testScreenPath.startsWith("webroot/")) {
-                                testScreenPath = testScreenPath.substring("webroot/".length())
-                            }
+                if (!isStandalone) {
+                    // Check if screen path itself is a valid screen definition
+                    try {
+                        if (ec.screen.getScreenDefinition(screenPath)) {
+                            rootScreen = screenPath
+                            testScreenPath = ""
                         } else {
-                            def componentName = pathParts[0]
-                            def remainingPath = pathParts[1..-1].join("/")
-                            
-                            // Try to find the actual root screen for this component
-                            def componentRootScreen = null
-                            def possibleRootScreens = ["${componentName}.xml", "${componentName}Admin.xml", "${componentName}Root.xml"]
-                            
-                            for (rootScreenName in possibleRootScreens) {
-                                def candidateRoot = "component://${componentName}/screen/${rootScreenName}"
-                                try {
-                                    if (ec.screen.getScreenDefinition(candidateRoot)) {
-                                        componentRootScreen = candidateRoot
-                                        break
-                                    }
-                                } catch (Exception e) {}
-                            }
-                            
-                            if (componentRootScreen) {
-                                rootScreen = componentRootScreen
-                                testScreenPath = remainingPath
+                            // Original component root logic
+                            if (pathAfterComponent.startsWith("webroot/screen/")) {
+                                rootScreen = "component://webroot/screen/webroot.xml"
+                                testScreenPath = pathAfterComponent.substring("webroot/screen/".length())
+                                if (testScreenPath.startsWith("webroot/")) {
+                                    testScreenPath = testScreenPath.substring("webroot/".length())
+                                }
                             } else {
                                 rootScreen = screenPath
                                 testScreenPath = ""
                             }
                         }
-                    }
-                } catch (Exception e) {
-                    // Same as above fallback
-                    rootScreen = screenPath
-                    testScreenPath = ""
+                    } catch (Exception e) {}
                 }
+                
+            } else {
+                rootScreen = screenPath
+                testScreenPath = ""
             }
-        }
         
-        // Regular screen rendering with current user context - use our custom ScreenTestImpl
-        def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
+        // Regular screen rendering with current user context - use real rendering if action is being processed
+        def screenTest = null
+        def screenUrl = "http://localhost:8080/${screenPath}"
+        
+        if (isActionExecution) {
+            // Action is being processed - use real screen rendering with database access
+            ec.logger.info("MCP Screen Execution: Action detected, using real screen rendering for ${screenPath}")
+            screenTest = ec.screen.makeTestScreen()
             .rootScreen(rootScreen)
             .renderMode(renderMode ? renderMode : "mcp")
             .auth(ec.user.username)
-        
-        def renderParams = parameters ?: [:]
-        renderParams.userId = ec.user.userId
-        renderParams.username = ec.user.username
-        
-        def relativePath = subscreenName ? subscreenName.replaceAll('_','/') : testScreenPath
-        ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
-        
-        def testRender = screenTest.render(relativePath, renderParams, "POST")
+            
+            def renderParams = parameters ?: [:]
+            renderParams.userId = ec.user.userId
+            renderParams.username = ec.user.username
+            
+            def relativePath = subscreenName ? subscreenName.replaceAll('_','/') : testScreenPath
+            ec.logger.info("REALRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
+            
+            def realRender = screenTest.render(relativePath, renderParams, "POST")
+        } else {
+            // Regular browse - use ScreenTest mock
+            ec.logger.info("MCP Screen Execution: No action detected, using ScreenTest mock")
+            screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
+            .rootScreen(rootScreen)
+            .renderMode(renderMode ? renderMode : "mcp")
+            .auth(ec.user.username)
+            
+            def renderParams = parameters ?: [:]
+            renderParams.userId = ec.user.userId
+            renderParams.username = ec.user.username
+            
+            def relativePath = subscreenName ? subscreenName.replaceAll('_','/') : testScreenPath
+            ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
+            
+            def testRender = screenTest.render(relativePath, renderParams, "POST")
         output = testRender.getOutput()
         ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
 
