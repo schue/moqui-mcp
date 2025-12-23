@@ -1057,20 +1057,128 @@ def startTime = System.currentTimeMillis()
                     }
                 }
                 
-                // Process action before rendering
+                // Process action before rendering - execute transitions directly
                 def actionResult = null
                 def actionError = null
                 
                 if (action) {
                     try {
-                        ec.logger.info("BrowseScreens: Processing action '${action}' on ${currentPath}")
+                        ec.logger.info("BrowseScreens: Executing action '${action}' on ${currentPath}")
                         
-                        // For now, actions are passed through to screen rendering
-                        // Future: implement dedicated action processing service
-                        actionResult = [action: action, status: "queued", message: "Action '${action}' will be processed during screen render"]
-                        ec.logger.info("BrowseScreens: Action queued: ${actionResult}")
+                        // Resolve screen definition to find transitions
+                        def pathParts = currentPath.split('\\.')
+                        def componentName = pathParts[0]
+                        def screenPath = null
+                        def subscreenName = null
+                        
+                        for (int i = pathParts.size(); i >= 1; i--) {
+                            def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                            if (ec.resource.getLocationReference(currentTry).getExists()) {
+                                screenPath = currentTry
+                                if (i < pathParts.size()) {
+                                    def remainingParts = pathParts[i..-1]
+                                    subscreenName = remainingParts.size() > 1 ? remainingParts.join('_') : remainingParts[0]
+                                }
+                                break
+                            }
+                        }
+                        
+                        if (!screenPath) {
+                            screenPath = "component://${componentName}/screen/${componentName}.xml"
+                            if (pathParts.size() > 1) {
+                                subscreenName = pathParts[1..-1].join('_')
+                            }
+                        }
+                        
+                        // Get screen definition and look for matching transition
+                        def screenDef = ec.screen.getScreenDefinition(screenPath)
+                        
+                        // Navigate to subscreen if needed
+                        if (subscreenName && screenDef) {
+                            def subItem = screenDef.getSubscreensItem(subscreenName)
+                            if (subItem && subItem.getLocation()) {
+                                screenDef = ec.screen.getScreenDefinition(subItem.getLocation())
+                            } else if (subscreenName) {
+                                def subItems = screenDef.getSubscreensItemsSorted()
+                                for (def sub in subItems) {
+                                    if (sub.getName() == subscreenName) {
+                                        screenDef = ec.screen.getScreenDefinition(sub.getLocation())
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                        
+                        def foundTransition = null
+                        def actionParams = parameters ?: [:]
+                        
+                        // Special handling for "submit" action
+                        if (action == "submit") {
+                            ec.logger.info("BrowseScreens: Submitting form with parameters: ${actionParams}")
+                            // Build screen context with parameters
+                            actionParams.userId = ec.user.userId
+                            actionParams.username = ec.user.username
+                            
+                            // Submit is handled by passing parameters to screen render
+                            actionResult = [
+                                action: "submit",
+                                status: "success",
+                                message: "Form parameters submitted",
+                                parametersProcessed: actionParams.keySet()
+                            ]
+                        } else if (screenDef && screenDef.transitions) {
+                            // Look for matching transition by name
+                            for (def transition : screenDef.transitions) {
+                                if (transition.@name == action) {
+                                    foundTransition = transition
+                                    break
+                                }
+                            }
+                            
+                            if (foundTransition) {
+                                ec.logger.info("BrowseScreens: Found transition '${action}': ${foundTransition.@service}")
+                                
+                                // Check if transition calls a service
+                                if (foundTransition.@service) {
+                                    def serviceName = foundTransition.@service
+                                    ec.logger.info("BrowseScreens: Calling service: ${serviceName} with params: ${actionParams}")
+                                    
+                                    // Call service directly
+                                    def serviceCallResult = ec.service.sync().name(serviceName).parameters(actionParams).call()
+                                    
+                                    actionResult = [
+                                        action: action,
+                                        status: "executed",
+                                        message: "Transition '${action}' executed service: ${serviceName}",
+                                        service: serviceName,
+                                        result: serviceCallResult
+                                    ]
+                                } else {
+                                    // Screen-only transition (no service), pass to render
+                                    actionResult = [
+                                        action: action,
+                                        status: "queued",
+                                        message: "Transition '${action}' will be processed during screen render"
+                                    ]
+                                }
+                            } else {
+                                actionResult = [
+                                    action: action,
+                                    status: "not_found",
+                                    message: "Transition '${action}' not found on screen ${currentPath}"
+                                ]
+                            }
+                        } else {
+                            actionResult = [
+                                action: action,
+                                status: "not_found",
+                                message: "No screen found or screen has no transitions"
+                            ]
+                        }
+                        
+                        ec.logger.info("BrowseScreens: Action result: ${actionResult}")
                     } catch (Exception e) {
-                        actionError = "Action processing failed: ${e.message}"
+                        actionError = "Action execution failed: ${e.message}"
                         ec.logger.warn("BrowseScreens action error for ${currentPath}: ${e.message}")
                     }
                 }
