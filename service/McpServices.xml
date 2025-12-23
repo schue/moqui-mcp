@@ -636,11 +636,10 @@ def startTime = System.currentTimeMillis()
         def output = null
         def screenUrl = "http://localhost:8080/${screenPath}"
         def isError = false
-        
+         
         try {
             ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen, action=${parameters?.action}")
             
-            // For ScreenTest to work properly, we need to use correct root screen
             def testScreenPath = screenPath
             def rootScreen = "component://webroot/screen/webroot.xml"
             
@@ -693,43 +692,92 @@ def startTime = System.currentTimeMillis()
                 rootScreen = screenPath
                 testScreenPath = ""
             }
+            
+            // Get final screen definition for MCP data extraction
+            def finalScreenDef = rootScreen ? ec.screen.getScreenDefinition(rootScreen) : null
+            if (finalScreenDef && testScreenPath) {
+                // Navigate to subscreen
+                def pathSegments = testScreenPath.split('/')
+                for (segment in pathSegments) {
+                    if (finalScreenDef) {
+                        def subItem = finalScreenDef?.getSubscreensItem(segment)
+                        if (subItem && subItem.getLocation()) {
+                            finalScreenDef = ec.screen.getScreenDefinition(subItem.getLocation())
+                        } else {
+                            break
+                        }
+                    }
+                }
+            }
+            
+            // Extract MCP-specific data when renderMode is "mcp"
+            if (renderMode == "mcp" && finalScreenDef) {
+                ec.logger.info("MCP Screen Execution: Extracting MCP data for ${screenPath}")
+                
+                // Extract parameters
+                if (finalScreenDef.parameterByName) {
+                    mcpData.parameters = [:]
+                    finalScreenDef.parameterByName.each { name, param ->
+                        def value = ec.context.get(name) ?: parameters?.get(name)
+                        mcpData.parameters[name] = [name: name, value: value, type: "parameter"]
+                    }
+                }
+                
+                // Extract forms and their fields
+                if (finalScreenDef.formByName) {
+                    mcpData.forms = []
+                    finalScreenDef.formByName.each { formName, form ->
+                        def formInfo = [name: formName, fields: []]
+                        def formNode = form.internalFormNode
+                        if (formNode) {
+                            // Extract field elements
+                            def fields = formNode.'field'
+                            fields.each { field ->
+                                def fieldName = field.attribute('name')
+                                if (fieldName) {
+                                    def fieldInfo = [name: fieldName, type: field.name()]
+                                    def value = ec.context.get(fieldName) ?: parameters?.get(fieldName)
+                                    if (value) fieldInfo.value = value
+                                    
+                                    // Check if it's a widget with options
+                                    if (field.'drop-down' || field.'check' || field.'radio') {
+                                        fieldInfo.widgetType = "selection"
+                                    }
+                                    formInfo.fields << fieldInfo
+                                }
+                            }
+                        }
+                        if (formInfo.fields) mcpData.forms << formInfo
+                    }
+                }
+                
+                // Extract transitions (actions like "Update" buttons)
+                if (finalScreenDef.hasTransition(null)) {
+                    mcpData.actions = []
+                    finalScreenDef.getTransitionList().each { trans ->
+                        mcpData.actions << [
+                            name: trans.name,
+                            service: trans.xmlTransition ? trans.xmlTransition.attribute('service') : null,
+                            description: trans.description
+                        ]
+                    }
+                }
+            }
         
-        // Regular screen rendering with current user context - use real rendering if action is being processed
-        def screenTest = null
-        def screenUrl = "http://localhost:8080/${screenPath}"
-        
-        if (isActionExecution) {
-            // Action is being processed - use real screen rendering with database access
-            ec.logger.info("MCP Screen Execution: Action detected, using real screen rendering for ${screenPath}")
-            screenTest = ec.screen.makeTestScreen()
+        // Regular screen rendering with current user context - use our custom ScreenTestImpl
+        def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
             .rootScreen(rootScreen)
             .renderMode(renderMode ? renderMode : "mcp")
             .auth(ec.user.username)
-            
-            def renderParams = parameters ?: [:]
-            renderParams.userId = ec.user.userId
-            renderParams.username = ec.user.username
-            
-            def relativePath = subscreenName ? subscreenName.replaceAll('_','/') : testScreenPath
-            ec.logger.info("REALRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
-            
-            def realRender = screenTest.render(relativePath, renderParams, "POST")
-        } else {
-            // Regular browse - use ScreenTest mock
-            ec.logger.info("MCP Screen Execution: No action detected, using ScreenTest mock")
-            screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
-            .rootScreen(rootScreen)
-            .renderMode(renderMode ? renderMode : "mcp")
-            .auth(ec.user.username)
-            
-            def renderParams = parameters ?: [:]
-            renderParams.userId = ec.user.userId
-            renderParams.username = ec.user.username
-            
-            def relativePath = subscreenName ? subscreenName.replaceAll('_','/') : testScreenPath
-            ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
-            
-            def testRender = screenTest.render(relativePath, renderParams, "POST")
+        
+        def renderParams = parameters ?: [:]
+        renderParams.userId = ec.user.userId
+        renderParams.username = ec.user.username
+        
+        def relativePath = subscreenName ? subscreenName.replaceAll('_','/') : testScreenPath
+        ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
+        
+        def testRender = screenTest.render(relativePath, renderParams, "POST")
         output = testRender.getOutput()
         ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
 
@@ -741,16 +789,36 @@ def startTime = System.currentTimeMillis()
     
     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
     
-    // Add screen HTML as main content
+    // Build result based on renderMode
     def content = []
-    content << [
-        type: "text",
-        text: output,
-        screenPath: screenPath,
-        screenUrl: screenUrl,
-        executionTime: executionTime,
-        isError: isError
-    ]
+    if (renderMode == "mcp" && mcpData) {
+        // Return structured MCP data
+        def mcpResult = [
+            screenPath: screenPath,
+            screenUrl: screenUrl,
+            executionTime: executionTime,
+            isError: isError
+        ]
+        if (mcpData.parameters) mcpResult.parameters = mcpData.parameters
+        if (mcpData.forms) mcpResult.forms = mcpData.forms
+        if (mcpData.actions) mcpResult.actions = mcpData.actions
+        if (output) mcpResult.htmlPreview = output.take(2000) + (output.length() > 2000 ? "..." : "")
+        
+        content << [
+            type: "text",
+            text: new groovy.json.JsonBuilder(mcpResult).toString()
+        ]
+    } else {
+        // Return raw output for other modes
+        content << [
+            type: "text",
+            text: output,
+            screenPath: screenPath,
+            screenUrl: screenUrl,
+            executionTime: executionTime,
+            isError: isError
+        ]
+    }
     
     result = [
         content: content,
@@ -1130,10 +1198,10 @@ def startTime = System.currentTimeMillis()
                                 message: "Form parameters submitted",
                                 parametersProcessed: actionParams.keySet()
                             ]
-                        } else if (screenDef && screenDef.transitions) {
+                        } else if (screenDef && screenDef.hasTransitions()) {
                             // Look for matching transition by name
-                            for (def transition : screenDef.transitions) {
-                                if (transition.@name == action) {
+                            for (def transition : screenDef.getAllTransitions()) {
+                                if (transition.name == action) {
                                     foundTransition = transition
                                     break
                                 }
