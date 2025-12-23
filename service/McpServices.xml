@@ -942,10 +942,12 @@ def startTime = System.currentTimeMillis()
         </actions>
     </service>
 
-    <service verb="mcp" noun="BrowseScreens" authenticate="false" allow-remote="true" transaction-timeout="30">
-        <description>Browse Moqui screens hierarchically to discover functionality.</description>
+    <service verb="mcp" noun="BrowseScreens" authenticate="false" allow-remote="true" transaction-timeout="60">
+        <description>Browse Moqui screens hierarchically to discover functionality. Renders screen content with renderMode='mcp' by default.</description>
         <in-parameters>
             <parameter name="path" required="false"><description>Screen path to browse (e.g. 'PopCommerce'). Leave empty for root apps.</description></parameter>
+            <parameter name="renderMode" default="mcp"><description>Render mode: mcp (default), text, html, xml, vuet, qvt</description></parameter>
+            <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering</description></parameter>
             <parameter name="sessionId"/>
         </in-parameters>
         <out-parameters>
@@ -1054,10 +1056,99 @@ def startTime = System.currentTimeMillis()
                     }
                 }
                 
-                result = [
+                // Render current screen if not root browsing
+                def renderedContent = null
+                def renderError = null
+                def actualRenderMode = renderMode ?: "mcp"
+                
+                if (currentPath != "root") {
+                    try {
+                        ec.logger.info("BrowseScreens: Rendering screen ${currentPath} with mode=${actualRenderMode}")
+                        
+                        // Use same resolution logic as browse_screens
+                        def pathParts = currentPath.split('\\.')
+                        def componentName = pathParts[0]
+                        def screenPath = null
+                        def subscreenName = null
+                        
+                        for (int i = pathParts.size(); i >= 1; i--) {
+                            def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                            if (ec.resource.getLocationReference(currentTry).getExists()) {
+                                screenPath = currentTry
+                                if (i < pathParts.size()) {
+                                    def remainingParts = pathParts[i..-1]
+                                    subscreenName = remainingParts.size() > 1 ? remainingParts.join('_') : remainingParts[0]
+                                }
+                                break
+                            }
+                        }
+                        
+                        if (!screenPath) {
+                            screenPath = "component://${componentName}/screen/${componentName}.xml"
+                            if (pathParts.size() > 1) {
+                                subscreenName = pathParts[1..-1].join('_')
+                            }
+                        }
+                        
+                        // Build render parameters
+                        def renderParams = parameters ?: [:]
+                        renderParams.userId = ec.user.userId
+                        renderParams.username = ec.user.username
+                        
+                        def screenCallParams = [
+                            screenPath: screenPath,
+                            parameters: renderParams,
+                            renderMode: actualRenderMode,
+                            sessionId: sessionId
+                        ]
+                        if (subscreenName) screenCallParams.subscreenName = subscreenName
+                        
+                        // Call ScreenAsMcpTool to render
+                        def serviceResult = ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
+                            .parameters(screenCallParams)
+                            .call()
+                        
+                        // Extract rendered content from result
+                        // ScreenAsMcpTool returns {content: [{type: "text", text: "...", ...}]}
+                        ec.logger.info("BrowseScreens: serviceResult keys: ${serviceResult?.keySet()}, has content: ${serviceResult?.containsKey('content')}, has result: ${serviceResult?.containsKey('result')}")
+                        if (serviceResult) {
+                            if (serviceResult.containsKey('content') && serviceResult.content && serviceResult.content.size() > 0) {
+                                renderedContent = serviceResult.content[0].text
+                                ec.logger.info("BrowseScreens: Extracted content from serviceResult.content[0].text")
+                            } else if (serviceResult.containsKey('result') && serviceResult.result && serviceResult.result.content && serviceResult.result.content.size() > 0) {
+                                renderedContent = serviceResult.result.content[0].text
+                                ec.logger.info("BrowseScreens: Extracted content from serviceResult.result.content[0].text")
+                            } else {
+                                ec.logger.info("BrowseScreens: serviceResult structure: ${serviceResult}, result content size: ${serviceResult?.result?.content?.size()}")
+                            }
+                        }
+                        
+                        ec.logger.info("BrowseScreens: Successfully rendered screen ${currentPath}, content length: ${renderedContent?.length() ?: 0}")
+                    } catch (Exception e) {
+                        renderError = "Screen rendering failed: ${e.message}"
+                        ec.logger.warn("BrowseScreens render error for ${currentPath}: ${e.message}")
+                    }
+                }
+                
+                // Build result - return in MCP format with content array
+                def resultMap = [
                     currentPath: currentPath,
                     subscreens: subscreens,
-                    message: "Found ${subscreens.size()} subscreens. Use moqui_render_screen(path='...') to execute."
+                    renderMode: actualRenderMode
+                ]
+                
+                if (renderedContent) {
+                    resultMap.renderedContent = renderedContent
+                }
+                
+                if (renderError) {
+                    resultMap.renderError = renderError
+                }
+                
+                // Return in MCP format - content array as direct child of result
+                result = [
+                    content: [[type: "text", text: new groovy.json.JsonBuilder(resultMap).toString()]],
+                    isError: false
                 ]
             ]]></script>
         </actions>
@@ -1273,11 +1364,13 @@ def startTime = System.currentTimeMillis()
                     [
                         name: "moqui_browse_screens",
                         title: "Browse Screens",
-                        description: "Browse the Moqui screen hierarchy to discover paths. Input 'path' (empty for root).",
+                        description: "Browse the Moqui screen hierarchy and render screen content. Input 'path' (empty for root). Default renderMode is 'mcp'.",
                         inputSchema: [
                             type: "object",
                             properties: [
-                                path: [type: "string", description: "Path to browse (e.g. 'PopCommerce')"]
+                                path: [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
+                                renderMode: [type: "string", description: "Render mode: mcp (default), text, html, xml, vuet, qvt"],
+                                parameters: [type: "object", description: "Parameters to pass to screen during rendering"]
                             ]
                         ]
                     ],
