@@ -147,7 +147,14 @@
 </#macro>
 
 <#macro formListWidget fieldSubNode>
-    <#if fieldSubNode["ignored"]?has_content || fieldSubNode["hidden"]?has_content || fieldSubNode["submit"]?has_content || fieldSubNode?parent["@hide"]! == "true"><#return></#if>
+    <#if fieldSubNode["ignored"]?has_content || fieldSubNode["hidden"]?has_content || fieldSubNode?parent["@hide"]! == "true"><#return></#if>
+    <#if fieldSubNode["submit"]?has_content>
+        <#assign submitText = sri.getFieldValueString(fieldSubNode)/>
+        <#assign screenName = sri.getEffectiveScreen().name/>
+        <#assign formName = formNode.getName()/>
+        <#assign fieldName = fieldSubNode["@name"]!>
+${submitText}](#${screenName}.${formName}.${fieldName})
+    </#if>
     <#recurse fieldSubNode>
 </#macro>
 
