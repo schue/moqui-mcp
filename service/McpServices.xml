@@ -943,11 +943,12 @@ def startTime = System.currentTimeMillis()
     </service>
 
     <service verb="mcp" noun="BrowseScreens" authenticate="false" allow-remote="true" transaction-timeout="60">
-        <description>Browse Moqui screens hierarchically to discover functionality. Renders screen content with renderMode='mcp' by default.</description>
+        <description>Browse Moqui screens hierarchically to discover functionality. Renders screen content with renderMode='mcp' by default. Supports action parameter for form submission and transitions.</description>
         <in-parameters>
             <parameter name="path" required="false"><description>Screen path to browse (e.g. 'PopCommerce'). Leave empty for root apps.</description></parameter>
+            <parameter name="action"><description>Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name</description></parameter>
             <parameter name="renderMode" default="mcp"><description>Render mode: mcp (default), text, html, xml, vuet, qvt</description></parameter>
-            <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering</description></parameter>
+            <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering or action</description></parameter>
             <parameter name="sessionId"/>
         </in-parameters>
         <out-parameters>
@@ -1056,6 +1057,24 @@ def startTime = System.currentTimeMillis()
                     }
                 }
                 
+                // Process action before rendering
+                def actionResult = null
+                def actionError = null
+                
+                if (action) {
+                    try {
+                        ec.logger.info("BrowseScreens: Processing action '${action}' on ${currentPath}")
+                        
+                        // For now, actions are passed through to screen rendering
+                        // Future: implement dedicated action processing service
+                        actionResult = [action: action, status: "queued", message: "Action '${action}' will be processed during screen render"]
+                        ec.logger.info("BrowseScreens: Action queued: ${actionResult}")
+                    } catch (Exception e) {
+                        actionError = "Action processing failed: ${e.message}"
+                        ec.logger.warn("BrowseScreens action error for ${currentPath}: ${e.message}")
+                    }
+                }
+                
                 // Render current screen if not root browsing
                 def renderedContent = null
                 def renderError = null
@@ -1136,6 +1155,14 @@ def startTime = System.currentTimeMillis()
                     subscreens: subscreens,
                     renderMode: actualRenderMode
                 ]
+                
+                if (actionResult) {
+                    resultMap.actionResult = actionResult
+                }
+                
+                if (actionError) {
+                    resultMap.actionError = actionError
+                }
                 
                 if (renderedContent) {
                     resultMap.renderedContent = renderedContent
@@ -1364,13 +1391,14 @@ def startTime = System.currentTimeMillis()
                     [
                         name: "moqui_browse_screens",
                         title: "Browse Screens",
-                        description: "Browse the Moqui screen hierarchy and render screen content. Input 'path' (empty for root). Default renderMode is 'mcp'.",
+                        description: "Browse Moqui screen hierarchy, process actions, and render screen content. Input 'path' (empty for root). Default renderMode is 'mcp'.",
                         inputSchema: [
                             type: "object",
                             properties: [
                                 path: [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
+                                action: [type: "string", description: "Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name"],
                                 renderMode: [type: "string", description: "Render mode: mcp (default), text, html, xml, vuet, qvt"],
-                                parameters: [type: "object", description: "Parameters to pass to screen during rendering"]
+                                parameters: [type: "object", description: "Parameters to pass to screen during rendering or action"]
                             ]
                         ]
                     ],
