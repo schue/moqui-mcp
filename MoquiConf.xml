@@ -15,6 +15,9 @@
 
     <webapp-list>
         <webapp name="webroot" http-port="8080">
+            <filter name="McpAuthFilter" class="org.moqui.impl.webapp.MoquiAuthFilter" async-supported="true">
+                <url-pattern>/mcp/*</url-pattern>
+            </filter>
             <servlet name="EnhancedMcpServlet" class="org.moqui.mcp.EnhancedMcpServlet" 
                      load-on-startup="5" async-supported="true">
                 <init-param name="keepAliveIntervalSeconds" value="30"/>

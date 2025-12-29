@@ -171,39 +171,11 @@ class EnhancedMcpServlet extends HttpServlet {
                 logger.warn("Web facade initialization warning: ${e.message}")
             }
 
-            // Handle Basic Authentication directly
-            String authzHeader = request.getHeader("Authorization")
-            boolean authenticated = false
-            
-            if (authzHeader != null && authzHeader.length() > 6 && authzHeader.startsWith("Basic ")) {
-                String basicAuthEncoded = authzHeader.substring(6).trim()
-                String basicAuthAsString = new String(basicAuthEncoded.decodeBase64())
-                int indexOfColon = basicAuthAsString.indexOf(":")
-                if (indexOfColon > 0) {
-                    String username = basicAuthAsString.substring(0, indexOfColon)
-                    String password = basicAuthAsString.substring(indexOfColon + 1)
-                    try {
-                        logger.info("LOGGING IN ${username}")
-                        authenticated = ec.user.loginUser(username, password)
-                        if (authenticated) {
-                            logger.info("Enhanced MCP Basic auth successful for user: ${ec.user?.username}")
-                        } else {
-                            logger.warn("Enhanced MCP Basic auth failed for user: ${username}")
-                        }
-                    } catch (Exception e) {
-                        logger.warn("Enhanced MCP Basic auth exception for user ${username}: ${e.message}")
-                    }
-                } else {
-                    logger.warn("Enhanced MCP got bad Basic auth credentials string")
-                }
-            }
-            
-            // Re-enabled proper authentication - UserServices compilation issues resolved
-            if (!authenticated || !ec.user?.userId) {
-                logger.warn("Enhanced MCP authentication failed - authenticated=${authenticated}, userId=${ec.user?.userId}")
+            // Authentication is handled by MoquiAuthFilter - user context should already be set
+            if (!ec.user?.userId) {
+                logger.warn("Enhanced MCP - no authenticated user after MoquiAuthFilter")
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED)
                 response.setContentType("application/json")
-                response.setHeader("WWW-Authenticate", "Basic realm=\"Moqui MCP\"")
                 response.writer.write(JsonOutput.toJson([
                     jsonrpc: "2.0",
                     error: [code: -32003, message: "Authentication required. Use Basic auth with valid Moqui credentials."],
@@ -560,8 +532,8 @@ class EnhancedMcpServlet extends HttpServlet {
         logger.info("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}")
         
         // Validate Accept header per MCP 2025-11-25 spec requirement #2
-        // Client MUST include Accept header listing both application/json and text/event-stream
-        if (!acceptHeader || !(acceptHeader.contains("application/json") && acceptHeader.contains("text/event-stream"))) {
+        // Client MUST include Accept header with either application/json or text/event-stream
+        if (!acceptHeader || !(acceptHeader.contains("application/json") || acceptHeader.contains("text/event-stream"))) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
             response.writer.write(JsonOutput.toJson([

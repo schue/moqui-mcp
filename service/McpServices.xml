@@ -107,7 +107,7 @@
                     capabilities: serverCapabilities,
                     serverInfo: serverInfo,
                     sessionId: sessionId,
-                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Feature_FindFeature to search by features like color or size. Use screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Product_FindProduct for product catalog, screen_PopCommerce_screen_PopCommerceAdmin_Order.FindOrder for order status, screen_PopCommerce_screen_PopCommerceRoot.Customer for customer management, screen_PopCommerce_screen_PopCommerceAdmin_Catalog.Product_EditPrices to check prices and screen_PopCommerce_screen_PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
+                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature to search by features like color or size. Use PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct for product catalog, PopCommerce.PopCommerceAdmin.Order.FindOrder for order status, PopCommerce.PopCommerceRoot.Customer for customer management, PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices to check prices and PopCommerce.PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
                 ]
                 
                 ec.logger.info("MCP Initialize for user ${userId} (session ${sessionId}): capabilities negotiated")
@@ -148,6 +148,11 @@
                         if (!screenPath) throw new Exception("moqui_render_screen requires 'path' parameter")
                         
                         ec.logger.info("MCP ToolsCall: Rendering screen path=${screenPath}, subscreen=${subscreenName}")
+                        
+                        // Strip query parameters from path if present
+                        if (screenPath.contains("?")) {
+                            screenPath = screenPath.split("\\?")[0]
+                        }
                         
                         // Handle component:// or simple dot notation path
                         def resolvedPath = screenPath
@@ -710,8 +715,8 @@ def startTime = System.currentTimeMillis()
                 }
             }
             
-            // Extract MCP-specific data when renderMode is "mcp"
-            if (renderMode == "mcp" && finalScreenDef) {
+            // Extract MCP-specific data when renderMode is "mcp" or "json"
+            if ((renderMode == "mcp" || renderMode == "json") && finalScreenDef) {
                 ec.logger.info("MCP Screen Execution: Extracting MCP data for ${screenPath}")
                 
                 // Extract parameters
@@ -790,9 +795,9 @@ def startTime = System.currentTimeMillis()
     
     def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
     
-    // Build result based on renderMode
-    def content = []
-    if (renderMode == "mcp" && mcpData) {
+            // Build result based on renderMode
+            def content = []
+            if ((renderMode == "mcp" || renderMode == "json") && mcpData) {
         // Return structured MCP data
         def mcpResult = [
             screenPath: screenPath,
@@ -1035,6 +1040,11 @@ def startTime = System.currentTimeMillis()
                 def subscreens = []
                 def currentPath = path ?: "root"
                 def userGroups = ec.user.getUserGroupIdSet().collect { it }
+                
+                // Strip query parameters from path for screen resolution
+                if (currentPath.contains("?")) {
+                    currentPath = currentPath.split("\\?")[0]
+                }
                 
                 // Helper to convert full component path to simple path (PopCommerce/screen/Root.xml -> PopCommerce.Root)
                 def convertToSimplePath = { fullPath ->
@@ -1378,6 +1388,11 @@ def startTime = System.currentTimeMillis()
                 ExecutionContext ec = context.ec
                 def matches = []
                 
+                // Strip query parameters from path if present
+                if (query.contains("?")) {
+                    query = query.split("\\?")[0]
+                }
+                
                 // Helper to convert full component path to simple path
                 def convertToSimplePath = { fullPath ->
                     if (!fullPath) return null
@@ -1428,6 +1443,11 @@ def startTime = System.currentTimeMillis()
                 import org.moqui.context.ExecutionContext
                 
                 ExecutionContext ec = context.ec
+                
+                // Strip query parameters from path if present
+                if (path.contains("?")) {
+                    path = path.split("\\?")[0]
+                }
                 
                 // Resolve simple path to component path using longest match and traversal
                 def pathParts = path.split('\\.')
