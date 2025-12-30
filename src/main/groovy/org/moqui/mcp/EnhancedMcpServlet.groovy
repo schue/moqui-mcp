@@ -46,32 +46,29 @@ class EnhancedMcpServlet extends HttpServlet {
     
     private JsonSlurper jsonSlurper = new JsonSlurper()
     
-    // Session state constants
-    private static final int STATE_UNINITIALIZED = 0
-    private static final int STATE_INITIALIZING = 1
-    private static final int STATE_INITIALIZED = 2
-    
-    // Simple registry for active connections only (transient HTTP connections)
-    private final Map<String, PrintWriter> activeConnections = new ConcurrentHashMap<>()
-    
-    // Session management using Moqui's Visit system directly
-    // No need for separate session manager - Visit entity handles persistence
-    private final Map<String, Integer> sessionStates = new ConcurrentHashMap<>()
+        // Session state constants
+        private static final int STATE_UNINITIALIZED = 0
+        private static final int STATE_INITIALIZING = 1
+        private static final int STATE_INITIALIZED = 2
+        
+        // Simple registry for active connections only (transient HTTP connections)
+        private final Map<String, PrintWriter> activeConnections = new ConcurrentHashMap<>()
+        
+        // Session management using Moqui's Visit system directly
+        // No need for separate session manager - Visit entity handles persistence
+        private final Map<String, Integer> sessionStates = new ConcurrentHashMap<>()
+        
+        // Message storage for notifications/subscribe and notifications/unsubscribe
+        private final Map<String, List<Map>> sessionMessages = new ConcurrentHashMap<>()
+        
+        // In-memory session tracking to avoid database access for read operations
+        private final Map<String, String> sessionUsers = new ConcurrentHashMap<>()
     
     // Progress tracking for notifications/progress
     private final Map<String, Map> sessionProgress = new ConcurrentHashMap<>()
     
     // Visit cache to reduce database access and prevent lock contention
     private final Map<String, EntityValue> visitCache = new ConcurrentHashMap<>()
-    
-    // In-memory session tracking to avoid database access for read operations
-    private final Map<String, String> sessionUsers = new ConcurrentHashMap<>()
-    
-    // Message storage for notifications/message
-    private final Map<String, List<Map>> sessionMessages = new ConcurrentHashMap<>()
-    
-    // Subscription tracking for notifications/subscribe and notifications/unsubscribe
-    private final Map<String, Set<String>> sessionSubscriptions = new ConcurrentHashMap<>()
     
     // Notification queue for server-initiated notifications (for non-SSE clients)
     private static final Map<String, List<Map>> notificationQueues = new ConcurrentHashMap<>()
@@ -511,18 +508,32 @@ class EnhancedMcpServlet extends HttpServlet {
     private void handleJsonRpc(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec, String webappName, String requestBody, def visit) 
             throws IOException {
         
-        // Initialize web facade for proper session management (like SSE connections)
-        // This prevents the null user loop by ensuring HTTP session is properly linked
+        // Initialize web facade for proper session management
         try {
-            // If we have a visit, make sure it's in the request/session before initWebFacade
+            // If we have a visit, use it directly (don't create new one)
+            visit = ec.user.getVisit()
             if (visit) {
-                request.setAttribute("moqui.visitId", visit.visitId)
                 request.getSession().setAttribute("moqui.visitId", visit.visitId)
+                logger.debug("JSON-RPC web facade initialized for user: ${ec.user?.username} with visit: ${visit.visitId}")
+            } else {
+                // No visit exists, need to create one
+                logger.info("Creating new Visit record for user: ${ec.user?.username}")
+                visit = ec.entity.makeValue("moqui.server.Visit")
+                visit.visitId = ec.userFacade.getVisitId(visit)
+                visit.userId = ec.user.userId
+                visit.sessionId = visit.sessionId
+                visit.userAccountId = ec.user.userAccount?.userAccountId
+                visit.sessionCreatedDate = ec.user.nowTimestamp
+                visit.visitStatus = null
+                visit.lastActiveDate = ec.user.nowTimestamp
+                visit.visitDeletedDate = null
+                ec.entity.create(visit)
+                logger.info("Visit ${visit.visitId} created for user: ${ec.user?.username}")
             }
             ec.initWebFacade(webappName, request, response)
-            logger.debug("JSON-RPC web facade initialized for user: ${ec.user?.username} with visit: ${ec.user.visitId}")
+            logger.debug("JSON-RPC web facade initialized for user: ${ec.user?.username} with visit: ${visit.visitId}")
         } catch (Exception e) {
-            logger.warn("JSON-RPC web facade initialization failed: ${e.message}")
+            logger.warn("Web facade initialization warning: ${e.message}")
             // Continue anyway - we may still have basic user context from auth
         }
         
@@ -532,13 +543,13 @@ class EnhancedMcpServlet extends HttpServlet {
         logger.info("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}")
         
         // Validate Accept header per MCP 2025-11-25 spec requirement #2
-        // Client MUST include Accept header with either application/json or text/event-stream
-        if (!acceptHeader || !(acceptHeader.contains("application/json") || acceptHeader.contains("text/event-stream"))) {
+        // Client MUST include Accept header with at least one of: application/json or text/event-stream
+        if (!acceptHeader || !acceptHeader.contains("application/json") && !acceptHeader.contains("text/event-stream")) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
             response.writer.write(JsonOutput.toJson([
                 jsonrpc: "2.0",
-                error: [code: -32600, message: "Accept header must include application/json and text/event-stream"],
+                error: [code: -32600, message: "Accept header must include application/json or text/event-stream"],
                 id: null
             ]))
             return
