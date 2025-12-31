@@ -539,12 +539,12 @@ class EnhancedMcpServlet extends HttpServlet {
         
         String method = request.getMethod()
         String acceptHeader = request.getHeader("Accept")
-        
+
         logger.info("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}")
-        
+
         // Validate Accept header per MCP 2025-11-25 spec requirement #2
         // Client MUST include Accept header with at least one of: application/json or text/event-stream
-        if (!acceptHeader || !acceptHeader.contains("application/json") && !acceptHeader.contains("text/event-stream")) {
+        if (!acceptHeader || !(acceptHeader.contains("application/json") || acceptHeader.contains("text/event-stream"))) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
             response.writer.write(JsonOutput.toJson([

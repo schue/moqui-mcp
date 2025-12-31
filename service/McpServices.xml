@@ -222,8 +222,8 @@
                             result = [ content: [[type: "text", text: new groovy.json.JsonBuilder(actualRes).toString()]], isError: false ]
                         }
                         return
-                    }
-    
+                     }
+
                     // Fallback: check if it's a general Moqui service (non-screen-based tools)
                     if (ec.service.isServiceDefined(name)) {
                         // Execute service with current user context
@@ -232,7 +232,7 @@
                         result = [content: [[type: "text", text: new JsonBuilder(serviceResult).toString()]], isError: false]
                         return
                     }
-                    
+
                     throw new Exception("Unknown tool name: ${name}")
                 } catch (Exception e) {
                     isError = true
@@ -291,11 +291,12 @@
                 
                 ec.logger.debug("MCP ResourcesList: Discovering entities for user groups: ${userGroups}")
                 
-                // Use ArtifactAuthzCheckView to find all entities the user has permission for
+                // Use ArtifactAuthzCheckView to find all entities user has permission for
                 // This is the "Moqui Way" - rely on the security system to tell us what is accessible
                 def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
                     .condition("userGroupId", userGroups)
                     .condition("artifactTypeEnumId", "AT_ENTITY")
+                    .condition("authzActionEnumId", "AUTHZA_VIEW")
                     .useCache(true)
                     .disableAuthz()
                     .list()
@@ -316,6 +317,16 @@
                             mimeType: "application/json"
                         ]
                     }
+                }
+                
+                // Add instructions resource for MCP_USER role
+                if (userGroups.contains("McpUser")) {
+                    availableResources << [
+                        uri: "moqui://mcp/instructions",
+                        name: "instructions",
+                        description: "MCP server usage instructions",
+                        mimeType: "text/plain"
+                    ]
                 }
                 
                 result = [resources: availableResources]
@@ -339,6 +350,19 @@
                 
                 ExecutionContext ec = context.ec
                 def startTime = System.currentTimeMillis()
+                
+                // Handle special moqui://mcp/instructions resource
+                if (uri == "moqui://mcp/instructions") {
+                    result = [
+                        content: [[
+                            uri: "moqui://mcp/instructions",
+                            mimeType: "text/plain",
+                            text: "This server provides access to Moqui ERP through MCP. For common business queries: Use PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature to search by features like color or size. Use PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct for product catalog, PopCommerce.PopCommerceAdmin.Order.FindOrder for order status, PopCommerce.PopCommerceRoot.Customer for customer management, PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices to check prices and PopCommerce.PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
+                        ]],
+                        isError: false
+                    ]
+                    return
+                }
                 
                 // Parse entity URI (format: entity://EntityName)
                 if (!uri.startsWith("entity://")) {
@@ -915,11 +939,46 @@ def startTime = System.currentTimeMillis()
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
+                import groovy.json.JsonSlurper
                 
                 ExecutionContext ec = context.ec
                 
-                // For now, return empty prompts list - can be extended later
+                ec.logger.info("MCP PromptsList: Listing prompts from wiki space MCP_PROMPTS")
+                
                 def prompts = []
+                
+                // Query all wiki pages in MCP_PROMPTS space
+                def wikiPageList = ec.entity.find("moqui.resource.wiki.WikiPage")
+                    .condition("wikiSpaceId", "MCP_PROMPTS")
+                    .useCache(true)
+                    .list()
+                
+                for (def wp in wikiPageList) {
+                    // Try to load argument schema from attachment
+                    def arguments = []
+                    try {
+                        def attachment = ec.entity.find("moqui.resource.wiki.WikiPageAttachment")
+                            .condition("wikiPageId", wp.wikiPageId)
+                            .condition("filename", "arguments.json")
+                            .one()
+                        if (attachment) {
+                            def attachmentRef = ec.resource.getLocationReference(attachment.getLocation())
+                            def jsonText = attachmentRef?.getText()
+                            if (jsonText) {
+                                arguments = new JsonSlurper().parseText(jsonText) ?: []
+                            }
+                        }
+                    } catch (Exception e) {
+                        ec.logger.debug("Could not parse arguments for ${wp.pagePath}: ${e.message}")
+                    }
+                    
+                    prompts << [
+                        name: wp.pagePath,
+                        title: wp.pagePath.split('-').collect { it.capitalize() }.join(' '),
+                        description: "MCP prompt template",
+                        arguments: arguments
+                    ]
+                }
                 
                 result = [prompts: prompts]
             ]]></script>
@@ -938,13 +997,63 @@ def startTime = System.currentTimeMillis()
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
+                import groovy.text.GStringTemplateEngine
+                import groovy.json.JsonSlurper
+                import groovy.json.JsonBuilder
                 
                 ExecutionContext ec = context.ec
                 
-                ec.logger.info("Prompt requested: ${name}, sessionId: ${sessionId}")
+                ec.logger.info("MCP PromptsGet: Retrieving prompt '${name}' from wiki space MCP_PROMPTS")
                 
-                // For now, return not found - can be extended later
-                result = [error: "Prompt not found: ${name}"]
+                // Get the wiki page for this prompt
+                def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
+                    .condition("wikiSpaceId", "MCP_PROMPTS")
+                    .condition("pagePath", name)
+                    .one()
+                
+                if (!wikiPage) {
+                    throw new Exception("Prompt not found: ${name}")
+                }
+                
+                // Get the wiki space to build the page location
+                def wikiSpace = ec.entity.find("moqui.resource.wiki.WikiSpace")
+                    .condition("wikiSpaceId", "MCP_PROMPTS")
+                    .one()
+                
+                if (!wikiSpace) {
+                    throw new Exception("MCP Prompts wiki space not found")
+                }
+                
+                // Build the resource location for the page (root + page path + .md)
+                def pageLocation = wikiSpace.rootPageLocation
+                if (!pageLocation.endsWith('/')) {
+                    pageLocation += '/'
+                }
+                pageLocation += name + '.md'
+                
+                // Get the resource reference and text content
+                def pageRef = ec.resource.getLocationReference(pageLocation)
+                def templateText = pageRef?.getText()
+                
+                if (!templateText) {
+                    throw new Exception("Prompt template not found: ${name}")
+                }
+                
+                // Render template using Groovy GString engine
+                def templateEngine = new GStringTemplateEngine()
+                def template = templateEngine.createTemplate(templateText)
+                def binding = arguments ?: [:]
+                def rendered = template.make(binding).toString()
+                
+                ec.logger.info("MCP PromptsGet: Rendered prompt '${name}' with ${binding.size()} arguments")
+                
+                result = [
+                    description: "MCP prompt template",
+                    messages: [[
+                        role: "user",
+                        content: [type: "text", text: rendered]
+                    ]]
+                ]
             ]]></script>
         </actions>
     </service>
@@ -1582,9 +1691,9 @@ def startTime = System.currentTimeMillis()
                         inputSchema: [
                             type: "object",
                             properties: [
-                                path: [type: "string", description: "Screen path (e.g. 'PopCommerce.Catalog.Product')"],
-                                parameters: [type: "object", description: "Parameters for the screen"],
-                                renderMode: [type: "string", description: "mcp, text, html, xml, vuet, qvt", default: "mcp"]
+                                "path": [type: "string", description: "Screen path (e.g. 'PopCommerce.Catalog.Product')"],
+                                "parameters": [type: "object", description: "Parameters for the screen"],
+                                "renderMode": [type: "string", description: "mcp, text, html, xml, vuet, qvt", default: "mcp"]
                             ],
                             required: ["path"]
                         ]
@@ -1596,10 +1705,10 @@ def startTime = System.currentTimeMillis()
                         inputSchema: [
                             type: "object",
                             properties: [
-                                path: [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
-                                action: [type: "string", description: "Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name"],
-                                renderMode: [type: "string", description: "Render mode: mcp (default), text, html, xml, vuet, qvt"],
-                                parameters: [type: "object", description: "Parameters to pass to screen during rendering or action"]
+                                "path": [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
+                                "action": [type: "string", description: "Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name"],
+                                "renderMode": [type: "string", description: "Render mode: mcp (default), text, html, xml, vuet, qvt"],
+                                "parameters": [type: "object", description: "Parameters to pass to screen during rendering or action"]
                             ]
                         ]
                     ],
@@ -1610,21 +1719,43 @@ def startTime = System.currentTimeMillis()
                         inputSchema: [
                             type: "object",
                             properties: [
-                                query: [type: "string", description: "Search query"]
+                                "query": [type: "string", description: "Search query"]
                             ],
                             required: ["query"]
                         ]
                     ],
-                    [
+                     [
                         name: "moqui_get_screen_details",
                         title: "Get Screen Details",
                         description: "Get detailed schema for a specific screen path.",
                         inputSchema: [
                             type: "object",
                             properties: [
-                                path: [type: "string", description: "Screen path"]
+                                "path": [type: "string", description: "Screen path"]
                             ],
                             required: ["path"]
+                        ]
+                    ],
+                    [
+                        name: "prompts_list",
+                        title: "List Prompts",
+                        description: "List available MCP prompt templates.",
+                        inputSchema: [
+                            type: "object",
+                            properties: [:]
+                        ]
+                    ],
+                    [
+                        name: "prompts_get",
+                        title: "Get Prompt",
+                        description: "Retrieve and render a specific MCP prompt template.",
+                        inputSchema: [
+                            type: "object",
+                            properties: [
+                                "name": [type: "string", description: "Prompt name"],
+                                "arguments": [type: "object", description: "Arguments for prompt template"]
+                            ],
+                            required: ["name"]
                         ]
                     ]
                 ]
