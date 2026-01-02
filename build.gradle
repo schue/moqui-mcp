@@ -34,7 +34,7 @@ dependencies {
     compileOnly project(':framework')
 
     // Servlet API (provided by framework, but needed for compilation)
-    compileOnly 'javax.servlet:javax.servlet-api:4.0.1'
+    compileOnly 'jakarta.servlet:jakarta.servlet-api:6.1.0'
     
     // Test dependencies
     testImplementation project(':framework')

@@ -25,11 +25,11 @@ import org.moqui.context.ExecutionContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-import javax.servlet.ServletConfig
-import javax.servlet.ServletException
-import javax.servlet.http.HttpServlet
-import javax.servlet.http.HttpServletRequest
-import javax.servlet.http.HttpServletResponse
+import jakarta.servlet.ServletConfig
+import jakarta.servlet.ServletException
+import jakarta.servlet.http.HttpServlet
+import jakarta.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletResponse
 import java.sql.Timestamp
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -281,8 +281,8 @@ class EnhancedMcpServlet extends HttpServlet {
             // Modify request path to avoid ScreenResourceNotFoundException
             String originalRequestURI = request.getRequestURI()
             String originalPathInfo = request.getPathInfo()
-            request.setAttribute("javax.servlet.include.request_uri", "/mcp")
-            request.setAttribute("javax.servlet.include.path_info", "")
+            request.setAttribute("jakarta.servlet.include.request_uri", "/mcp")
+            request.setAttribute("jakarta.servlet.include.path_info", "")
             
         try {
             ec.initWebFacade(webappName, request, response)

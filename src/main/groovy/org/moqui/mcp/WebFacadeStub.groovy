@@ -21,10 +21,10 @@ import org.moqui.impl.context.ContextJavaUtil
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-import javax.servlet.ServletContext
-import javax.servlet.http.HttpServletRequest
-import javax.servlet.http.HttpServletResponse
-import javax.servlet.http.HttpSession
+import jakarta.servlet.ServletContext
+import jakarta.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletResponse
+import jakarta.servlet.http.HttpSession
 import java.util.ArrayList
 import java.util.EventListener
 
@@ -340,6 +340,9 @@ class WebFacadeStub implements WebFacade {
             }
         }
         
+        @Override String getRequestId() { return null }
+        @Override String getProtocolRequestId() { return null }
+        @Override jakarta.servlet.ServletConnection getServletConnection() { return null }
         @Override String getMethod() { return method }
         @Override String getScheme() { return "http" }
         @Override String getServerName() { return "localhost" }
@@ -402,10 +405,10 @@ class WebFacadeStub implements WebFacade {
         @Override boolean isRequestedSessionIdFromURL() { return false }
         @Override java.util.Locale getLocale() { return Locale.US }
         @Override java.util.Enumeration<java.util.Locale> getLocales() { return Collections.enumeration([Locale.US]) }
-        @Override javax.servlet.ServletInputStream getInputStream() throws java.io.IOException { 
-            return new javax.servlet.ServletInputStream() {
+        @Override jakarta.servlet.ServletInputStream getInputStream() throws java.io.IOException { 
+            return new jakarta.servlet.ServletInputStream() {
                 @Override boolean isReady() { return true }
-                @Override void setReadListener(javax.servlet.ReadListener readListener) {}
+                @Override void setReadListener(jakarta.servlet.ReadListener readListener) {}
                 @Override int read() throws java.io.IOException { return -1 }
                 @Override boolean isFinished() { return true }
             }
@@ -416,28 +419,26 @@ class WebFacadeStub implements WebFacade {
         @Override ServletContext getServletContext() { return null }
         @Override boolean isAsyncStarted() { return false }
         @Override boolean isAsyncSupported() { return false }
-        @Override javax.servlet.AsyncContext getAsyncContext() { return null }
-        @Override javax.servlet.DispatcherType getDispatcherType() { return null }
+        @Override jakarta.servlet.AsyncContext getAsyncContext() { return null }
+        @Override jakarta.servlet.DispatcherType getDispatcherType() { return null }
         
         // Additional required methods for HttpServletRequest
         @Override long getContentLengthLong() { return 0 }
         @Override java.util.Enumeration<String> getParameterNames() { return Collections.enumeration(parameters.keySet()) }
-        @Override javax.servlet.RequestDispatcher getRequestDispatcher(String path) { return null }
-        @Override String getRealPath(String path) { return null }
+        @Override jakarta.servlet.RequestDispatcher getRequestDispatcher(String path) { return null }
         @Override int getRemotePort() { return 0 }
-        @Override javax.servlet.AsyncContext startAsync() { return null }
-        @Override javax.servlet.AsyncContext startAsync(javax.servlet.ServletRequest request, javax.servlet.ServletResponse response) { return null }
-        @Override javax.servlet.http.Cookie[] getCookies() { return null }
+        @Override jakarta.servlet.AsyncContext startAsync() { return null }
+        @Override jakarta.servlet.AsyncContext startAsync(jakarta.servlet.ServletRequest request, jakarta.servlet.ServletResponse response) { return null }
+        @Override jakarta.servlet.http.Cookie[] getCookies() { return null }
         @Override long getDateHeader(String name) { return 0 }
         @Override int getIntHeader(String name) { return 0 }
         @Override String changeSessionId() { return session ? session.getId() : "mock-session-id" }
-        @Override boolean isRequestedSessionIdFromUrl() { return false }
-        @Override boolean authenticate(javax.servlet.http.HttpServletResponse response) { return false }
+        @Override boolean authenticate(jakarta.servlet.http.HttpServletResponse response) { return false }
         @Override void login(String username, String password) {}
         @Override void logout() {}
-        @Override java.util.Collection<javax.servlet.http.Part> getParts() { return [] }
-        @Override javax.servlet.http.Part getPart(String name) { return null }
-        @Override <T extends javax.servlet.http.HttpUpgradeHandler> T upgrade(Class<T> handlerClass) { return null }
+        @Override java.util.Collection<jakarta.servlet.http.Part> getParts() { return [] }
+        @Override jakarta.servlet.http.Part getPart(String name) { return null }
+        @Override <T extends jakarta.servlet.http.HttpUpgradeHandler> T upgrade(Class<T> handlerClass) { return null }
     }
     
     static class MockHttpServletResponse implements HttpServletResponse {
@@ -452,10 +453,10 @@ class WebFacadeStub implements WebFacade {
         void setMockSession(HttpSession session) { this.mockSession = session }
         
         @Override PrintWriter getWriter() throws java.io.IOException { return printWriter }
-        @Override javax.servlet.ServletOutputStream getOutputStream() throws java.io.IOException {
-            return new javax.servlet.ServletOutputStream() {
+        @Override jakarta.servlet.ServletOutputStream getOutputStream() throws java.io.IOException {
+            return new jakarta.servlet.ServletOutputStream() {
                 @Override boolean isReady() { return true }
-                @Override void setWriteListener(javax.servlet.WriteListener writeListener) {}
+                @Override void setWriteListener(jakarta.servlet.WriteListener writeListener) {}
                 @Override void write(int b) throws java.io.IOException { writer.write(b) }
             }
         }
@@ -488,11 +489,10 @@ class WebFacadeStub implements WebFacade {
         // Other required methods with minimal implementations
         @Override String encodeURL(String url) { return url }
         @Override String encodeRedirectURL(String url) { return url }
-        @Override String encodeUrl(String url) { return url }
-        @Override String encodeRedirectUrl(String url) { return url }
         @Override void sendError(int sc, String msg) throws java.io.IOException { status = sc }
         @Override void sendError(int sc) throws java.io.IOException { status = sc }
         @Override void sendRedirect(String location) throws java.io.IOException {}
+        @Override void sendRedirect(String location, int sc, boolean clearBuffer) throws java.io.IOException {}
         @Override void setDateHeader(String name, long date) {}
         @Override void addDateHeader(String name, long date) {}
         @Override void setIntHeader(String name, int value) {}
@@ -501,8 +501,7 @@ class WebFacadeStub implements WebFacade {
         
         // Additional required methods for HttpServletResponse
         @Override void setLocale(Locale locale) {}
-        @Override void addCookie(javax.servlet.http.Cookie cookie) {}
-        @Override void setStatus(int sc, String sm) { this.status = sc }
+        @Override void addCookie(jakarta.servlet.http.Cookie cookie) {}
     }
     
     static class MockHttpSession implements HttpSession {
@@ -521,16 +520,11 @@ class WebFacadeStub implements WebFacade {
         @Override long getCreationTime() { return creationTime }
         @Override String getId() { return id }
         @Override long getLastAccessedTime() { return System.currentTimeMillis() }
-        @Override javax.servlet.ServletContext getServletContext() { return null }
+        @Override jakarta.servlet.ServletContext getServletContext() { return null }
         @Override void setMaxInactiveInterval(int interval) {}
         @Override int getMaxInactiveInterval() { return 1800 }
-        @Override javax.servlet.http.HttpSessionContext getSessionContext() { return null }
         @Override void invalidate() {}
         @Override boolean isNew() { return false }
-        @Override void putValue(String name, Object value) { setAttribute(name, value) }
-        @Override Object getValue(String name) { return getAttribute(name) }
-        @Override void removeValue(String name) { removeAttribute(name) }
-        @Override String[] getValueNames() { return attributes.keySet() as String[] }
     }
     
     static class MockServletContext implements ServletContext {
@@ -548,8 +542,8 @@ class WebFacadeStub implements WebFacade {
         @Override String getRealPath(String path) { return null }
         @Override java.io.InputStream getResourceAsStream(String path) { return null }
         @Override java.net.URL getResource(String path) throws java.net.MalformedURLException { return null }
-        @Override javax.servlet.RequestDispatcher getRequestDispatcher(String path) { return null }
-        @Override javax.servlet.RequestDispatcher getNamedDispatcher(String name) { return null }
+        @Override jakarta.servlet.RequestDispatcher getRequestDispatcher(String path) { return null }
+        @Override jakarta.servlet.RequestDispatcher getNamedDispatcher(String name) { return null }
         @Override String getInitParameter(String name) { return null }
         @Override java.util.Enumeration<String> getInitParameterNames() { return Collections.enumeration([]) }
         @Override boolean setInitParameter(String name, String value) { return false }
@@ -557,37 +551,33 @@ class WebFacadeStub implements WebFacade {
         @Override ServletContext getContext(String uripath) { return null }
         @Override int getEffectiveMajorVersion() { return 4 }
         @Override int getEffectiveMinorVersion() { return 0 }
-        @Override javax.servlet.Servlet getServlet(String name) throws javax.servlet.ServletException { return null }
-        @Override java.util.Enumeration<javax.servlet.Servlet> getServlets() { return Collections.enumeration([]) }
-        @Override java.util.Enumeration<String> getServletNames() { return Collections.enumeration([]) }
         @Override void log(String msg) {}
-        @Override void log(Exception exception, String msg) {}
         @Override void log(String msg, Throwable throwable) {}
         
         // Additional required methods for ServletContext
         @Override java.util.Set<String> getResourcePaths(String path) { return null }
-        @Override javax.servlet.ServletRegistration.Dynamic addServlet(String servletName, String className) { return null }
-        @Override javax.servlet.ServletRegistration.Dynamic addServlet(String servletName, javax.servlet.Servlet servlet) { return null }
-        @Override javax.servlet.ServletRegistration.Dynamic addServlet(String servletName, Class<? extends javax.servlet.Servlet> servletClass) { return null }
-        @Override javax.servlet.ServletRegistration.Dynamic addJspFile(String jspName, String jspFile) { return null }
-        @Override <T extends javax.servlet.Servlet> T createServlet(Class<T> clazz) { return null }
-        @Override javax.servlet.ServletRegistration getServletRegistration(String servletName) { return null }
-        @Override java.util.Map<String, ? extends javax.servlet.ServletRegistration> getServletRegistrations() { return [:] }
-        @Override javax.servlet.FilterRegistration.Dynamic addFilter(String filterName, String className) { return null }
-        @Override javax.servlet.FilterRegistration.Dynamic addFilter(String filterName, javax.servlet.Filter filter) { return null }
-        @Override javax.servlet.FilterRegistration.Dynamic addFilter(String filterName, Class<? extends javax.servlet.Filter> filterClass) { return null }
-        @Override <T extends javax.servlet.Filter> T createFilter(Class<T> clazz) { return null }
-        @Override javax.servlet.FilterRegistration getFilterRegistration(String filterName) { return null }
-        @Override java.util.Map<String, ? extends javax.servlet.FilterRegistration> getFilterRegistrations() { return [:] }
-        @Override javax.servlet.SessionCookieConfig getSessionCookieConfig() { return null }
-        @Override void setSessionTrackingModes(java.util.Set<javax.servlet.SessionTrackingMode> sessionTrackingModes) {}
-        @Override java.util.Set<javax.servlet.SessionTrackingMode> getDefaultSessionTrackingModes() { return [] as Set }
-        @Override java.util.Set<javax.servlet.SessionTrackingMode> getEffectiveSessionTrackingModes() { return [] as Set }
+        @Override jakarta.servlet.ServletRegistration.Dynamic addServlet(String servletName, String className) { return null }
+        @Override jakarta.servlet.ServletRegistration.Dynamic addServlet(String servletName, jakarta.servlet.Servlet servlet) { return null }
+        @Override jakarta.servlet.ServletRegistration.Dynamic addServlet(String servletName, Class<? extends jakarta.servlet.Servlet> servletClass) { return null }
+        @Override jakarta.servlet.ServletRegistration.Dynamic addJspFile(String jspName, String jspFile) { return null }
+        @Override <T extends jakarta.servlet.Servlet> T createServlet(Class<T> clazz) { return null }
+        @Override jakarta.servlet.ServletRegistration getServletRegistration(String servletName) { return null }
+        @Override java.util.Map<String, ? extends jakarta.servlet.ServletRegistration> getServletRegistrations() { return [:] }
+        @Override jakarta.servlet.FilterRegistration.Dynamic addFilter(String filterName, String className) { return null }
+        @Override jakarta.servlet.FilterRegistration.Dynamic addFilter(String filterName, jakarta.servlet.Filter filter) { return null }
+        @Override jakarta.servlet.FilterRegistration.Dynamic addFilter(String filterName, Class<? extends jakarta.servlet.Filter> filterClass) { return null }
+        @Override <T extends jakarta.servlet.Filter> T createFilter(Class<T> clazz) { return null }
+        @Override jakarta.servlet.FilterRegistration getFilterRegistration(String filterName) { return null }
+        @Override java.util.Map<String, ? extends jakarta.servlet.FilterRegistration> getFilterRegistrations() { return [:] }
+        @Override jakarta.servlet.SessionCookieConfig getSessionCookieConfig() { return null }
+        @Override void setSessionTrackingModes(java.util.Set<jakarta.servlet.SessionTrackingMode> sessionTrackingModes) {}
+        @Override java.util.Set<jakarta.servlet.SessionTrackingMode> getDefaultSessionTrackingModes() { return [] as Set }
+        @Override java.util.Set<jakarta.servlet.SessionTrackingMode> getEffectiveSessionTrackingModes() { return [] as Set }
         @Override void addListener(String className) {}
         @Override void addListener(EventListener listener) {}
         @Override void addListener(Class<? extends EventListener> listenerClass) {}
         @Override <T extends EventListener> T createListener(Class<T> clazz) { return null }
-        @Override javax.servlet.descriptor.JspConfigDescriptor getJspConfigDescriptor() { return null }
+        @Override jakarta.servlet.descriptor.JspConfigDescriptor getJspConfigDescriptor() { return null }
         @Override ClassLoader getClassLoader() { return null }
         @Override void declareRoles(String... roleNames) {}
         @Override String getVirtualServerName() { return "localhost" }
