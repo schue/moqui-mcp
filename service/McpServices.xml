@@ -1275,12 +1275,13 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
         <actions>
             <script><![CDATA[
                 import org.moqui.context.ExecutionContext
-                
+
                 ExecutionContext ec = context.ec
+                ec.logger.info("BrowseScreens: SERVICE STARTED")
                 def subscreens = []
                 def currentPath = path ?: "root"
                 def userGroups = ec.user.getUserGroupIdSet().collect { it }
-                
+
                 // Strip query parameters from path for screen resolution
                 if (currentPath.contains("?")) {
                     currentPath = currentPath.split("\\?")[0]
@@ -1367,7 +1368,8 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 // Helper to extract short description from wiki content
                 def getShortDescription = { wikiText ->
                     if (!wikiText) return null
-                    def lines = wikiText.split('\n')
+                    def textString = wikiText instanceof String ? wikiText : new String(wikiText, "UTF-8")
+                    def lines = textString.split('\n')
                     for (def line : lines) {
                         if (line.trim() && !line.trim().startsWith('#')) {
                             return line.trim().take(200)
