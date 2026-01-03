@@ -30,7 +30,8 @@
     <moqui.resource.DbResourceFile
         resourceId="WIKI_MCP_SCREEN_DOCS"
         mimeType="text/markdown"
-        versionName="v1"><![CDATA[# Moqui MCP Server
+        versionName="v1">
+        <fileData><![CDATA[# Moqui MCP Server
 
 This server provides access to Moqui ERP through MCP.
 
@@ -59,10 +60,11 @@ Use the following discovery tools to explore available functionality:
 ## Tips for LLM Clients
 
 - All screens support parameterized queries for filtering results
-- Use `moqui_render_screen` with the screen path to execute screens
+- Use `moqui_render_screen` with screen path to execute screens
 - Screen paths use dot notation (e.g., `PopCommerce.Catalog.Product`)
 - Check `moqui_get_screen_details` for required parameters before rendering
-- Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></moqui.resource.DbResourceFile>
+- Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></fileData>
+    </moqui.resource.DbResourceFile>
 
     <!-- Root Wiki Page -->
     <moqui.resource.wiki.WikiPage
@@ -89,7 +91,8 @@ Use the following discovery tools to explore available functionality:
     <moqui.resource.DbResourceFile
         resourceId="WIKI_MCP_DOCS_ROOT"
         mimeType="text/markdown"
-        versionName="v1"><![CDATA[# Moqui MCP Server
+        versionName="v1">
+        <fileData><![CDATA[# Moqui MCP Server
 
 This server provides access to Moqui ERP through MCP.
 
@@ -118,10 +121,11 @@ Use the following discovery tools to explore available functionality:
 ## Tips for LLM Clients
 
 - All screens support parameterized queries for filtering results
-- Use `moqui_render_screen` with the screen path to execute screens
+- Use `moqui_render_screen` with screen path to execute screens
 - Screen paths use dot notation (e.g., `PopCommerce.Catalog.Product`)
 - Check `moqui_get_screen_details` for required parameters before rendering
-- Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></moqui.resource.DbResourceFile>
+- Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></fileData>
+    </moqui.resource.DbResourceFile>
 
     <!-- PopCommerce Root Screen Documentation -->
     <moqui.resource.DbResource
@@ -132,7 +136,8 @@ Use the following discovery tools to explore available functionality:
     <moqui.resource.DbResourceFile
         resourceId="WIKI_MCP_DOCS_POPCOMM_ROOT"
         mimeType="text/markdown"
-        versionName="v1"><![CDATA[# PopCommerce Root
+        versionName="v1">
+        <fileData><![CDATA[# PopCommerce Root
 
 Main storefront and customer-facing screens for PopCommerce e-commerce component.
 
@@ -145,7 +150,8 @@ Main storefront and customer-facing screens for PopCommerce e-commerce component
 
 ## Navigation
 
-Use browse tools to explore the full catalog of PopCommerce screens starting from this root screen.]]></moqui.resource.DbResourceFile>
+Use browse tools to explore the full catalog of PopCommerce screens starting from this root screen.]]></fileData>
+    </moqui.resource.DbResourceFile>
 
     <!-- PopCommerce Root Wiki Page -->
     <moqui.resource.wiki.WikiPage
@@ -172,7 +178,8 @@ Use browse tools to explore the full catalog of PopCommerce screens starting fro
     <moqui.resource.DbResourceFile
         resourceId="WIKI_MCP_DOCS_SIMPLE_ROOT"
         mimeType="text/markdown"
-        versionName="v1"><![CDATA[# Simple Screens Root
+        versionName="v1">
+        <fileData><![CDATA[# Simple Screens Root
 
 Basic Moqui framework demonstration screens showing common patterns and examples.
 
@@ -185,7 +192,8 @@ Basic Moqui framework demonstration screens showing common patterns and examples
 
 ## Usage
 
-These screens are primarily for learning Moqui screen development patterns.]]></moqui.resource.DbResourceFile>
+These screens are primarily for learning Moqui screen development patterns.]]></fileData>
+    </moqui.resource.DbResourceFile>
 
     <!-- SimpleScreens Root Wiki Page -->
     <moqui.resource.wiki.WikiPage
