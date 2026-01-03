@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This software is in the public domain under CC0 1.0 Universal plus a
+   Grant of Patent License.
+
+   To the extent possible under law, the author(s) have dedicated all
+   copyright and related and neighboring rights to this software to the
+   public domain worldwide. This software is distributed without any warranty.
+
+   You should have received a copy of the CC0 Public Domain Dedication
+   along with this software. If not, see
+   <http://creativecommons.org/publicdomain/zero/1.0/>.
+ -->
+<entity-facade-xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-facade-3.xsd">
+
+    <!-- MCP Screen Documentation Wiki Space -->
+    <moqui.resource.wiki.WikiSpace wikiSpaceId="MCP_SCREEN_DOCS"
+        description="MCP Screen Documentation - LLM instructions for specific screens"
+        restrictView="N"
+        restrictUpdate="Y"
+        rootPageLocation="dbresource://WikiSpace/MCP_SCREEN_DOCS.md"/>
+
+    <!-- WikiSpace Root Page -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_SCREEN_DOCS"
+        parentResourceId=""
+        filename="MCP_SCREEN_DOCS.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_SCREEN_DOCS"
+        mimeType="text/markdown"
+        versionName="v1"><![CDATA[# Moqui MCP Server
+
+This server provides access to Moqui ERP through MCP.
+
+## Getting Started
+
+Use the following discovery tools to explore available functionality:
+- `moqui_browse_screens`: Browse Moqui screen hierarchy
+- `moqui_search_screens`: Search for screens by name to find their paths
+- `moqui_get_screen_details`: Get input parameters for specific screens
+
+## Common Screen Paths
+
+### Catalog Operations
+- `PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct`: Search and browse products
+- `PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature`: Search by features like color or size
+- `PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices`: View and update product prices
+
+### Order Management
+- `PopCommerce.PopCommerceAdmin.Order.FindOrder`: Lookup order status and details
+- `PopCommerce.PopCommerceAdmin.QuickSearch`: General order and customer search
+
+### Customer Management
+- `PopCommerce.PopCommerceRoot.Customer`: Manage customer accounts
+- `PopCommerce.PopCommerceAdmin.QuickSearch`: Customer lookup
+
+## Tips for LLM Clients
+
+- All screens support parameterized queries for filtering results
+- Use `moqui_render_screen` with the screen path to execute screens
+- Screen paths use dot notation (e.g., `PopCommerce.Catalog.Product`)
+- Check `moqui_get_screen_details` for required parameters before rendering
+- Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></moqui.resource.DbResourceFile>
+
+    <!-- Root Wiki Page -->
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/root"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="root"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/root"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-02 00:00:00.000"/>
+
+    <!-- Root Screen Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_ROOT"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="root.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_ROOT"
+        mimeType="text/markdown"
+        versionName="v1"><![CDATA[# Moqui MCP Server
+
+This server provides access to Moqui ERP through MCP.
+
+## Getting Started
+
+Use the following discovery tools to explore available functionality:
+- `moqui_browse_screens`: Browse Moqui screen hierarchy
+- `moqui_search_screens`: Search for screens by name to find their paths
+- `moqui_get_screen_details`: Get input parameters for specific screens
+
+## Common Screen Paths
+
+### Catalog Operations
+- `PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct`: Search and browse products
+- `PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature`: Search by features like color or size
+- `PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices`: View and update product prices
+
+### Order Management
+- `PopCommerce.PopCommerceAdmin.Order.FindOrder`: Lookup order status and details
+- `PopCommerce.PopCommerceAdmin.QuickSearch`: General order and customer search
+
+### Customer Management
+- `PopCommerce.PopCommerceRoot.Customer`: Manage customer accounts
+- `PopCommerce.PopCommerceAdmin.QuickSearch`: Customer lookup
+
+## Tips for LLM Clients
+
+- All screens support parameterized queries for filtering results
+- Use `moqui_render_screen` with the screen path to execute screens
+- Screen paths use dot notation (e.g., `PopCommerce.Catalog.Product`)
+- Check `moqui_get_screen_details` for required parameters before rendering
+- Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></moqui.resource.DbResourceFile>
+
+    <!-- PopCommerce Root Screen Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_POPCOMM_ROOT"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="PopCommerce.PopCommerceRoot.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_POPCOMM_ROOT"
+        mimeType="text/markdown"
+        versionName="v1"><![CDATA[# PopCommerce Root
+
+Main storefront and customer-facing screens for PopCommerce e-commerce component.
+
+## Key Screens
+
+- **Customer Management**: Browse and manage customer accounts
+- **Order Status**: View order history and track shipments
+- **Product Catalog**: Browse products and categories
+- **Shopping Cart**: Review and checkout items
+
+## Navigation
+
+Use browse tools to explore the full catalog of PopCommerce screens starting from this root screen.]]></moqui.resource.DbResourceFile>
+
+    <!-- PopCommerce Root Wiki Page -->
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/PopCommerceRoot"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="PopCommerce.PopCommerceRoot"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/PopCommerceRoot"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-02 00:00:00.000"/>
+
+    <!-- SimpleScreens Root Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_SIMPLE_ROOT"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="SimpleScreens.Root.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_SIMPLE_ROOT"
+        mimeType="text/markdown"
+        versionName="v1"><![CDATA[# Simple Screens Root
+
+Basic Moqui framework demonstration screens showing common patterns and examples.
+
+## Screens
+
+- **Hello World**: Simple text rendering example
+- **Examples**: Various framework demonstration screens
+- **Forms**: Form input and validation examples
+- **Lists**: Data list and table examples
+
+## Usage
+
+These screens are primarily for learning Moqui screen development patterns.]]></moqui.resource.DbResourceFile>
+
+    <!-- SimpleScreens Root Wiki Page -->
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/SimpleRoot"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="SimpleScreens.Root"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/SimpleRoot"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-02 00:00:00.000"/>
+
+</entity-facade-xml>

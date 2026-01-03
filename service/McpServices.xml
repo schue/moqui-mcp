@@ -83,10 +83,46 @@
                 if (!supportedVersions.contains(protocolVersion)) {
                     throw new Exception("Unsupported protocol version: ${protocolVersion}. Supported versions: ${supportedVersions.join(', ')}")
                 }
-                
+
                 // Get current user context (if authenticated)
                 def userId = ec.user.userId
                 def userAccountId = userId ? userId : null
+
+                // Try to load root instructions from wiki
+                def instructions = null
+                try {
+                    def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
+                        .condition("wikiSpaceId", "MCP_SCREEN_DOCS")
+                        .condition("pagePath", "root")
+                        .useCache(true)
+                        .one()
+
+                    if (wikiPage) {
+                        def wikiSpace = ec.entity.find("moqui.resource.wiki.WikiSpace")
+                            .condition("wikiSpaceId", wikiPage.wikiSpaceId)
+                            .one()
+
+                        if (wikiSpace) {
+                            def pageLocation = wikiSpace.rootPageLocation
+                            if (!pageLocation.endsWith('/')) pageLocation += '/'
+                            pageLocation += wikiPage.pagePath + '.md'
+
+                            def pageRef = ec.resource.getLocationReference(pageLocation)
+                            def wikiText = pageRef?.getText()
+                            if (wikiText) {
+                                instructions = wikiText
+                                ec.logger.info("MCP Initialize: Loaded root instructions from wiki")
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    ec.logger.debug("Could not load root instructions from wiki: ${e.message}")
+                }
+
+                // Fallback to hardcoded instructions if wiki not available
+                if (!instructions) {
+                    instructions = "This server provides access to Moqui ERP through MCP. For common business queries: Use PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature to search by features like color or size. Use PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct for product catalog, PopCommerce.PopCommerceAdmin.Order.FindOrder for order status, PopCommerce.PopCommerceRoot.Customer for customer management, PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices to check prices and PopCommerce.PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
+                }
                 
                 // Build server capabilities - don't fetch actual tools/resources during init
                 // Tools and resources will be discovered via separate list requests per MCP spec
@@ -107,7 +143,7 @@
                     capabilities: serverCapabilities,
                     serverInfo: serverInfo,
                     sessionId: sessionId,
-                    instructions: "This server provides access to Moqui ERP through MCP. For common business queries: Use PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature to search by features like color or size. Use PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct for product catalog, PopCommerce.PopCommerceAdmin.Order.FindOrder for order status, PopCommerce.PopCommerceRoot.Customer for customer management, PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices to check prices and PopCommerce.PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
+                    instructions: instructions
                 ]
                 
                 ec.logger.info("MCP Initialize for user ${userId} (session ${sessionId}): capabilities negotiated")
@@ -353,11 +389,43 @@
                 
                 // Handle special moqui://mcp/instructions resource
                 if (uri == "moqui://mcp/instructions") {
+                    // Try to load from wiki
+                    def instructionsText = null
+                    try {
+                        def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
+                            .condition("wikiSpaceId", "MCP_SCREEN_DOCS")
+                            .condition("pagePath", "root")
+                            .useCache(true)
+                            .one()
+
+                        if (wikiPage) {
+                            def wikiSpace = ec.entity.find("moqui.resource.wiki.WikiSpace")
+                                .condition("wikiSpaceId", wikiPage.wikiSpaceId)
+                                .one()
+
+                            if (wikiSpace) {
+                                def pageLocation = wikiSpace.rootPageLocation
+                                if (!pageLocation.endsWith('/')) pageLocation += '/'
+                                pageLocation += wikiPage.pagePath + '.md'
+
+                                def pageRef = ec.resource.getLocationReference(pageLocation)
+                                instructionsText = pageRef?.getText()
+                            }
+                        }
+                    } catch (Exception e) {
+                        ec.logger.debug("Could not load instructions from wiki: ${e.message}")
+                    }
+
+                    // Fallback to hardcoded instructions
+                    if (!instructionsText) {
+                        instructionsText = "This server provides access to Moqui ERP through MCP. For common business queries: Use PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature to search by features like color or size. Use PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct for product catalog, PopCommerce.PopCommerceAdmin.Order.FindOrder for order status, PopCommerce.PopCommerceRoot.Customer for customer management, PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices to check prices and PopCommerce.PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
+                    }
+
                     result = [
                         content: [[
                             uri: "moqui://mcp/instructions",
                             mimeType: "text/plain",
-                            text: "This server provides access to Moqui ERP through MCP. For common business queries: Use PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature to search by features like color or size. Use PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct for product catalog, PopCommerce.PopCommerceAdmin.Order.FindOrder for order status, PopCommerce.PopCommerceRoot.Customer for customer management, PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices to check prices and PopCommerce.PopCommerceAdmin.QuickSearch for general searches. All screens support parameterized queries for filtering results."
+                            text: instructionsText
                         ]],
                         isError: false
                     ]
@@ -652,11 +720,69 @@ import groovy.json.JsonBuilder
 ExecutionContext ec = context.ec
 
 def startTime = System.currentTimeMillis()
-    
-         // Set parameters in context
-        if (parameters) {
-            ec.context.putAll(parameters)
+
+// Set parameters in context
+if (parameters) {
+    ec.context.putAll(parameters)
+}
+
+// Helper function to get simple path from component path
+def getSimplePath = { fullPath ->
+    if (!fullPath || fullPath == "root") return "root"
+    String cleanPath = fullPath
+    if (cleanPath.startsWith("component://")) cleanPath = cleanPath.substring(12)
+    if (cleanPath.endsWith(".xml")) cleanPath = cleanPath.substring(0, cleanPath.length() - 4)
+    List<String> parts = cleanPath.split('/').toList()
+    if (parts.size() > 1 && parts[1] == "screen") parts.remove(1)
+    return parts.join('.')
+}
+
+// Helper function to load wiki instructions for a screen
+def getWikiInstructions = { screenPath ->
+    try {
+        def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
+            .condition("wikiSpaceId", "MCP_SCREEN_DOCS")
+            .condition("pagePath", screenPath)
+            .useCache(true)
+            .one()
+
+        if (!wikiPage) return null
+
+        def wikiSpace = ec.entity.find("moqui.resource.wiki.WikiSpace")
+            .condition("wikiSpaceId", wikiPage.wikiSpaceId)
+            .one()
+
+        if (!wikiSpace) return null
+
+        // Build the resource location for the page
+        def pageLocation = wikiSpace.rootPageLocation
+        if (!pageLocation.endsWith('/')) {
+            pageLocation += '/'
         }
+        pageLocation += wikiPage.pagePath + '.md'
+
+        // Get the resource reference and text content
+        def pageRef = ec.resource.getLocationReference(pageLocation)
+        def wikiText = pageRef?.getText()
+
+        if (wikiText) {
+            return wikiText
+        }
+    } catch (Exception e) {
+        ec.logger.debug("Could not load wiki instructions for ${screenPath}: ${e.message}")
+    }
+    return null
+}
+
+// Resolve input screen path to simple path for lookup
+def inputScreenPath = screenPath
+if (screenPath.startsWith("component://")) {
+    inputScreenPath = getSimplePath(screenPath)
+}
+ec.logger.info("MCP Screen Execution: Looking up wiki docs for ${inputScreenPath}")
+
+// Try to get wiki instructions
+def wikiInstructions = getWikiInstructions(inputScreenPath)
         
         // Check if action is being processed - use real screen rendering if so
         def isActionExecution = parameters?.action != null
@@ -833,6 +959,7 @@ def startTime = System.currentTimeMillis()
         if (mcpData.forms) mcpResult.forms = mcpData.forms
         if (mcpData.actions) mcpResult.actions = mcpData.actions
         if (output) mcpResult.htmlPreview = output.take(2000) + (output.length() > 2000 ? "..." : "")
+        if (wikiInstructions) mcpResult.wikiInstructions = wikiInstructions
         
         content << [
             type: "text",
@@ -840,9 +967,13 @@ def startTime = System.currentTimeMillis()
         ]
     } else {
         // Return raw output for other modes
+        def textOutput = output
+        if (wikiInstructions) {
+            textOutput = "--- Wiki Instructions ---\n\n${wikiInstructions}\n\n--- Screen Output ---\n\n${output}"
+        }
         content << [
             type: "text",
-            text: output,
+            text: textOutput,
             screenPath: screenPath,
             screenUrl: screenUrl,
             executionTime: executionTime,
@@ -1155,6 +1286,73 @@ def startTime = System.currentTimeMillis()
                     currentPath = currentPath.split("\\?")[0]
                 }
                 
+                // Helper function to load wiki content
+                def loadWikiContent = { path ->
+                    ec.logger.info("BrowseScreens: loadWikiContent CALLED for ${path}")
+                    try {
+                        def simplePath = (path == "root") ? "root" : path
+                        if (simplePath.contains("?")) {
+                            simplePath = simplePath.split("\\?")[0]
+                        }
+
+                        ec.logger.info("BrowseScreens: Looking up wiki instructions for ${simplePath}")
+
+                        def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
+                            .condition("wikiSpaceId", "MCP_SCREEN_DOCS")
+                            .condition("pagePath", simplePath)
+                            .useCache(true)
+                            .one()
+
+                        if (wikiPage) {
+                            ec.logger.info("BrowseScreens: Found wikiPage: ${wikiPage.pagePath}")
+                            def wikiSpace = ec.entity.find("moqui.resource.wiki.WikiSpace")
+                                .condition("wikiSpaceId", wikiPage.wikiSpaceId)
+                                .one()
+
+                            if (wikiSpace) {
+                                ec.logger.info("BrowseScreens: Found wikiSpace: ${wikiSpace.wikiSpaceId}")
+
+                                def dbResource = ec.entity.find("moqui.resource.DbResource")
+                                    .condition("parentResourceId", "WIKI_MCP_SCREEN_DOCS")
+                                    .condition("filename", wikiPage.pagePath + ".md")
+                                    .one()
+
+                                if (dbResource) {
+                                    ec.logger.info("BrowseScreens: Found dbResource: ${dbResource.resourceId}")
+                                    def dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
+                                        .condition("resourceId", dbResource.resourceId)
+                                        .condition("versionName", wikiPage.publishedVersionName)
+                                        .one()
+
+                                    ec.logger.info("BrowseScreens: dbResourceFile query result: ${dbResourceFile ? 'found' : 'null'}")
+
+                                    if (!dbResourceFile) {
+                                        dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
+                                            .condition("resourceId", dbResource.resourceId)
+                                            .one()
+                                        ec.logger.info("BrowseScreens: dbResourceFile fallback query result: ${dbResourceFile ? 'found' : 'null'}")
+                                    }
+
+                                    if (dbResourceFile) {
+                                        ec.logger.info("BrowseScreens: dbResourceFile.fileData: ${dbResourceFile.fileData ? 'exists, size=' + dbResourceFile.fileData.length : 'null'}")
+                                    }
+
+                                    if (dbResourceFile && dbResourceFile.fileData) {
+                                        def content = new String(dbResourceFile.fileData, "UTF-8")
+                                        ec.logger.info("BrowseScreens: Found wiki instructions for ${simplePath}, length: ${content?.length()}")
+                                        return content
+                                    }
+                                } else {
+                                    ec.logger.warn("BrowseScreens: No dbResource found for ${wikiPage.pagePath}.md")
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        ec.logger.warn("BrowseScreens: Error getting wiki instructions: ${e.message}")
+                    }
+                    return null
+                }
+
                 // Helper to convert full component path to simple path (PopCommerce/screen/Root.xml -> PopCommerce.Root)
                 def convertToSimplePath = { fullPath ->
                     if (!fullPath) return null
@@ -1164,6 +1362,18 @@ def startTime = System.currentTimeMillis()
                     List<String> parts = cleanPath.split('/').toList()
                     if (parts.size() > 1 && parts[1] == "screen") parts.remove(1)
                     return parts.join('.')
+                }
+
+                // Helper to extract short description from wiki content
+                def getShortDescription = { wikiText ->
+                    if (!wikiText) return null
+                    def lines = wikiText.split('\n')
+                    for (def line : lines) {
+                        if (line.trim() && !line.trim().startsWith('#')) {
+                            return line.trim().take(200)
+                        }
+                    }
+                    return null
                 }
 
                 if (currentPath == "root") {
@@ -1194,9 +1404,11 @@ def startTime = System.currentTimeMillis()
 
                     for (def screenPath in rootScreens) {
                         def simplePath = convertToSimplePath(screenPath)
+                        def wikiContent = loadWikiContent(simplePath)
+                        def description = wikiContent ? getShortDescription(wikiContent) : "Application: ${simplePath}"
                         subscreens << [
-                            path: simplePath, 
-                            description: "Application: ${simplePath}"
+                            path: simplePath,
+                            description: description
                         ]
                     }
                 } else {
@@ -1238,9 +1450,11 @@ def startTime = System.currentTimeMillis()
                             for (subItem in subItems) {
                                 def subName = subItem.getName()
                                 def subPath = currentPath + "." + subName
+                                def wikiContent = loadWikiContent(subPath)
+                                def description = wikiContent ? getShortDescription(wikiContent) : "Subscreen: ${subName}"
                                 subscreens << [
                                     path: subPath,
-                                    description: "Subscreen: ${subName}"
+                                    description: description
                                 ]
                             }
                         }
@@ -1375,11 +1589,18 @@ def startTime = System.currentTimeMillis()
                     }
                 }
                 
+                // Try to get wiki instructions for screen
+                def wikiInstructions = null
+
+                ec.logger.info("BrowseScreens: About to check wiki instructions, currentPath='${currentPath}', isRoot=${currentPath == 'root'}")
+
+                wikiInstructions = loadWikiContent(currentPath)
+
                 // Render current screen if not root browsing
                 def renderedContent = null
                 def renderError = null
                 def actualRenderMode = renderMode ?: "mcp"
-                
+
                 if (currentPath != "root") {
                     try {
                         ec.logger.info("BrowseScreens: Rendering screen ${currentPath} with mode=${actualRenderMode}")
@@ -1467,7 +1688,11 @@ def startTime = System.currentTimeMillis()
                 if (renderedContent) {
                     resultMap.renderedContent = renderedContent
                 }
-                
+
+                if (wikiInstructions) {
+                    resultMap.wikiInstructions = wikiInstructions
+                }
+
                 if (renderError) {
                     resultMap.renderError = renderError
                 }

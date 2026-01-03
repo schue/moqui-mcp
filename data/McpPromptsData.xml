@@ -52,7 +52,7 @@
     <!-- WikiPageHistory for version tracking -->
     <moqui.resource.wiki.WikiPageHistory
         wikiPageId="MCP_PROMPTS/get-started"
-        historySeqId="01"
+        historySeqId="1"
         versionName="v1"
         userId="EX_JOHN_DOE"
         changeDateTime="2025-12-29 00:00:00.000"/>
