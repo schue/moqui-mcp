@@ -16,8 +16,6 @@ package org.moqui.mcp
 import groovy.transform.CompileStatic
 import org.moqui.context.*
 import org.moqui.context.MessageFacade.MessageInfo
-import org.moqui.impl.context.ExecutionContextFactoryImpl
-import org.moqui.impl.context.ContextJavaUtil
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
@@ -32,8 +30,8 @@ import java.util.EventListener
 @CompileStatic
 class WebFacadeStub implements WebFacade {
     protected final static Logger logger = LoggerFactory.getLogger(WebFacadeStub.class)
-    
-    protected final ExecutionContextFactoryImpl ecfi
+
+    protected final ExecutionContextFactory ecfi
     protected final Map<String, Object> parameters
     protected final Map<String, Object> sessionAttributes
     protected final String requestMethod
@@ -62,7 +60,7 @@ class WebFacadeStub implements WebFacade {
     protected Object responseJsonObj = null
     boolean skipJsonSerialize = false
     
-    WebFacadeStub(ExecutionContextFactoryImpl ecfi, Map<String, Object> parameters, 
+    WebFacadeStub(ExecutionContextFactory ecfi, Map<String, Object> parameters,
                    Map<String, Object> sessionAttributes, String requestMethod, String screenPath = null) {
         this.ecfi = ecfi
         this.parameters = parameters ?: [:]
@@ -233,7 +231,13 @@ class WebFacadeStub implements WebFacade {
     void sendJsonResponse(Object responseObj) {
         if (!skipJsonSerialize) {
             this.responseJsonObj = responseObj
-            this.responseText = ContextJavaUtil.jacksonMapper.writeValueAsString(responseObj)
+            try {
+                def mapper = new com.fasterxml.jackson.databind.ObjectMapper()
+                this.responseText = mapper.writeValueAsString(responseObj)
+            } catch (Exception e) {
+                logger.warn("Error serializing JSON: ${e.message}")
+                this.responseText = responseObj.toString()
+            }
         } else {
             this.responseJsonObj = responseObj
             this.responseText = responseObj.toString()

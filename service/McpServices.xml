@@ -1335,11 +1335,11 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                     }
 
                                     if (dbResourceFile) {
-                                        ec.logger.info("BrowseScreens: dbResourceFile.fileData: ${dbResourceFile.fileData ? 'exists, size=' + dbResourceFile.fileData.length : 'null'}")
+                                        ec.logger.info("BrowseScreens: dbResourceFile.fileData: ${dbResourceFile.fileData ? 'exists, size=' + dbResourceFile.fileData.length() : 'null'}")
                                     }
 
                                     if (dbResourceFile && dbResourceFile.fileData) {
-                                        def content = new String(dbResourceFile.fileData, "UTF-8")
+                                        def content = new String(dbResourceFile.fileData.getBytes(new Long(1).longValue(), new Long(dbResourceFile.fileData.length()).intValue()), "UTF-8")
                                         ec.logger.info("BrowseScreens: Found wiki instructions for ${simplePath}, length: ${content?.length()}")
                                         return content
                                     }

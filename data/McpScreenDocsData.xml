@@ -94,7 +94,8 @@ Use the following discovery tools to explore available functionality:
         versionName="v1">
         <fileData><![CDATA[# Moqui MCP Server
 
-This server provides access to Moqui ERP through MCP.
+This server provides access to Moqui ERP through MCP. Typically you will be searching for a product by name or by a feature like size or color.
+If it is a feature based query it is probably best to use the FindFeature screen to locate the feature and then use FindProduct to search for products with that feature.
 
 ## Getting Started
 

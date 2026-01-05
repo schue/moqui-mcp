@@ -19,8 +19,9 @@
     <screen-factory load-path="screen/" />
     
      <!-- Load seed data -->
-    <entity-factory load-data="data/McpSecuritySeedData.xml" />
+     <entity-factory load-data="data/McpSecuritySeedData.xml" />
     <entity-factory load-data="data/McpPromptsData.xml" />
+    <entity-factory load-data="data/McpScreenDocsData.xml" />
 
     <!-- Webapp Configuration -->
     <webapp-list>
