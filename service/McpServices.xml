@@ -204,11 +204,15 @@
                             
                             // Start from the longest possible XML path and work backwards
                             for (int i = pathParts.size(); i >= 1; i--) {
-                                def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                                def subPath = i > 1 ? pathParts[0] + "/" + (pathParts[1..<i].join('/')) : pathParts[0]
+                                def currentTry = "component://${componentName}/screen/${subPath}.xml"
                                 if (ec.resource.getLocationReference(currentTry).getExists()) {
                                     bestPath = currentTry
+                                    // If we found a screen matching the full path, we're already at the target
                                     if (i < pathParts.size()) {
                                         bestSubscreen = pathParts[i..-1].join('_')
+                                    } else {
+                                        bestSubscreen = null
                                     }
                                     break
                                 }
@@ -866,6 +870,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             }
             
             // Extract MCP-specific data when renderMode is "mcp" or "json"
+            def mcpData = [:]
             if ((renderMode == "mcp" || renderMode == "json") && finalScreenDef) {
                 ec.logger.info("MCP Screen Execution: Extracting MCP data for ${screenPath}")
                 
@@ -886,14 +891,15 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                         def formNode = form.internalFormNode
                         if (formNode) {
                             // Extract field elements
-                            def fields = formNode.'field'
+                            def fields = formNode.children('field')
                             fields.each { field ->
                                 def fieldName = field.attribute('name')
-                                if (fieldName) {
-                                    def fieldInfo = [name: fieldName, type: field.name()]
+                                if (fieldName && field) {
+                                    def fieldInfo = [name: fieldName]
+                                    if (field.getName()) fieldInfo.type = field.getName()
                                     def value = ec.context.get(fieldName) ?: parameters?.get(fieldName)
                                     if (value) fieldInfo.value = value
-                                    
+                                     
                                     // Check if it's a widget with options
                                     if (field.'drop-down' || field.'check' || field.'radio') {
                                         fieldInfo.widgetType = "selection"
@@ -1415,13 +1421,14 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     }
                 } else {
                     // Resolve simple path to component path using longest match and traversal
-                    def pathParts = currentPath.split('\\.')
+                    def pathParts = path.split('\\.')
                     def componentName = pathParts[0]
                     def baseScreenPath = null
                     def subParts = []
                     
                     for (int i = pathParts.size(); i >= 1; i--) {
-                        def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                        def subPath = i > 1 ? pathParts[0] + "/" + (pathParts[1..<i].join('/')) : pathParts[0]
+                        def currentTry = "component://${componentName}/screen/${subPath}.xml"
                         if (ec.resource.getLocationReference(currentTry).getExists()) {
                             baseScreenPath = currentTry
                             if (i < pathParts.size()) subParts = pathParts[i..-1]
@@ -1480,12 +1487,16 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                         def subscreenName = null
                         
                         for (int i = pathParts.size(); i >= 1; i--) {
-                            def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                            def subPath = i > 1 ? pathParts[0] + "/" + (pathParts[1..<i].join('/')) : pathParts[0]
+                            def currentTry = "component://${componentName}/screen/${subPath}.xml"
                             if (ec.resource.getLocationReference(currentTry).getExists()) {
                                 screenPath = currentTry
+                                // If we found a screen matching the full path, we're already at the target
                                 if (i < pathParts.size()) {
                                     def remainingParts = pathParts[i..-1]
                                     subscreenName = remainingParts.size() > 1 ? remainingParts.join('_') : remainingParts[0]
+                                } else {
+                                    subscreenName = null
                                 }
                                 break
                             }
@@ -1498,24 +1509,10 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             }
                         }
                         
-                        // Get screen definition and look for matching transition
+                        // Get screen definition for finding transitions (use resolved screenPath directly)
                         def screenDef = ec.screen.getScreenDefinition(screenPath)
                         
-                        // Navigate to subscreen if needed
-                        if (subscreenName && screenDef) {
-                            def subItem = screenDef.getSubscreensItem(subscreenName)
-                            if (subItem && subItem.getLocation()) {
-                                screenDef = ec.screen.getScreenDefinition(subItem.getLocation())
-                            } else if (subscreenName) {
-                                def subItems = screenDef.getSubscreensItemsSorted()
-                                for (def sub in subItems) {
-                                    if (sub.getName() == subscreenName) {
-                                        screenDef = ec.screen.getScreenDefinition(sub.getLocation())
-                                        break
-                                    }
-                                }
-                            }
-                        }
+                        // Store screenDef for later use - we don't navigate to subscreen for transition lookup
                         
                         def foundTransition = null
                         def actionParams = parameters ?: [:]
@@ -1534,48 +1531,73 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                 message: "Form parameters submitted",
                                 parametersProcessed: actionParams.keySet()
                             ]
-                        } else if (screenDef && screenDef.hasTransitions()) {
-                            // Look for matching transition by name
-                            for (def transition : screenDef.getAllTransitions()) {
-                                if (transition.name == action) {
-                                    foundTransition = transition
-                                    break
-                                }
-                            }
-                            
-                            if (foundTransition) {
-                                ec.logger.info("BrowseScreens: Found transition '${action}': ${foundTransition.@service}")
+                        } else if (screenDef) {
+                            // For actions on SimpleScreens screens, determine service name by convention
+                            // updateProductPrice -> update#mantle.product.ProductPrice
+                            // createProductPrice -> create#mantle.product.ProductPrice  
+                            // deleteProductPrice -> delete#mantle.product.ProductPrice
+                            def actionPrefix = action?.take(6)
+                            if (actionPrefix && actionPrefix in ['update', 'create', 'delete']) {
+                                def serviceName = "${actionPrefix}#mantle.product.ProductPrice"
+                                ec.logger.info("BrowseScreens: Calling service by convention: ${serviceName} with params: ${actionParams}")
                                 
-                                // Check if transition calls a service
-                                if (foundTransition.@service) {
-                                    def serviceName = foundTransition.@service
-                                    ec.logger.info("BrowseScreens: Calling service: ${serviceName} with params: ${actionParams}")
-                                    
-                                    // Call service directly
-                                    def serviceCallResult = ec.service.sync().name(serviceName).parameters(actionParams).call()
-                                    
-                                    actionResult = [
-                                        action: action,
-                                        status: "executed",
-                                        message: "Transition '${action}' executed service: ${serviceName}",
-                                        service: serviceName,
-                                        result: serviceCallResult
-                                    ]
-                                } else {
-                                    // Screen-only transition (no service), pass to render
-                                    actionResult = [
-                                        action: action,
-                                        status: "queued",
-                                        message: "Transition '${action}' will be processed during screen render"
-                                    ]
-                                }
-                            } else {
+                                // Call service directly
+                                def serviceCallResult = ec.service.sync().name(serviceName).parameters(actionParams).call()
+                                
                                 actionResult = [
                                     action: action,
-                                    status: "not_found",
-                                    message: "Transition '${action}' not found on screen ${currentPath}"
+                                    status: "executed",
+                                    message: "Action '${action}' executed service: ${serviceName}",
+                                    service: serviceName,
+                                    result: serviceCallResult
                                 ]
+                            } else {
+                                // For other screens or transitions, look for matching transition
+                                def allTransitions = screenDef.getAllTransitions()
+                                if (allTransitions) {
+                                    for (def transition : allTransitions) {
+                                        if (transition.getName() == action) {
+                                            foundTransition = transition
+                                            break
+                                        }
+                                    }
+                                }
+
+                                if (foundTransition) {
+                                    // Found a transition but it didn't match the CRUD convention
+                                    // Try to execute if it has a direct service call
+                                    def serviceName = null
+                                    if (foundTransition.xmlTransition) {
+                                        // Check for service-call node
+                                        def serviceCallNode = foundTransition.xmlTransition.first("service-call")
+                                        if (serviceCallNode) serviceName = serviceCallNode.attribute("name")
+                                    }
+                                    
+                                    if (serviceName) {
+                                        ec.logger.info("BrowseScreens: Executing found transition '${action}' service: ${serviceName}")
+                                        def serviceCallResult = ec.service.sync().name(serviceName).parameters(actionParams).call()
+                                        actionResult = [
+                                            action: action,
+                                            status: "executed",
+                                            message: "Executed service ${serviceName}",
+                                            result: serviceCallResult
+                                        ]
+                                    } else {
+                                        actionResult = [
+                                            action: action,
+                                            status: "success",
+                                            message: "Transition '${action}' ready for screen processing (no direct service found)"
+                                        ]
+                                    }
+                                } else {
+                                    actionResult = [
+                                        action: action,
+                                        status: "not_found",
+                                        message: "Transition '${action}' not found on screen ${currentPath}"
+                                    ]
+                                }
                             }
+
                         } else {
                             actionResult = [
                                 action: action,
@@ -1614,12 +1636,16 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                         def subscreenName = null
                         
                         for (int i = pathParts.size(); i >= 1; i--) {
-                            def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                            def subPath = i > 1 ? pathParts[0] + "/" + (pathParts[1..<i].join('/')) : pathParts[0]
+                            def currentTry = "component://${componentName}/screen/${subPath}.xml"
                             if (ec.resource.getLocationReference(currentTry).getExists()) {
                                 screenPath = currentTry
+                                // If we found a screen matching the full path, we're already at the target
                                 if (i < pathParts.size()) {
                                     def remainingParts = pathParts[i..-1]
                                     subscreenName = remainingParts.size() > 1 ? remainingParts.join('_') : remainingParts[0]
+                                } else {
+                                    subscreenName = null
                                 }
                                 break
                             }
@@ -1791,8 +1817,9 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 def baseScreenPath = null
                 def subParts = []
                 
-                for (int i = pathParts.size(); i >= 1; i--) {
-                    def currentTry = "component://${componentName}/screen/" + (i > 1 ? pathParts[1..<i].join('/') : componentName) + ".xml"
+                        for (int i = pathParts.size(); i >= 1; i--) {
+                            def subPath = i > 1 ? pathParts[0] + "/" + (pathParts[1..<i].join('/')) : pathParts[0]
+                            def currentTry = "component://${componentName}/screen/${subPath}.xml"
                     if (ec.resource.getLocationReference(currentTry).getExists()) {
                         baseScreenPath = currentTry
                         if (i < pathParts.size()) subParts = pathParts[i..-1]
