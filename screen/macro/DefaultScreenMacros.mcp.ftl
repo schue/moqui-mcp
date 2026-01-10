@@ -75,6 +75,11 @@
         <#if paramStr?has_content><#assign dotPath = dotPath + "?" + paramStr></#if>
         
         [${linkText}](${dotPath})<#t>
+        <#if mcpSemanticData??>
+            <#if !mcpSemanticData.links??><#assign dummy = mcpSemanticData.put("links", [])></#if>
+            <#assign linkInfo = {"text": linkText, "path": dotPath, "type": "navigation"}>
+            <#assign dummy = mcpSemanticData.links.add(linkInfo)>
+        </#if>
     </#if>
 </#macro>
 
@@ -94,6 +99,19 @@
 <#macro "form-single">
     <#assign formNode = sri.getFormNode(.node["@name"])>
     <#assign mapName = formNode["@map"]!"fieldValues">
+    <#assign formMap = ec.resource.expression(mapName, "")!>
+    
+    <#if mcpSemanticData??>
+        <#if !mcpSemanticData.formMetadata??><#assign dummy = mcpSemanticData.put("formMetadata", {})</#if>
+        
+        <#assign formMeta = {}>
+        <#assign formMeta = formMeta + {"name": .node["@name"]!"", "map": mapName}>
+        <#assign fieldMetaList = []>
+        
+        <#assign dummy = mcpSemanticData.formMeta.put(.node["@name"], formMeta)>
+    </#if>
+    
+    <#if mcpSemanticData?? && formMap?has_content><#assign dummy = mcpSemanticData.put(.node["@name"], formMap)></#if>
     <#t>${sri.pushSingleFormMapContext(mapName)}
     <#list formNode["field"] as fieldNode>
         <#assign fieldSubNode = "">
@@ -101,9 +119,28 @@
         <#if !fieldSubNode?has_content><#assign fieldSubNode = fieldNode["default-field"][0]!></#if>
         <#if fieldSubNode?has_content && !fieldSubNode["ignored"]?has_content && !fieldSubNode["hidden"]?has_content && !fieldSubNode["submit"]?has_content && fieldSubNode?parent["@hide"]! != "true">
             <#assign title><@fieldTitle fieldSubNode/></#assign>
+            
+            <#if mcpSemanticData??>
+                <#assign fieldMeta = {}>
+                <#assign fieldMeta = fieldMeta + {"name": fieldNode["@name"]!"", "title": title!"", "required": (fieldNode["@required"]! == "true")}>
+                
+                <#if fieldSubNode["text-line"]?has_content><#assign dummy = fieldMeta.put("type", "text")></#if>
+                <#if fieldSubNode["text-area"]?has_content><#assign dummy = fieldMeta.put("type", "textarea")></#if>
+                <#if fieldSubNode["drop-down"]?has_content><#assign dummy = fieldMeta.put("type", "dropdown")></#if>
+                <#if fieldSubNode["check"]?has_content><#assign dummy = fieldMeta.put("type", "checkbox")></#if>
+                <#if fieldSubNode["date-find"]?has_content><#assign dummy = fieldMeta.put("type", "date")></#if>
+                
+                <#assign dummy = fieldMetaList.add(fieldMeta)>
+            </#if>
+            
             * **${title}**: <#recurse fieldSubNode>
         </#if>
     </#list>
+    
+    <#if mcpSemanticData?? && fieldMetaList?has_content>
+        <#assign dummy = mcpSemanticData.formMeta[.node["@name"]!].put("fields", fieldMetaList)>
+    </#if>
+    
     <#t>${sri.popContext()}
 </#macro>
 
@@ -113,6 +150,31 @@
     <#assign formNode = formListInfo.getFormNode()>
     <#assign formListColumnList = formListInfo.getAllColInfo()>
     <#assign listObject = formListInfo.getListObject(false)!>
+    <#assign totalItems = listObject?size>
+    
+    <#if mcpSemanticData?? && listObject?has_content>
+        <#assign truncatedList = listObject>
+        <#if listObject?size > 50>
+            <#assign truncatedList = listObject?take(50)>
+        </#if>
+        <#assign dummy = mcpSemanticData.put(.node["@name"], truncatedList)>
+        
+        <#if !mcpSemanticData.listMetadata??><#assign dummy = mcpSemanticData.put("listMetadata", {})</#if>
+        
+        <#assign columnNames = []>
+        <#list formListColumnList as columnFieldList>
+            <#assign fieldNode = columnFieldList[0]>
+            <#assign dummy = columnNames.add(fieldNode["@name"]!"")>
+        </#list>
+        
+        <#assign dummy = mcpSemanticData.listMeta.put(.node["@name"]!"", {
+            "name": .node["@name"]!"",
+            "totalItems": totalItems,
+            "displayedItems": truncatedList?size,
+            "truncated": (listObject?size > 50),
+            "columns": columnNames
+        })>
+    </#if>
     
     <#-- Header Row -->
     <#list formListColumnList as columnFieldList>
@@ -123,7 +185,7 @@
     |
     <#list formListColumnList as columnFieldList>| --- </#list>|
     <#-- Data Rows -->
-    <#list listObject as listEntry>
+    <#list (truncatedList?? && truncatedList?size > 0)!listObject as listEntry>
         <#t>${sri.startFormListRow(formListInfo, listEntry, listEntry_index, listEntry_has_next)}
         <#list formListColumnList as columnFieldList>
             <#t>| <#list columnFieldList as fieldNode><@formListSubField fieldNode/><#if fieldNode_has_next> </#if></#list><#t>

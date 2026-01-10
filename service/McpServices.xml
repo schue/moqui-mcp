@@ -174,16 +174,20 @@
                 
                 try {
                     // Consolidated Tool Dispatching
-                    
+
+                    ec.logger.info("MCP ToolsCall: Dispatching tool name=${name}, arguments=${arguments}")
+                    ec.logger.info("MCP ToolsCall: CODE VERSION: 2025-01-09 - FIXED NULL CHECK")
+
                     if (name == "moqui_render_screen") {
                         def screenPath = arguments?.path
                         def parameters = arguments?.parameters ?: [:]
                         def renderMode = arguments?.renderMode ?: "mcp"
                         def subscreenName = arguments?.subscreenName
+                        def terse = arguments?.terse ?: false
     
                         if (!screenPath) throw new Exception("moqui_render_screen requires 'path' parameter")
                         
-                        ec.logger.info("MCP ToolsCall: Rendering screen path=${screenPath}, subscreen=${subscreenName}")
+                        ec.logger.info("MCP ToolsCall: Rendering screen path=${screenPath}, subscreen=${subscreenName}, terse=${terse}")
                         
                         // Strip query parameters from path if present
                         if (screenPath.contains("?")) {
@@ -193,8 +197,10 @@
                         // Handle component:// or simple dot notation path
                         def resolvedPath = screenPath
                         def resolvedSubscreen = subscreenName
-                        
-                        if (!resolvedPath.startsWith("component://")) {
+
+                        ec.logger.info("MCP ToolsCall: Starting path resolution, screenPath=${screenPath}, resolvedPath=${resolvedPath}")
+
+                        if (resolvedPath && !resolvedPath.startsWith("component://")) {
                             // Simple dot notation or path conversion
                             // Longest prefix match for XML screen files
                             def pathParts = resolvedPath.split('\\.')
@@ -229,10 +235,11 @@
                         }
 
                         def screenCallParams = [
-                            screenPath: resolvedPath,
+                            path: resolvedPath,
                             parameters: parameters,
                             renderMode: renderMode,
-                            sessionId: sessionId
+                            sessionId: sessionId,
+                            terse: terse
                         ]
                         if (resolvedSubscreen) screenCallParams.subscreenName = resolvedSubscreen
                         
@@ -706,12 +713,13 @@
     <service verb="execute" noun="ScreenAsMcpTool" authenticate="true" allow-remote="true" transaction-timeout="120">
         <description>Execute a screen as an MCP tool</description>
         <in-parameters>
-            <parameter name="screenPath" required="true"/>
+            <parameter name="path" required="true"/>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen</description></parameter>
             <parameter name="action"><description>Action being processed: if not null, use real screen rendering instead of test mock</description></parameter>
             <parameter name="renderMode" default="mcp"><description>Render mode: mcp, text, html, xml, vuet, qvt</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
             <parameter name="subscreenName"><description>Optional subscreen name for dot notation paths</description></parameter>
+            <parameter name="terse" type="Boolean" default="false"><description>If true, return minimal data (10 items, 200 chars strings). If false, include full data (50 items, no truncation).</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
@@ -778,6 +786,94 @@ def getWikiInstructions = { screenPath ->
     return null
 }
 
+// Optimized recursive serializer for Moqui/Java objects to JSON-friendly Map/List
+// When terse=true, returns minimal data with truncation metadata for easy access to full version
+def serializeMoquiObject
+serializeMoquiObject = { obj, depth = 0, isTerse = false ->
+    if (depth > 5) return "..." // Prevent deep recursion
+    
+    if (obj == null) return null
+    if (obj instanceof Map) {
+        def newMap = [:]
+        obj.each { k, v ->
+            def keyStr = k.toString()
+            // Skip internal framework keys and metadata fields
+            if (keyStr.startsWith("_") || keyStr == "ec" || keyStr == "sri") return
+            // Skip audit fields to reduce payload
+            if (keyStr in ["lastUpdatedStamp", "lastUpdatedTxStamp", "createdDate", "createdTxStamp", "createdByUserLogin"]) return
+            def value = serializeMoquiObject(v, depth + 1, isTerse)
+            if (value != null) newMap[keyStr] = value
+        }
+        return newMap
+    }
+    if (obj instanceof Iterable) {
+        def list = obj.collect()
+        // Apply truncation only if terse mode is enabled
+        if (isTerse && list.size() > 10) {
+            ec.logger.info("serializeMoquiObject: Terse mode - truncating list from ${list.size()} to 10 items")
+            def truncated = list.take(10)
+            def resultList = truncated.collect { serializeMoquiObject(it, depth + 1, isTerse) }
+            return [
+                _items: resultList,
+                _totalCount: list.size(),
+                _truncated: true,
+                _hasMore: true,
+                _message: "Terse mode: showing first 10 of ${list.size()} items. Set terse=false to get full data."
+            ]
+        }
+        // Full data in non-terse mode (but still apply depth protection)
+        def maxItems = isTerse ? 10 : 50
+        def truncated = list.take(maxItems)
+        def resultList = truncated.collect { serializeMoquiObject(it, depth + 1, isTerse) }
+        if (!isTerse && list.size() > 50) {
+            ec.logger.info("serializeMoquiObject: Non-terse mode - truncating large list from ${list.size()} to 50 items for size limits")
+            return [
+                _items: resultList,
+                _totalCount: list.size(),
+                _truncated: true,
+                _hasMore: true,
+                _message: "Non-terse mode: showing first 50 of ${list.size()} items (size limit reached)"
+            ]
+        }
+        return resultList
+    }
+    if (obj instanceof org.moqui.entity.EntityValue) {
+        return serializeMoquiObject(obj.getMap(), depth + 1, isTerse)
+    }
+    if (obj instanceof java.sql.Timestamp || obj instanceof java.util.Date) {
+        return obj.toString()
+    }
+    if (obj instanceof Number || obj instanceof Boolean) {
+        return obj
+    }
+    if (obj instanceof String) {
+        // Apply truncation only if terse mode is enabled
+        if (isTerse && obj.length() > 200) {
+            return [
+                _value: obj.substring(0, 200) + "...",
+                _fullLength: obj.length(),
+                _truncated: true,
+                _message: "Terse mode: truncated to 200 chars. Set terse=false to get full data."
+            ]
+        }
+        // Full data in non-terse mode (no string truncation)
+        return obj
+    }
+    if (obj.getClass().getName().startsWith("org.moqui.impl.screen.ScreenDefinition")) {
+        return [location: obj.location]
+    }
+    // Fallback for unknown types - truncate if too long
+    def str = obj.toString()
+    if (str.length() > 200) {
+        return [
+            _value: str.substring(0, 200) + "...",
+            _fullLength: str.length(),
+            _truncated: true
+        ]
+    }
+    return str
+}
+
 // Resolve input screen path to simple path for lookup
 def inputScreenPath = screenPath
 if (screenPath.startsWith("component://")) {
@@ -788,16 +884,13 @@ ec.logger.info("MCP Screen Execution: Looking up wiki docs for ${inputScreenPath
 // Try to get wiki instructions
 def wikiInstructions = getWikiInstructions(inputScreenPath)
         
-        // Check if action is being processed - use real screen rendering if so
-        def isActionExecution = parameters?.action != null
-        
         // Try to render screen content for LLM consumption
         def output = null
         def screenUrl = "http://localhost:8080/${screenPath}"
         def isError = false
          
         try {
-            ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen, action=${parameters?.action}")
+            ec.logger.info("MCP Screen Execution: Attempting to render screen ${screenPath} using ScreenTest with proper root screen")
             
             def testScreenPath = screenPath
             def rootScreen = "component://webroot/screen/webroot.xml"
@@ -806,10 +899,8 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             def isStandalone = false
             
             if (screenPath.startsWith("component://")) {
-                def pathAfterComponent = screenPath.substring(12).replace('.xml','') // Remove "component://"
-                def pathParts = pathAfterComponent.split("/")
+                def pathAfterComponent = screenPath.substring(12).replace('.xml','') 
                 
-                // Check if target screen itself is standalone
                 try {
                     targetScreenDef = ec.screen.getScreenDefinition(screenPath)
                     if (targetScreenDef?.screenNode) {
@@ -826,13 +917,11 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 }
                 
                 if (!isStandalone) {
-                    // Check if screen path itself is a valid screen definition
                     try {
                         if (ec.screen.getScreenDefinition(screenPath)) {
                             rootScreen = screenPath
                             testScreenPath = ""
                         } else {
-                            // Original component root logic
                             if (pathAfterComponent.startsWith("webroot/screen/")) {
                                 rootScreen = "component://webroot/screen/webroot.xml"
                                 testScreenPath = pathAfterComponent.substring("webroot/screen/".length())
@@ -852,10 +941,9 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 testScreenPath = ""
             }
             
-            // Get final screen definition for MCP data extraction
+            // Get final screen definition for data extraction
             def finalScreenDef = rootScreen ? ec.screen.getScreenDefinition(rootScreen) : null
             if (finalScreenDef && testScreenPath) {
-                // Navigate to subscreen
                 def pathSegments = testScreenPath.split('/')
                 for (segment in pathSegments) {
                     if (finalScreenDef) {
@@ -868,134 +956,124 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     }
                 }
             }
-            
-            // Extract MCP-specific data when renderMode is "mcp" or "json"
-            def mcpData = [:]
-            if ((renderMode == "mcp" || renderMode == "json") && finalScreenDef) {
-                ec.logger.info("MCP Screen Execution: Extracting MCP data for ${screenPath}")
-                
-                // Extract parameters
-                if (finalScreenDef.parameterByName) {
-                    mcpData.parameters = [:]
-                    finalScreenDef.parameterByName.each { name, param ->
-                        def value = ec.context.get(name) ?: parameters?.get(name)
-                        mcpData.parameters[name] = [name: name, value: value, type: "parameter"]
-                    }
-                }
-                
-                // Extract forms and their fields
-                if (finalScreenDef.formByName) {
-                    mcpData.forms = []
-                    finalScreenDef.formByName.each { formName, form ->
-                        def formInfo = [name: formName, fields: []]
-                        def formNode = form.internalFormNode
-                        if (formNode) {
-                            // Extract field elements
-                            def fields = formNode.children('field')
-                            fields.each { field ->
-                                def fieldName = field.attribute('name')
-                                if (fieldName && field) {
-                                    def fieldInfo = [name: fieldName]
-                                    if (field.getName()) fieldInfo.type = field.getName()
-                                    def value = ec.context.get(fieldName) ?: parameters?.get(fieldName)
-                                    if (value) fieldInfo.value = value
-                                     
-                                    // Check if it's a widget with options
-                                    if (field.'drop-down' || field.'check' || field.'radio') {
-                                        fieldInfo.widgetType = "selection"
-                                    }
-                                    formInfo.fields << fieldInfo
-                                }
-                            }
-                        }
-                        if (formInfo.fields) mcpData.forms << formInfo
-                    }
-                }
-                
-                // Extract transitions (actions like "Update" buttons)
-                ec.logger.info("MCP Data Extraction: renderMode=${renderMode}, hasScreenDef=${finalScreenDef != null}, hasTransition=${finalScreenDef?.hasTransition(null)}")
-                if (finalScreenDef.hasTransition(null)) {
-                    mcpData.actions = []
-                    finalScreenDef.getTransitionList().each { trans ->
-                        mcpData.actions << [
-                            name: trans.name,
-                            service: trans.xmlTransition ? trans.xmlTransition.attribute('service') : null,
-                            description: trans.description
-                        ]
-                    }
-                }
-            }
-        
-        // Regular screen rendering with current user context - use our custom ScreenTestImpl
-        def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
-            .rootScreen(rootScreen)
-            .renderMode(renderMode ? renderMode : "mcp")
-            .auth(ec.user.username)
-        
-        def renderParams = parameters ?: [:]
-        renderParams.userId = ec.user.userId
-        renderParams.username = ec.user.username
-        
-        def relativePath = subscreenName ? subscreenName.replaceAll('_','/') : testScreenPath
-        ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
-        
-        def testRender = screenTest.render(relativePath, renderParams, "POST")
-        output = testRender.getOutput()
-        ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
 
-    } catch (Exception e) {
-        isError = true
-        ec.logger.error("MCP Screen Execution: Full exception for ${screenPath}", e)
-        output = "SCREEN RENDERING ERROR: ${e.message}\n\nTroubleshooting Suggestions:\n1. Check if the screen path is correct\n2. Verify user permissions\n3. Check server logs"
-    }
-    
-    def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-    
+            // Regular screen rendering with current user context - use our custom ScreenTestImpl
+            def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
+                .rootScreen(rootScreen)
+                .renderMode(renderMode ? renderMode : "mcp")
+                .auth(ec.user.username)
+            
+            def renderParams = parameters ?: [:]
+            renderParams.userId = ec.user.userId
+            renderParams.username = ec.user.username
+            
+            def relativePath = subscreenName ? subscreenName.replaceAll('_','/') : testScreenPath
+            ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
+            
+            def testRender = screenTest.render(relativePath, renderParams, "POST")
+            output = testRender.getOutput()
+            
+            // --- NEW: Semantic State Extraction ---
+            def postContext = testRender.getPostRenderContext()
+            def semanticState = [:]
+            def isTerse = context.terse == true
+            
+            if (finalScreenDef && postContext) {
+                semanticState.screenPath = inputScreenPath
+                semanticState.terse = isTerse
+                semanticState.data = [:]
+                
+                // Use the explicit semantic data captured by macros if available
+                def explicitData = postContext.get("mcpSemanticData")
+                if (explicitData instanceof Map) {
+                    explicitData.each { k, v ->
+                        semanticState.data[k] = serializeMoquiObject(v, 0, isTerse)
+                    }
+                }
+                
+                // Extract transitions (Actions) with metadata (from screen definition, not macros)
+                semanticState.actions = []
+                finalScreenDef.getAllTransitions().each { trans ->
+                    def actionInfo = [
+                        name: trans.getName(),
+                        service: trans.getSingleServiceName()
+                    ]
+                    semanticState.actions << actionInfo
+                }
+                
+                // 3. Extract parameters that are currently set
+                semanticState.parameters = [:]
+                if (finalScreenDef.parameterByName) {
+                    finalScreenDef.parameterByName.each { name, param ->
+                        def value = postContext.get(name) ?: parameters?.get(name)
+                        if (value != null) semanticState.parameters[name] = serializeMoquiObject(value, 0, isTerse)
+                    }
+                }
+                
+                // Log semantic state size for optimization tracking
+                def semanticStateJson = new groovy.json.JsonBuilder(semanticState).toString()
+                def semanticStateSize = semanticStateJson.length()
+                ec.logger.info("MCP Screen Execution: Semantic state size: ${semanticStateSize} bytes, data keys: ${semanticState.data.keySet()}, actions count: ${semanticState.actions.size()}, terse=${isTerse}")
+            }
+            
+            ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
+
+            def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
+            
             // Build result based on renderMode
             def content = []
-            if ((renderMode == "mcp" || renderMode == "json") && mcpData) {
-        // Return structured MCP data
-        def mcpResult = [
-            screenPath: screenPath,
-            screenUrl: screenUrl,
-            executionTime: executionTime,
-            isError: isError
-        ]
-        if (mcpData.parameters) mcpResult.parameters = mcpData.parameters
-        if (mcpData.forms) mcpResult.forms = mcpData.forms
-        if (mcpData.actions) mcpResult.actions = mcpData.actions
-        if (output) mcpResult.htmlPreview = output.take(2000) + (output.length() > 2000 ? "..." : "")
-        if (wikiInstructions) mcpResult.wikiInstructions = wikiInstructions
-        
-        content << [
-            type: "text",
-            text: new groovy.json.JsonBuilder(mcpResult).toString()
-        ]
-    } else {
-        // Return raw output for other modes
-        def textOutput = output
-        if (wikiInstructions) {
-            textOutput = "--- Wiki Instructions ---\n\n${wikiInstructions}\n\n--- Screen Output ---\n\n${output}"
+            if ((renderMode == "mcp" || renderMode == "json") && semanticState) {
+                // Return structured MCP data
+                def mcpResult = [
+                    screenPath: screenPath,
+                    screenUrl: screenUrl,
+                    executionTime: executionTime,
+                    isError: isError,
+                    semanticState: semanticState
+                ]
+                
+                // Truncate text preview to 500 chars to save tokens, since we have structured data
+                if (output) mcpResult.textPreview = output.take(500) + (output.length() > 500 ? "..." : "")
+                if (wikiInstructions) mcpResult.wikiInstructions = wikiInstructions
+                
+                content << [
+                    type: "text",
+                    text: new groovy.json.JsonBuilder(mcpResult).toString()
+                ]
+            } else {
+                // Return raw output for other modes (text, html, etc)
+                def textOutput = output
+                if (wikiInstructions) {
+                    textOutput = "--- Wiki Instructions ---\n\n${wikiInstructions}\n\n--- Screen Output ---\n\n${output}"
+                }
+                content << [
+                    type: "text",
+                    text: textOutput,
+                    screenPath: screenPath,
+                    screenUrl: screenUrl,
+                    executionTime: executionTime,
+                    isError: isError
+                ]
+            }
+            
+            result = [
+                content: content,
+                isError: false
+            ]
+            return // Success!
+
+        } catch (Exception e) {
+            isError = true
+            ec.logger.error("MCP Screen Execution: Full exception for ${screenPath}", e)
+            output = "SCREEN RENDERING ERROR: ${e.message}"
+            result = [
+                isError: true,
+                content: [[type: "text", text: output]]
+            ]
         }
-        content << [
-            type: "text",
-            text: textOutput,
-            screenPath: screenPath,
-            screenUrl: screenUrl,
-            executionTime: executionTime,
-            isError: isError
-        ]
-    }
-    
-    result = [
-        content: content,
-        isError: false
-    ]
-    
-    ec.logger.info("MCP Screen Execution: Returned result for screen ${screenPath} in ${executionTime}s")
-            ]]></script>
-        </actions>
-    </service>
+    ]]></script>
+</actions>
+</service>
 
     <service verb="mcp" noun="ResourcesTemplatesList" authenticate="false" allow-remote="true" transaction-timeout="30">
         <description>Handle MCP resources/templates/list request</description>
@@ -1274,6 +1352,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             <parameter name="renderMode" default="mcp"><description>Render mode: mcp (default), text, html, xml, vuet, qvt</description></parameter>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering or action</description></parameter>
             <parameter name="sessionId"/>
+            <parameter name="terse" type="Boolean" default="false"><description>If true, return minimal data (10 items, 200 chars strings). If false, include full data (50 items, no truncation).</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
@@ -1667,7 +1746,8 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             screenPath: screenPath,
                             parameters: renderParams,
                             renderMode: actualRenderMode,
-                            sessionId: sessionId
+                            sessionId: sessionId,
+                            terse: context.terse == true
                         ]
                         if (subscreenName) screenCallParams.subscreenName = subscreenName
                         
@@ -1676,18 +1756,51 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             .parameters(screenCallParams)
                             .call()
                         
-                        // Extract rendered content from result
-                        // ScreenAsMcpTool returns {content: [{type: "text", text: "...", ...}]}
-                        ec.logger.info("BrowseScreens: serviceResult keys: ${serviceResult?.keySet()}, has content: ${serviceResult?.containsKey('content')}, has result: ${serviceResult?.containsKey('result')}")
+                        // Extract rendered content and semantic state from result
                         if (serviceResult) {
+                            def resultObj = null
                             if (serviceResult.containsKey('content') && serviceResult.content && serviceResult.content.size() > 0) {
-                                renderedContent = serviceResult.content[0].text
-                                ec.logger.info("BrowseScreens: Extracted content from serviceResult.content[0].text")
+                                def rawText = serviceResult.content[0].text
+                                if (rawText && rawText.startsWith("{")) {
+                                    try { resultObj = new groovy.json.JsonSlurper().parseText(rawText) } catch(e) {}
+                                }
+                                renderedContent = rawText
                             } else if (serviceResult.containsKey('result') && serviceResult.result && serviceResult.result.content && serviceResult.result.content.size() > 0) {
-                                renderedContent = serviceResult.result.content[0].text
-                                ec.logger.info("BrowseScreens: Extracted content from serviceResult.result.content[0].text")
-                            } else {
-                                ec.logger.info("BrowseScreens: serviceResult structure: ${serviceResult}, result content size: ${serviceResult?.result?.content?.size()}")
+                                def rawText = serviceResult.result.content[0].text
+                                if (rawText && rawText.startsWith("{")) {
+                                    try { resultObj = new groovy.json.JsonSlurper().parseText(rawText) } catch(e) {}
+                                }
+                                renderedContent = rawText
+                            }
+                            
+                            if (resultObj && resultObj.semanticState) {
+                                resultMap.semanticState = resultObj.semanticState
+                                
+                                // Build UI narrative for LLM guidance
+                                try {
+                                    def narrativeBuilder = new org.moqui.mcp.UiNarrativeBuilder()
+                                    // Get screen definition for narrative building
+                                    def screenDefForNarrative = null
+                                    if (screenPath) {
+                                        screenDefForNarrative = ec.screen.getScreenDefinition(screenPath)
+                                    }
+                                    
+                                    def uiNarrative = narrativeBuilder.buildNarrative(
+                                        screenDefForNarrative,
+                                        resultObj.semanticState,
+                                        currentPath,
+                                        context.terse == true
+                                    )
+                                    resultMap.uiNarrative = uiNarrative
+                                    ec.logger.info("BrowseScreens: Generated UI narrative for ${currentPath}")
+                                } catch (Exception e) {
+                                    ec.logger.warn("BrowseScreens: Failed to generate UI narrative: ${e.message}")
+                                }
+                                
+                                // If we have semantic state, we can truncate the rendered content to save tokens
+                                if (renderedContent && renderedContent.length() > 500) {
+                                    renderedContent = renderedContent.take(500) + "... (truncated, see uiNarrative for actions)"
+                                }
                             }
                         }
                         
@@ -1947,7 +2060,8 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             properties: [
                                 "path": [type: "string", description: "Screen path (e.g. 'PopCommerce.Catalog.Product')"],
                                 "parameters": [type: "object", description: "Parameters for the screen"],
-                                "renderMode": [type: "string", description: "mcp, text, html, xml, vuet, qvt", default: "mcp"]
+                                "renderMode": [type: "string", description: "mcp, text, html, xml, vuet, qvt", default: "mcp"],
+                                "terse": [type: "boolean", description: "If true, return minimal data (10 items, 200 chars strings). If false, include full data (50 items). Default: false"]
                             ],
                             required: ["path"]
                         ]
@@ -1962,7 +2076,8 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                 "path": [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
                                 "action": [type: "string", description: "Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name"],
                                 "renderMode": [type: "string", description: "Render mode: mcp (default), text, html, xml, vuet, qvt"],
-                                "parameters": [type: "object", description: "Parameters to pass to screen during rendering or action"]
+                                "parameters": [type: "object", description: "Parameters to pass to screen during rendering or action"],
+                                "terse": [type: "boolean", description: "If true, return minimal data (10 items, 200 chars strings). If false, include full data (50 items). Default: false"]
                             ]
                         ]
                     ],

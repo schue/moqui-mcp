@@ -291,6 +291,11 @@ class CustomScreenTestImpl implements McpScreenTest {
             // push the context
             ContextStack cs = eci.getContext()
             cs.push()
+            
+            // Create a persistent map for semantic data that survives nested pops
+            Map<String, Object> mcpSemanticData = new HashMap<>()
+            cs.put("mcpSemanticData", mcpSemanticData)
+            
             // create the WebFacadeStub using our custom method
             org.moqui.mcp.WebFacadeStub wfs = (org.moqui.mcp.WebFacadeStub) csti.createWebFacade(csti.ecfi, stri.parameters, csti.sessionAttributes, stri.requestMethod, stri.screenPath)
             // set stub on eci, will also put parameters in the context
@@ -336,8 +341,10 @@ class CustomScreenTestImpl implements McpScreenTest {
             // calc renderTime
             stri.renderTime = System.currentTimeMillis() - startTime
 
+            // capture everything currently in the context stack before popping
+            stri.postRenderContext = new HashMap<>(cs)
             // pop the context stack, get rid of var space
-            stri.postRenderContext = cs.pop()
+            cs.pop()
 
             // check, pass through, error messages
             if (eci.message.hasError()) {
