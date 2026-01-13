@@ -190,27 +190,14 @@ class UiNarrativeBuilder {
                 }
             }
         }
-        
-        if (navigation.isEmpty()) {
-            def parentPath = getParentPath(currentPath)
-            if (parentPath) {
-                navigation << "To go back, call moqui_render_screen(path='${parentPath}')."
-            }
-        }
-        
-        return navigation
-    }
-                }
-            }
-        }
-        
+
         if (navigation.isEmpty()) {
             def parentPath = getParentPath(currentPath)
             if (parentPath) {
                 navigation << "To go back, call moqui_browse_screens(path='${parentPath}')."
             }
         }
-        
+
         return navigation
     }
 

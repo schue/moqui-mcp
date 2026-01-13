@@ -145,7 +145,7 @@ class EnhancedMcpServlet extends HttpServlet {
             String requestBody = null
             if ("POST".equals(request.getMethod())) {
                 try {
-                    logger.info("Early reading request body, content length: ${request.getContentLength()}")
+                    logger.debug("Early reading request body, content length: ${request.getContentLength()}")
                     BufferedReader reader = request.getReader()
                     StringBuilder body = new StringBuilder()
                     String line
@@ -155,7 +155,7 @@ class EnhancedMcpServlet extends HttpServlet {
                         lineCount++
                     }
                     requestBody = body.toString()
-                    logger.info("Early read ${lineCount} lines, request body length: ${requestBody.length()}")
+                    logger.debug("Early read ${lineCount} lines, request body length: ${requestBody.length()}")
                 } catch (Exception e) {
                     logger.error("Failed to read request body early: ${e.message}")
                 }
@@ -192,15 +192,15 @@ class EnhancedMcpServlet extends HttpServlet {
             // Route based on request method and path
             String requestURI = request.getRequestURI()
             String method = request.getMethod()
-            logger.info("Enhanced MCP Request: ${method} ${requestURI} - Content-Length: ${request.getContentLength()}")
-            
+            logger.debug("Enhanced MCP Request: ${method} ${requestURI} - Content-Length: ${request.getContentLength()}")
+
             if ("GET".equals(method) && requestURI.endsWith("/sse")) {
                 handleSseConnection(request, response, ec, webappName)
             } else if ("POST".equals(method) && requestURI.endsWith("/message")) {
                 handleMessage(request, response, ec, requestBody)
             } else if ("POST".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle POST requests to /mcp for JSON-RPC
-                logger.info("About to call handleJsonRpc with visit: ${visit?.visitId}")
+                logger.debug("About to call handleJsonRpc with visit: ${visit?.visitId}")
                 handleJsonRpc(request, response, ec, webappName, requestBody, visit)
             } else if ("GET".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
                 // Handle GET requests to /mcp - maybe for server info or SSE fallback
@@ -240,10 +240,10 @@ class EnhancedMcpServlet extends HttpServlet {
         }
     }
     
-    private void handleSseConnection(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec, String webappName) 
+    private void handleSseConnection(HttpServletRequest request, HttpServletResponse response, ExecutionContextImpl ec, String webappName)
             throws IOException {
-        
-        logger.info("Handling Enhanced SSE connection from ${request.remoteAddr}")
+
+        logger.debug("Handling Enhanced SSE connection from ${request.remoteAddr}")
         
         // Check for existing session ID first
         String sessionId = request.getHeader("Mcp-Session-Id")
@@ -332,10 +332,10 @@ class EnhancedMcpServlet extends HttpServlet {
             // Check if this is old HTTP+SSE transport (no session ID, no prior initialization)
             // Send endpoint event first for backwards compatibility
             if (!request.getHeader("Mcp-Session-Id")) {
-                logger.info("No Mcp-Session-Id header detected, assuming old HTTP+SSE transport")
+                logger.debug("No Mcp-Session-Id header detected, assuming old HTTP+SSE transport")
                 sendSseEvent(response.writer, "endpoint", "/mcp", 0)
             }
-            
+
             // Send initial connection event for new transport
                 def connectData = [
                     version: "2.0.2",
@@ -345,7 +345,7 @@ class EnhancedMcpServlet extends HttpServlet {
             
             // Set MCP session ID header per specification BEFORE sending any data
             response.setHeader("Mcp-Session-Id", visit.visitId.toString())
-            logger.info("Set Mcp-Session-Id header to ${visit.visitId} for SSE connection")
+            logger.debug("Set Mcp-Session-Id header to ${visit.visitId} for SSE connection")
             
             sendSseEvent(response.writer, "connect", JsonOutput.toJson(connectData), 1)
             
@@ -414,7 +414,7 @@ class EnhancedMcpServlet extends HttpServlet {
         }
         
         // Verify user has access to this Visit - rely on Moqui security
-        logger.info("Session validation: visit.userId=${visit.userId}, ec.user.userId=${ec.user.userId}, ec.user.username=${ec.user.username}")
+        logger.debug("Session validation: visit.userId=${visit.userId}, ec.user.userId=${ec.user.userId}, ec.user.username=${ec.user.username}")
         if (visit.userId && ec.user.userId && visit.userId.toString() != ec.user.userId.toString()) {
             logger.warn("Visit userId ${visit.userId} doesn't match current user userId ${ec.user.userId} - access denied")
             response.setContentType("application/json")
@@ -540,7 +540,7 @@ class EnhancedMcpServlet extends HttpServlet {
         String method = request.getMethod()
         String acceptHeader = request.getHeader("Accept")
 
-        logger.info("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}")
+        logger.debug("Enhanced MCP JSON-RPC Request: ${method} ${request.requestURI} - Accept: ${acceptHeader}")
 
         // Validate Accept header per MCP 2025-11-25 spec requirement #2
         // Client MUST include Accept header with at least one of: application/json or text/event-stream
@@ -565,10 +565,10 @@ class EnhancedMcpServlet extends HttpServlet {
             ]))
             return
         }
-        
+
         // Use pre-read request body
-        logger.info("Using pre-read request body, length: ${requestBody?.length()}")
-        
+        logger.debug("Using pre-read request body, length: ${requestBody?.length()}")
+
         if (!requestBody) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
             response.setContentType("application/json")
@@ -579,12 +579,12 @@ class EnhancedMcpServlet extends HttpServlet {
             ]))
             return
         }
-        
+
         // Log request body for debugging (be careful with this in production)
         if (requestBody.length() > 0) {
-            logger.info("MCP JSON-RPC request body: ${requestBody}")
+            logger.trace("MCP JSON-RPC request body: ${requestBody}")
         }
-        
+
         def rpcRequest
         try {
             rpcRequest = jsonSlurper.parseText(requestBody)
@@ -626,15 +626,15 @@ class EnhancedMcpServlet extends HttpServlet {
             ]))
             return
         }
-        
+
         // Get session ID from Mcp-Session-Id header per MCP specification
         String sessionId = request.getHeader("Mcp-Session-Id")
-        logger.info("Session ID from header: '${sessionId}', method: '${rpcRequest.method}'")
-        
+        logger.debug("Session ID from header: '${sessionId}', method: '${rpcRequest.method}'")
+
         // For initialize and notifications/initialized methods, use visit ID as session ID if no header
         if (!sessionId && ("initialize".equals(rpcRequest.method) || "notifications/initialized".equals(rpcRequest.method)) && visit) {
             sessionId = visit.visitId
-            logger.info("${rpcRequest.method} method: using visit ID as session ID: ${sessionId}")
+            logger.debug("${rpcRequest.method} method: using visit ID as session ID: ${sessionId}")
         }
         
         // Validate session ID for non-initialize requests per MCP spec
@@ -681,11 +681,11 @@ class EnhancedMcpServlet extends HttpServlet {
                     ]))
                     return
                 }
-                
+
                 // Set visit ID in HTTP session so Moqui web facade initialization picks it up
                 request.session.setAttribute("moqui.visitId", sessionId)
-                logger.info("Set existing Visit ${sessionId} in HTTP session for user ${ec.user.username}")
-                
+                logger.debug("Set existing Visit ${sessionId} in HTTP session for user ${ec.user.username}")
+
             } catch (Exception e) {
                 logger.error("Error finding session ${sessionId}: ${e.message}")
                 response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
@@ -707,23 +707,23 @@ class EnhancedMcpServlet extends HttpServlet {
         if (isNotification) {
             // Special handling for notifications/initialized to transition session state
             if ("notifications/initialized".equals(rpcRequest.method)) {
-                logger.info("Processing notifications/initialized for sessionId: ${sessionId}")
+                logger.debug("Processing notifications/initialized for sessionId: ${sessionId}")
                 if (sessionId) {
                     sessionStates.put(sessionId, STATE_INITIALIZED)
                     // Store user mapping in memory for fast validation
                     sessionUsers.put(sessionId, ec.user.userId.toString())
-                    logger.info("Session ${sessionId} transitioned to INITIALIZED state for user ${ec.user.userId}")
+                    logger.debug("Session ${sessionId} transitioned to INITIALIZED state for user ${ec.user.userId}")
                 }
                 
                 // For notifications/initialized, return 202 Accepted per MCP HTTP Streaming spec
                 if (sessionId) {
-                    response.setHeader("Mcp-Session-Id", sessionId.toString())
-                }
-                response.setContentType("text/event-stream")
-                response.setStatus(HttpServletResponse.SC_ACCEPTED)  // 202 Accepted
-                logger.info("Sent 202 Accepted response for notifications/initialized")
-                response.flushBuffer()  // Commit the response immediately
-                return
+                response.setHeader("Mcp-Session-Id", sessionId.toString())
+            }
+            response.setContentType("text/event-stream")
+            response.setStatus(HttpServletResponse.SC_ACCEPTED)  // 202 Accepted
+            logger.debug("Sent 202 Accepted response for notifications/initialized")
+            response.flushBuffer()  // Commit the response immediately
+            return
             }
             
             // For other notifications, set session header if needed but NO response per MCP spec
@@ -757,12 +757,12 @@ class EnhancedMcpServlet extends HttpServlet {
             // For other methods, ensure we always return session ID from header
             responseSessionId = sessionId.toString()
         }
-        
+
         if (responseSessionId) {
             response.setHeader("Mcp-Session-Id", responseSessionId)
-            logger.info("Set Mcp-Session-Id header to ${responseSessionId} for method ${rpcRequest.method}")
+            logger.debug("Set Mcp-Session-Id header to ${responseSessionId} for method ${rpcRequest.method}")
         }
-        
+
         // Build JSON-RPC response for regular requests
         // Extract the actual result from Moqui service response
         def actualResult = result?.result ?: result
@@ -776,8 +776,8 @@ class EnhancedMcpServlet extends HttpServlet {
         if (sessionId && notificationQueues.containsKey(sessionId)) {
             def pendingNotifications = notificationQueues.get(sessionId)
             if (pendingNotifications && !pendingNotifications.isEmpty()) {
-                logger.info("Adding ${pendingNotifications.size()} pending notifications to response content for session ${sessionId}")
-                
+                logger.debug("Adding ${pendingNotifications.size()} pending notifications to response content for session ${sessionId}")
+
                 // Convert notifications to content items and add to result
                 def notificationContent = []
                 for (notification in pendingNotifications) {
@@ -793,7 +793,7 @@ class EnhancedMcpServlet extends HttpServlet {
                 
                 // Clear delivered notifications
                 notificationQueues.put(sessionId, [])
-                logger.info("Merged ${pendingNotifications.size()} notifications into response for session ${sessionId}")
+                logger.debug("Merged ${pendingNotifications.size()} notifications into response for session ${sessionId}")
             }
         }
         
@@ -803,10 +803,10 @@ class EnhancedMcpServlet extends HttpServlet {
         // Send the main response
         response.writer.write(JsonOutput.toJson(rpcResponse))
     }
-    
+
     private Map<String, Object> processMcpMethod(String method, Map params, ExecutionContextImpl ec, String sessionId, def visit) {
-        logger.info("Enhanced METHOD: ${method} with sessionId: ${sessionId}")
-        
+        logger.debug("Enhanced METHOD: ${method} with sessionId: ${sessionId}")
+
         try {
             // Ensure params is not null
             if (params == null) {
@@ -835,19 +835,19 @@ class EnhancedMcpServlet extends HttpServlet {
                         params.sessionId = visit.visitId
                         // Set session to initializing state using actual sessionId as key (for consistency)
                         sessionStates.put(params.sessionId, STATE_INITIALIZING)
-                        logger.info("Initialize - using visitId: ${visit.visitId}, set state ${params.sessionId} to INITIALIZING")
+                        logger.debug("Initialize - using visitId: ${visit.visitId}, set state ${params.sessionId} to INITIALIZING")
                     } else {
                         logger.warn("Initialize - no visit available, using null sessionId")
                     }
                     params.actualUserId = ec.user.userId
-                    logger.info("Initialize - actualUserId: ${params.actualUserId}, sessionId: ${params.sessionId}")
+                    logger.debug("Initialize - actualUserId: ${params.actualUserId}, sessionId: ${params.sessionId}")
                     def serviceResult = callMcpService("mcp#Initialize", params, ec)
                     // Add sessionId to the response for mcp.sh compatibility
                     if (serviceResult && serviceResult.result) {
                         serviceResult.result.sessionId = params.sessionId
                         // Initialize successful - transition session to INITIALIZED state
                         sessionStates.put(params.sessionId, STATE_INITIALIZED)
-                        logger.info("Initialize - successful, set state ${params.sessionId} to INITIALIZED")
+                        logger.debug("Initialize - successful, set state ${params.sessionId} to INITIALIZED")
                     }
                     return serviceResult
                 case "ping":
@@ -885,12 +885,12 @@ class EnhancedMcpServlet extends HttpServlet {
                 // It will be processed by the notification handling logic above (lines 824-837)
                 case "notifications/tools/list_changed":
                     // Handle tools list changed notification
-                    logger.info("Tools list changed for sessionId: ${sessionId}")
+                    logger.debug("Tools list changed for sessionId: ${sessionId}")
                     // Could trigger cache invalidation here if needed
                     return null
                 case "notifications/resources/list_changed":
                     // Handle resources list changed notification
-                    logger.info("Resources list changed for sessionId: ${sessionId}")
+                    logger.debug("Resources list changed for sessionId: ${sessionId}")
                     // Could trigger cache invalidation here if needed
                     return null
                 case "notifications/send":
@@ -900,9 +900,9 @@ class EnhancedMcpServlet extends HttpServlet {
                     if (!notificationMethod) {
                         throw new IllegalArgumentException("method is required for sending notification")
                     }
-                    
-                    logger.info("Sending notification ${notificationMethod} for sessionId: ${sessionId}")
-                    
+
+                    logger.debug("Sending notification ${notificationMethod} for sessionId: ${sessionId}")
+
                     // Queue notification for delivery through SSE or polling
                     if (sessionId) {
                         def notification = [
@@ -915,10 +915,10 @@ class EnhancedMcpServlet extends HttpServlet {
                         def queue = notificationQueues.get(sessionId) ?: []
                         queue << notification
                         notificationQueues.put(sessionId, queue)
-                        
-                        logger.info("Notification queued for session ${sessionId}: ${notificationMethod}")
+
+                        logger.debug("Notification queued for session ${sessionId}: ${notificationMethod}")
                     }
-                    
+
                     return [sent: true, sessionId: sessionId, method: notificationMethod]
                 case "notifications/subscribe":
                     // Handle notification subscription
@@ -929,7 +929,7 @@ class EnhancedMcpServlet extends HttpServlet {
                     def subscriptions = sessionSubscriptions.get(sessionId) ?: new HashSet<>()
                     subscriptions.add(subscriptionMethod)
                     sessionSubscriptions.put(sessionId, subscriptions)
-                    logger.info("Session ${sessionId} subscribed to: ${subscriptionMethod}")
+                    logger.debug("Session ${sessionId} subscribed to: ${subscriptionMethod}")
                     return [subscribed: true, sessionId: sessionId, method: subscriptionMethod]
                 case "notifications/unsubscribe":
                     // Handle notification unsubscription
@@ -945,7 +945,7 @@ class EnhancedMcpServlet extends HttpServlet {
                         } else {
                             sessionSubscriptions.put(sessionId, subscriptions)
                         }
-                        logger.info("Session ${sessionId} unsubscribed from: ${subscriptionMethod}")
+                        logger.debug("Session ${sessionId} unsubscribed from: ${subscriptionMethod}")
                     }
                     return [unsubscribed: true, sessionId: sessionId, method: subscriptionMethod]
                 case "notifications/progress":
@@ -953,7 +953,7 @@ class EnhancedMcpServlet extends HttpServlet {
                     def progressToken = params?.progressToken
                     def progressValue = params?.progress
                     def total = params?.total
-                    logger.info("Progress notification for sessionId: ${sessionId}, token: ${progressToken}, progress: ${progressValue}/${total}")
+                    logger.debug("Progress notification for sessionId: ${sessionId}, token: ${progressToken}, progress: ${progressValue}/${total}")
                     // Store progress for potential polling
                     if (sessionId && progressToken) {
                         def progressKey = "${sessionId}_${progressToken}"
@@ -963,12 +963,12 @@ class EnhancedMcpServlet extends HttpServlet {
                 case "notifications/resources/updated":
                     // Handle resource updated notification
                     def uri = params?.uri
-                    logger.info("Resource updated notification for sessionId: ${sessionId}, uri: ${uri}")
+                    logger.debug("Resource updated notification for sessionId: ${sessionId}, uri: ${uri}")
                     // Could trigger resource cache invalidation here
                     return null
                 case "notifications/prompts/list_changed":
                     // Handle prompts list changed notification
-                    logger.info("Prompts list changed for sessionId: ${sessionId}")
+                    logger.debug("Prompts list changed for sessionId: ${sessionId}")
                     // Could trigger prompt cache invalidation here
                     return null
                 case "notifications/message":
@@ -976,7 +976,7 @@ class EnhancedMcpServlet extends HttpServlet {
                     def level = params?.level ?: "info"
                     def message = params?.message
                     def data = params?.data
-                    logger.info("Message notification for sessionId: ${sessionId}, level: ${level}, message: ${message}")
+                    logger.debug("Message notification for sessionId: ${sessionId}, level: ${level}, message: ${message}")
                     // Store message for potential retrieval
                     if (sessionId) {
                         def messages = sessionMessages.get(sessionId) ?: []
@@ -986,12 +986,12 @@ class EnhancedMcpServlet extends HttpServlet {
                     return null
                 case "notifications/roots/list_changed":
                     // Handle roots list changed notification
-                    logger.info("Roots list changed for sessionId: ${sessionId}")
+                    logger.debug("Roots list changed for sessionId: ${sessionId}")
                     // Could trigger roots cache invalidation here
                     return null
                 case "logging/setLevel":
                     // Handle logging level change notification
-                    logger.info("Logging level change requested for sessionId: ${sessionId}")
+                    logger.debug("Logging level change requested for sessionId: ${sessionId}")
                     return null
                 default:
                     throw new IllegalArgumentException("Method not found: ${method}")
@@ -1073,14 +1073,14 @@ class EnhancedMcpServlet extends HttpServlet {
      */
     void queueNotification(String sessionId, Map notification) {
         if (!sessionId || !notification) return
-        
+
         def queue = notificationQueues.computeIfAbsent(sessionId) { [] }
         queue << notification
         logger.info("Queued notification for session ${sessionId}: ${notification}")
-        
+
         // Session activity updates handled at JSON-RPC level, not notification level
         // This prevents excessive database updates during notification processing
-        
+
         // Also try to send via SSE if active connection exists
         def writer = activeConnections.get(sessionId)
         if (writer && !writer.checkError()) {
@@ -1092,7 +1092,7 @@ class EnhancedMcpServlet extends HttpServlet {
                     params: notification.params ?: notification
                 ]
                 sendSseEvent(writer, "message", JsonOutput.toJson(notificationMessage), System.currentTimeMillis())
-                logger.info("Sent notification via SSE to session ${sessionId}")
+                logger.debug("Sent notification via SSE to session ${sessionId}")
             } catch (Exception e) {
                 logger.warn("Failed to send notification via SSE to session ${sessionId}: ${e.message}")
             }

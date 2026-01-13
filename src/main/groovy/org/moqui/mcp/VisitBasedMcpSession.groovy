@@ -56,8 +56,8 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
                 metadata.mcpTransportType = "SSE"
                 metadata.mcpMessageCount = 0
                 saveSessionMetadata(metadata)
-                
-                logger.info("MCP Session initialized for Visit ${visit.visitId}")
+
+                logger.debug("MCP Session initialized for Visit ${visit.visitId}")
             }
         } catch (Exception e) {
             logger.warn("Failed to initialize MCP session for Visit ${visit.visitId}: ${e.message}")
@@ -90,10 +90,10 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
         if (!active.compareAndSet(true, false)) {
             return // Already closed
         }
-        
+
         closing.set(true)
-        logger.info("Gracefully closing MCP session ${visit.visitId}")
-        
+        logger.debug("Gracefully closing MCP session ${visit.visitId}")
+
         try {
             // Send graceful shutdown notification
             def shutdownMessage = new JsonRpcNotification("shutdown", [
@@ -116,9 +116,9 @@ class VisitBasedMcpSession implements MoquiMcpTransport {
         if (!active.compareAndSet(true, false)) {
             return // Already closed
         }
-        
-        logger.info("Closing MCP session ${visit.visitId} (messages sent: ${messageCount.get()})")
-        
+
+        logger.debug("Closing MCP session ${visit.visitId} (messages sent: ${messageCount.get()})")
+
         try {
             // Send final close event if writer is still available
             if (writer && !writer.checkError()) {
