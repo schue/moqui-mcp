@@ -79,9 +79,7 @@
         
         [${linkText}](${slashPath})<#t>
         <#if mcpSemanticData??>
-            <#if !mcpSemanticData.links??><#assign dummy = mcpSemanticData.put("links", [])></#if>
-            <#assign linkInfo = {"text": linkText, "path": slashPath, "type": "navigation"}>
-            <#assign dummy = mcpSemanticData.links.add(linkInfo)>
+            <#assign dummy = ec.resource.expression("mcpSemanticData.links.add([text: '" + (linkText!"")?js_string + "', path: '" + (slashPath!"")?js_string + "', type: 'navigation'])", "")!>
         </#if>
     </#if>
 </#macro>
@@ -105,15 +103,10 @@
     <#assign formMap = ec.resource.expression(mapName, "")!>
     
     <#if mcpSemanticData??>
-        <#if !mcpSemanticData.formMetadata??><#assign dummy = mcpSemanticData.put("formMetadata", {})></#if>
-        
-        <#assign formMeta = {"name": (.node["@name"]!""), "map": mapName}>
+        <#assign formName = (.node["@name"]!"")?string>
         <#assign fieldMetaList = []>
-        
-        <#assign dummy = mcpSemanticData.formMetadata.put(.node["@name"], formMeta)>
+        <#assign dummy = ec.resource.expression("if (mcpSemanticData.formMetadata == null) mcpSemanticData.formMetadata = [:]; mcpSemanticData.formMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', map: '" + (mapName!"")?js_string + "'])", "")!>
     </#if>
-    
-    <#if mcpSemanticData?? && formMap?has_content><#assign dummy = mcpSemanticData.put(.node["@name"], formMap)></#if>
     <#t>${sri.pushSingleFormMapContext(mapName)}
     <#list formNode["field"] as fieldNode>
         <#assign fieldSubNode = "">
@@ -125,13 +118,13 @@
             <#if mcpSemanticData??>
                 <#assign fieldMeta = {"name": (fieldNode["@name"]!""), "title": (title!), "required": (fieldNode["@required"]! == "true")}>
                 
-                <#if fieldSubNode["text-line"]?has_content><#assign dummy = fieldMeta.put("type", "text")></#if>
-                <#if fieldSubNode["text-area"]?has_content><#assign dummy = fieldMeta.put("type", "textarea")></#if>
-                <#if fieldSubNode["drop-down"]?has_content><#assign dummy = fieldMeta.put("type", "dropdown")></#if>
-                <#if fieldSubNode["check"]?has_content><#assign dummy = fieldMeta.put("type", "checkbox")></#if>
-                <#if fieldSubNode["date-find"]?has_content><#assign dummy = fieldMeta.put("type", "date")></#if>
+                <#if fieldSubNode["text-line"]?has_content><#assign fieldMeta = fieldMeta + {"type": "text"}></#if>
+                <#if fieldSubNode["text-area"]?has_content><#assign fieldMeta = fieldMeta + {"type": "textarea"}></#if>
+                <#if fieldSubNode["drop-down"]?has_content><#assign fieldMeta = fieldMeta + {"type": "dropdown"}></#if>
+                <#if fieldSubNode["check"]?has_content><#assign fieldMeta = fieldMeta + {"type": "checkbox"}></#if>
+                <#if fieldSubNode["date-find"]?has_content><#assign fieldMeta = fieldMeta + {"type": "date"}></#if>
                 
-                <#assign dummy = fieldMetaList.add(fieldMeta)>
+                <#assign fieldMetaList = fieldMetaList + [fieldMeta]>
             </#if>
             
             * **${title}**: <#recurse fieldSubNode>
@@ -139,7 +132,9 @@
     </#list>
     
     <#if mcpSemanticData?? && fieldMetaList?has_content>
-        <#assign dummy = mcpSemanticData.formMetadata[.node["@name"]!].put("fields", fieldMetaList)>
+        <#assign formName = (.node["@name"]!"")?string>
+        <#assign dummy = ec.context.put("tempFieldMetaList", fieldMetaList)!>
+        <#assign dummy = ec.resource.expression("def formMeta = mcpSemanticData.formMetadata?.get('" + formName?js_string + "'); if (formMeta != null) formMeta.put('fields', tempFieldMetaList)", "")!>
     </#if>
     
     <#t>${sri.popContext()}
@@ -154,24 +149,17 @@
     <#assign totalItems = listObject?size>
     
     <#if mcpSemanticData?? && listObject?has_content>
-        <#assign truncatedList = listObject>
-        <#assign dummy = mcpSemanticData.put(.node["@name"], truncatedList)>
-        
-        <#if !mcpSemanticData.listMetadata??><#assign dummy = mcpSemanticData.put("listMetadata", {})></#if>
-        
+        <#assign formName = (.node["@name"]!"")?string>
+        <#assign displayedItems = (totalItems > 50)?then(50, totalItems)>
+        <#assign isTruncated = (totalItems > 50)>
         <#assign columnNames = []>
         <#list formListColumnList as columnFieldList>
             <#assign fieldNode = columnFieldList[0]>
-            <#assign dummy = columnNames.add(fieldNode["@name"]!"")>
+            <#assign columnNames = columnNames + [fieldNode["@name"]!""]>
         </#list>
-        
-        <#assign dummy = mcpSemanticData.listMetadata.put(.node["@name"]!"", {
-            "name": .node["@name"]!"",
-            "totalItems": totalItems,
-            "displayedItems": (totalItems > 50)?then(50, totalItems),
-            "truncated": (totalItems > 50),
-            "columns": columnNames
-        })>
+        <#assign dummy = ec.context.put("tempListObject", listObject)!>
+        <#assign dummy = ec.context.put("tempColumnNames", columnNames)!>
+        <#assign dummy = ec.resource.expression("mcpSemanticData.put('" + formName?js_string + "', tempListObject); if (mcpSemanticData.listMetadata == null) mcpSemanticData.listMetadata = [:]; mcpSemanticData.listMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', totalItems: " + totalItems + ", displayedItems: " + displayedItems + ", truncated: " + isTruncated?string + ", columns: tempColumnNames])", "")!>
     </#if>
     
     <#-- Header Row -->
@@ -227,8 +215,8 @@
 <#-- ================== Form Field Widgets ==================== -->
 <#macro "check">
     <#assign options = sri.getFieldOptions(.node)!>
-    <#assign currentValue = sri.getFieldValueString(.node)>
-    <#t>${(options.get(currentValue))!(currentValue)}
+    <#assign currentValue = sri.getFieldValueString(.node)!>
+    <#t>${(options[currentValue])!currentValue}
 </#macro>
 
 <#macro "date-find"></#macro>
@@ -264,9 +252,9 @@
 </#macro>
 
 <#macro "drop-down">
-    <#assign options = sri.getFieldOptions(.node)>
-    <#assign currentValue = sri.getFieldValueString(.node)>
-    <#t>${(options.get(currentValue))!(currentValue)}
+    <#assign options = sri.getFieldOptions(.node)!>
+    <#assign currentValue = sri.getFieldValueString(.node)!>
+    <#t>${(options[currentValue])!currentValue}
 </#macro>
 
 <#macro "text-area"><#t>${sri.getFieldValueString(.node)}</#macro>

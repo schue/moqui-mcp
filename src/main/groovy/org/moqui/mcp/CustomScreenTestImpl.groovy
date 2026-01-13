@@ -321,6 +321,9 @@ class CustomScreenTestImpl implements McpScreenTest {
             
             // Create a persistent map for semantic data that survives nested pops
             Map<String, Object> mcpSemanticData = new HashMap<>()
+            mcpSemanticData.put("links", new ArrayList<>())
+            mcpSemanticData.put("formMetadata", new HashMap<>())
+            mcpSemanticData.put("listMetadata", new HashMap<>())
             cs.put("mcpSemanticData", mcpSemanticData)
             
             // create the WebFacadeStub using our custom method

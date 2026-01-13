@@ -80,9 +80,11 @@ class UiNarrativeBuilder {
         
         def forms = semanticState?.data
         if (forms) {
-            def formNames = forms.keySet().findAll { k -> k.contains('Form') || k.contains('form') }[0..2]
+            def maxForms = isTerse ? 2 : 10
+            def formNames = forms.keySet().findAll { k -> k.contains('Form') || k.contains('form') }
             if (formNames) {
-                def fields = getFormFieldNames(forms, formNames[0])
+                def formNamesToDescribe = formNames.take(maxForms + 1)
+                def fields = getFormFieldNames(forms, formNamesToDescribe[0])
                 if (fields) {
                     sb.append("Form contains: ${fields.join(', ')}. ")
                 }
@@ -93,7 +95,8 @@ class UiNarrativeBuilder {
         if (links && links.size() > 0) {
             def linkTypes = links.collect { l -> l.type?.toString() ?: 'navigation' }.unique()
             if (linkTypes) {
-                sb.append("Available links: ${linkTypes.take(3).join(', ')}. ")
+                def maxTypes = isTerse ? 3 : 15
+                sb.append("Available links: ${linkTypes.take(maxTypes).join(', ')}. ")
             }
         }
         
@@ -141,7 +144,8 @@ class UiNarrativeBuilder {
         if (links && links.size() > 0) {
             def sortedLinks = links.sort { a, b -> (a.text <=> b.text) }
             
-            sortedLinks.take(5).each { link ->
+            def linksToTake = isTerse ? 5 : 50
+            sortedLinks.take(linksToTake).each { link ->
                 def linkText = link.text?.toString()
                 def linkPath = link.path?.toString()
                 def linkType = link.type?.toString() ?: 'navigation'

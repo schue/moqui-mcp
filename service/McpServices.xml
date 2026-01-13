@@ -670,21 +670,21 @@ serializeMoquiObject = { obj, depth = 0, isTerse = false ->
                 _totalCount: list.size(),
                 _truncated: true,
                 _hasMore: true,
-                _message: "Terse mode: showing first 10 of ${list.size()} items. Set terse=false to get full data."
+                _message: "Terse mode: showing first 10 of ${list.size()} items. Set terse=false to get more data."
             ]
         }
-        // Full data in non-terse mode (but still apply depth protection)
-        def maxItems = isTerse ? 10 : 50
+        // Increased limits for non-terse mode
+        def maxItems = isTerse ? 10 : 250
         def truncated = list.take(maxItems)
         def resultList = truncated.collect { serializeMoquiObject(it, depth + 1, isTerse) }
-        if (!isTerse && list.size() > 50) {
-            ec.logger.info("serializeMoquiObject: Non-terse mode - truncating large list from ${list.size()} to 50 items for size limits")
+        if (!isTerse && list.size() > maxItems) {
+            ec.logger.info("serializeMoquiObject: Non-terse mode - truncating large list from ${list.size()} to ${maxItems} items for safety")
             return [
                 _items: resultList,
                 _totalCount: list.size(),
                 _truncated: true,
                 _hasMore: true,
-                _message: "Non-terse mode: showing first 50 of ${list.size()} items (size limit reached)"
+                _message: "Truncated to ${maxItems} items (size safety limit reached)"
             ]
         }
         return resultList
@@ -705,10 +705,18 @@ serializeMoquiObject = { obj, depth = 0, isTerse = false ->
                 _value: obj.substring(0, 200) + "...",
                 _fullLength: obj.length(),
                 _truncated: true,
-                _message: "Terse mode: truncated to 200 chars. Set terse=false to get full data."
+                _message: "Terse mode: truncated to 200 chars. Set terse=false to get more data."
             ]
         }
-        // Full data in non-terse mode (no string truncation)
+        // Non-terse limit increased to 2000 for safety but much larger than before
+        if (!isTerse && obj.length() > 2000) {
+            return [
+                _value: obj.substring(0, 2000) + "...",
+                _fullLength: obj.length(),
+                _truncated: true,
+                _message: "Truncated to 2000 chars for safety."
+            ]
+        }
         return obj
     }
     if (obj.getClass().getName().startsWith("org.moqui.impl.screen.ScreenDefinition")) {
@@ -924,193 +932,14 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     semanticState: semanticState
                 ]
                 
-                // Truncate text preview to 500 chars to save tokens, since we have structured data
-                if (output) mcpResult.textPreview = output.take(500) + (output.length() > 500 ? "..." : "")
-                if (wikiInstructions) mcpResult.wikiInstructions = wikiInstructions
-                
-                content << [
-                    type: "text",
-                    text: new groovy.json.JsonBuilder(mcpResult).toString()
-                ]
-            } else {
-                // Return raw output for other modes (text, html, etc)
-                def textOutput = output
-                if (wikiInstructions) {
-                    textOutput = "--- Wiki Instructions ---\n\n${wikiInstructions}\n\n--- Screen Output ---\n\n${output}"
-                }
-                content << [
-                    type: "text",
-                    text: textOutput,
-                    screenPath: screenPath,
-                    screenUrl: screenUrl,
-                    executionTime: executionTime,
-                    isError: isError
-                ]
-            }
-            
-            result = [
-                content: content,
-                isError: false
-            ]
-            return // Success!
-
-        } catch (Exception e) {
-            isError = true
-            ec.logger.error("MCP Screen Execution: Full exception for ${screenPath}", e)
-            output = "SCREEN RENDERING ERROR: ${e.message}"
-            result = [
-                isError: true,
-                content: [[type: "text", text: output]]
-            ]
-        }
+                // Truncate text preview only if terse=true
+                if (output) {
+                    if (isTerse) {
+                        mcpResult.textPreview = output.take(500) + (output.length() > 500 ? "..." : "")
+                    } else {
+                        mcpResult.textPreview = output
                     }
                 }
-                
-                // 2. If literal resolution failed, try Component-based resolution
-                if (reachedIndex == -1 && pathSegments.size() >= 2) {
-                    def componentName = pathSegments[0]
-                    def rootScreenName = pathSegments[1]
-                    def compRootLoc = "component://${componentName}/screen/${rootScreenName}.xml"
-                    
-                    if (ec.resource.getLocationReference(compRootLoc).exists) {
-                        ec.logger.info("MCP Path Resolution: Found component root at ${compRootLoc}")
-                        rootScreen = compRootLoc
-                        testScreenPath = pathSegments.size() > 2 ? pathSegments[2..-1].join('/') : ""
-                        resolvedScreenDef = ec.screen.getScreenDefinition(rootScreen)
-                        
-                        // Resolve further if there are remaining segments
-                        if (testScreenPath) {
-                            def remainingSegments = pathSegments[2..-1]
-                            def compPathList = org.moqui.impl.screen.ScreenUrlInfo.parseSubScreenPath(
-                                resolvedScreenDef, resolvedScreenDef, remainingSegments, testScreenPath, [:], ec.screenFacade
-                            )
-                            if (compPathList) {
-                                for (String screenName in compPathList) {
-                                    def ssi = resolvedScreenDef?.getSubscreensItem(screenName)
-                                    if (ssi && ssi.getLocation()) {
-                                        resolvedScreenDef = ec.screen.getScreenDefinition(ssi.getLocation())
-                                    } else {
-                                        break
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // 3. Fallback to double-slash search if still not found
-                if (reachedIndex == -1 && !resolvedScreenDef && pathSegments.size() > 0 && !testPath.startsWith("//")) {
-                    def searchPath = "//" + pathSegments.join('/')
-                    ec.logger.info("MCP Path Resolution: Fallback to search path ${searchPath}")
-                    
-                    rootScreen = "component://webroot/screen/webroot.xml"
-                    def searchPathList = org.moqui.impl.screen.ScreenUrlInfo.parseSubScreenPath(
-                        webrootSd, webrootSd, pathSegments, searchPath, [:], ec.screenFacade
-                    )
-                    
-                    if (searchPathList) {
-                        testScreenPath = searchPath
-                        resolvedScreenDef = webrootSd
-                        for (String screenName in searchPathList) {
-                            def ssi = resolvedScreenDef?.getSubscreensItem(screenName)
-                            if (ssi && ssi.getLocation()) {
-                                resolvedScreenDef = ec.screen.getScreenDefinition(ssi.getLocation())
-                            } else {
-                                break
-                            }
-                        }
-                    }
-                }
-                
-                // If we found a specific target, we're good. 
-                // If not, default to webroot with full path (original behavior, but now we know it failed)
-                if (!resolvedScreenDef) {
-                    rootScreen = "component://webroot/screen/webroot.xml"
-                    resolvedScreenDef = webrootSd
-                    testScreenPath = testPath
-                }
-            }
-
-            // Regular screen rendering with current user context - use our custom ScreenTestImpl
-            def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
-                .rootScreen(rootScreen)
-                .renderMode(renderMode ?: "mcp")
-                .auth(ec.user.username)
-
-            def renderParams = parameters ?: [:]
-            renderParams.userId = ec.user.userId
-            renderParams.username = ec.user.username
-
-            def relativePath = testScreenPath
-            ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
-
-            def testRender = screenTest.render(relativePath, renderParams, "POST")
-            output = testRender.getOutput()
-
-            // --- NEW: Semantic State Extraction ---
-            def postContext = testRender.getPostRenderContext()
-            def semanticState = [:]
-            def isTerse = context.terse == true
-
-            // Get final screen definition using resolved screen location
-            def finalScreenDef = resolvedScreenDef
-
-            if (finalScreenDef && postContext) {
-                semanticState.screenPath = inputScreenPath
-                semanticState.terse = isTerse
-                semanticState.data = [:]
-                
-                // Use the explicit semantic data captured by macros if available
-                def explicitData = postContext.get("mcpSemanticData")
-                if (explicitData instanceof Map) {
-                    explicitData.each { k, v ->
-                        semanticState.data[k] = serializeMoquiObject(v, 0, isTerse)
-                    }
-                }
-                
-                // Extract transitions (Actions) with metadata (from screen definition, not macros)
-                semanticState.actions = []
-                finalScreenDef.getAllTransitions().each { trans ->
-                    def actionInfo = [
-                        name: trans.getName(),
-                        service: trans.getSingleServiceName()
-                    ]
-                    semanticState.actions << actionInfo
-                }
-                
-                // 3. Extract parameters that are currently set
-                semanticState.parameters = [:]
-                if (finalScreenDef.parameterByName) {
-                    finalScreenDef.parameterByName.each { name, param ->
-                        def value = postContext.get(name) ?: parameters?.get(name)
-                        if (value != null) semanticState.parameters[name] = serializeMoquiObject(value, 0, isTerse)
-                    }
-                }
-                
-                // Log semantic state size for optimization tracking
-                def semanticStateJson = new groovy.json.JsonBuilder(semanticState).toString()
-                def semanticStateSize = semanticStateJson.length()
-                ec.logger.info("MCP Screen Execution: Semantic state size: ${semanticStateSize} bytes, data keys: ${semanticState.data.keySet()}, actions count: ${semanticState.actions.size()}, terse=${isTerse}")
-            }
-            
-            ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
-
-            def executionTime = (System.currentTimeMillis() - startTime) / 1000.0
-            
-            // Build result based on renderMode
-            def content = []
-            if ((renderMode == "mcp" || renderMode == "json") && semanticState) {
-                // Return structured MCP data
-                def mcpResult = [
-                    screenPath: screenPath,
-                    screenUrl: screenUrl,
-                    executionTime: executionTime,
-                    isError: isError,
-                    semanticState: semanticState
-                ]
-                
-                // Truncate text preview to 500 chars to save tokens, since we have structured data
-                if (output) mcpResult.textPreview = output.take(500) + (output.length() > 500 ? "..." : "")
                 if (wikiInstructions) mcpResult.wikiInstructions = wikiInstructions
                 
                 content << [
@@ -1575,23 +1404,82 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                         ]
                     }
                 } else {
-                    // Forward slash path resolution using Moqui standard
+                    // Forward slash path resolution using Moqui standard with robust component-based fallback
                     def webrootSd = ec.screen.getScreenDefinition("component://webroot/screen/webroot.xml")
                     def pathSegments = []
                     currentPath.split('/').each { if (it && it.trim()) pathSegments.add(it) }
                     
+                    // 1. Try literal resolution from webroot
                     def screenPathList = org.moqui.impl.screen.ScreenUrlInfo.parseSubScreenPath(
                         webrootSd, webrootSd, pathSegments, currentPath, [:], ec.screenFacade
                     )
                     
+                    def currentSd = webrootSd
+                    def reachedIndex = -1
                     if (screenPathList) {
-                        resolvedScreenDef = webrootSd
-                        for (String screenName in screenPathList) {
-                            def ssi = resolvedScreenDef?.getSubscreensItem(screenName)
+                        for (int i = 0; i < screenPathList.size(); i++) {
+                            def screenName = screenPathList[i]
+                            def ssi = currentSd?.getSubscreensItem(screenName)
                             if (ssi && ssi.getLocation()) {
-                                resolvedScreenDef = ec.screen.getScreenDefinition(ssi.getLocation())
+                                currentSd = ec.screen.getScreenDefinition(ssi.getLocation())
+                                reachedIndex = i
                             } else {
                                 break
+                            }
+                        }
+                    }
+                    
+                    resolvedScreenDef = currentSd
+
+                    // 2. If literal resolution failed, try Component-based resolution
+                    if (reachedIndex == -1 && pathSegments.size() >= 2) {
+                        def componentName = pathSegments[0]
+                        def rootScreenName = pathSegments[1]
+                        def compRootLoc = "component://${componentName}/screen/${rootScreenName}.xml"
+                        
+                        if (ec.resource.getLocationReference(compRootLoc).exists) {
+                            ec.logger.info("BrowseScreens Path Resolution: Found component root at ${compRootLoc}")
+                            resolvedScreenDef = ec.screen.getScreenDefinition(compRootLoc)
+                            def subScreenPath = pathSegments.size() > 2 ? pathSegments[2..-1].join('/') : ""
+                            
+                            // Resolve further if there are remaining segments
+                            if (subScreenPath) {
+                                def remainingSegments = pathSegments[2..-1]
+                                def compPathList = org.moqui.impl.screen.ScreenUrlInfo.parseSubScreenPath(
+                                    resolvedScreenDef, resolvedScreenDef, remainingSegments, subScreenPath, [:], ec.screenFacade
+                                )
+                                if (compPathList) {
+                                    for (String screenName in compPathList) {
+                                        def ssi = resolvedScreenDef?.getSubscreensItem(screenName)
+                                        if (ssi && ssi.getLocation()) {
+                                            resolvedScreenDef = ec.screen.getScreenDefinition(ssi.getLocation())
+                                        } else {
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 3. Fallback to double-slash search if still not found
+                    if (reachedIndex == -1 && resolvedScreenDef == webrootSd && pathSegments.size() > 0 && !currentPath.startsWith("//")) {
+                        def searchPath = "//" + pathSegments.join('/')
+                        ec.logger.info("BrowseScreens Path Resolution: Fallback to search path ${searchPath}")
+                        
+                        def searchPathList = org.moqui.impl.screen.ScreenUrlInfo.parseSubScreenPath(
+                            webrootSd, webrootSd, pathSegments, searchPath, [:], ec.screenFacade
+                        )
+                        
+                        if (searchPathList) {
+                            resolvedScreenDef = webrootSd
+                            for (String screenName in searchPathList) {
+                                def ssi = resolvedScreenDef?.getSubscreensItem(screenName)
+                                if (ssi && ssi.getLocation()) {
+                                    resolvedScreenDef = ec.screen.getScreenDefinition(ssi.getLocation())
+                                } else {
+                                    break
+                                }
                             }
                         }
                     }
@@ -1629,11 +1517,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             def foundTransition = resolvedScreenDef.getAllTransitions().find { it.getName() == action }
                             
                             if (foundTransition) {
-                                def serviceName = null
-                                if (foundTransition.xmlTransition) {
-                                    def serviceCallNode = foundTransition.xmlTransition.first("service-call")
-                                    if (serviceCallNode) serviceName = serviceCallNode.attribute("name")
-                                }
+                                def serviceName = foundTransition.getSingleServiceName()
                                 
                                 if (serviceName) {
                                     ec.logger.info("BrowseScreens: Executing service: ${serviceName}")
@@ -1725,11 +1609,8 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                 // Build UI narrative for LLM guidance
                                 try {
                                     def narrativeBuilder = new org.moqui.mcp.UiNarrativeBuilder()
-                                    // Get screen definition for narrative building
-                                    def screenDefForNarrative = null
-                                    if (resultObj.semanticState.screenPath) {
-                                        screenDefForNarrative = ec.screen.getScreenDefinition(resultObj.semanticState.screenPath)
-                                    }
+                                    // Use the screen definition we already resolved
+                                    def screenDefForNarrative = resolvedScreenDef
 
                                     def uiNarrative = narrativeBuilder.buildNarrative(
                                         screenDefForNarrative,
@@ -1738,13 +1619,13 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                         context.terse == true
                                     )
                                     resultMap.uiNarrative = uiNarrative
-                                    ec.logger.info("BrowseScreens: Generated UI narrative for ${currentPath}")
+                                    ec.logger.info("BrowseScreens: Generated UI narrative for ${currentPath}: ${uiNarrative?.keySet()}")
                                 } catch (Exception e) {
                                     ec.logger.warn("BrowseScreens: Failed to generate UI narrative: ${e.message}")
                                 }
 
-                                // If we have semantic state, we can truncate rendered content to save tokens
-                                if (renderedContent && renderedContent.length() > 500) {
+                                // Only truncate if terse=true
+                                if (renderedContent && context.terse == true && renderedContent.length() > 500) {
                                     renderedContent = renderedContent.take(500) + "... (truncated, see uiNarrative for actions)"
                                 }
                             }
