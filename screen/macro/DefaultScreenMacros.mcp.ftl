@@ -17,8 +17,26 @@
 
 <#macro "fail-widgets"><#recurse></#macro>
 
-<#-- ================ Subscreens ================ -->
-<#macro "subscreens-menu"></#macro>
+ <#-- ================ Subscreens ================ -->
+<#macro "subscreens-menu">
+    <#if mcpSemanticData??>
+        <#list sri.getActiveScreenDef().getMenuSubscreensItems() as subscreen>
+            <#if subscreen.name?has_content>
+                <#assign urlInstance = sri.buildUrl(subscreen.name)>
+                <#if urlInstance.isPermitted()>
+                    <#assign fullPath = urlInstance.sui.fullPathNameList![]>
+                    <#assign slashPath = "">
+                    <#list fullPath as pathPart><#assign slashPath = slashPath + (slashPath?has_content)?then("/", "") + pathPart></#list>
+
+                    <#assign linkText = subscreen.menuTitle?has_content?then(subscreen.menuTitle, subscreen.name)>
+
+                    <#assign linkType = "navigation">
+                    <#assign dummy = ec.resource.expression("mcpSemanticData.links.add([text: '" + (linkText!"")?js_string + "', path: '" + (slashPath!"")?js_string + "', type: '" + linkType + "'])", "")!>
+                </#if>
+            </#if>
+        </#list>
+    </#if>
+</#macro>
 <#macro "subscreens-active">${sri.renderSubscreen()}</#macro>
 <#macro "subscreens-panel">${sri.renderSubscreen()}</#macro>
 

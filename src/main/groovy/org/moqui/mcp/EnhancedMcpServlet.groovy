@@ -127,18 +127,16 @@ class EnhancedMcpServlet extends HttpServlet {
         if (handleCors(request, response, webappName, ecfi)) return
         
         long startTime = System.currentTimeMillis()
-        
+
         if (logger.traceEnabled) {
             logger.trace("Start Enhanced MCP request to [${request.getPathInfo()}] at time [${startTime}] in session [${request.session.id}] thread [${Thread.currentThread().id}:${Thread.currentThread().name}]")
         }
-        
-        ExecutionContextImpl activeEc = ecfi.activeContext.get()
-        if (activeEc != null) {
-            logger.warn("In EnhancedMcpServlet.service there is already an ExecutionContext for user ${activeEc.user.username}")
-            activeEc.destroy()
+
+        ExecutionContextImpl ec = ecfi.activeContext.get()
+        if (ec == null) {
+            logger.warn("No ExecutionContext found from MoquiAuthFilter, creating new one")
+            ec = ecfi.getEci()
         }
-        
-        ExecutionContextImpl ec = ecfi.getEci()
         
         try {
             // Read request body VERY early before any other processing can consume it
@@ -235,8 +233,6 @@ class EnhancedMcpServlet extends HttpServlet {
             // Use simple JSON string to avoid Groovy JSON library issues
             def errorMsg = t.message?.toString() ?: "Unknown error"
             response.writer.write("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Internal error: ${errorMsg.replace("\"", "\\\"")}\"},\"id\":null}")
-        } finally {
-            ec.destroy()
         }
     }
     

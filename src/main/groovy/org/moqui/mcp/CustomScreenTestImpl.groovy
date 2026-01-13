@@ -32,7 +32,6 @@ import org.slf4j.LoggerFactory
  * This provides a proper web context for screen rendering in MCP environment
  * using the MCP component's WebFacadeStub instead of the framework's buggy one
  */
-@CompileStatic
 class CustomScreenTestImpl implements McpScreenTest {
     
     protected final static Logger logger = LoggerFactory.getLogger(CustomScreenTestImpl.class)
@@ -82,6 +81,46 @@ class CustomScreenTestImpl implements McpScreenTest {
         
         // Use our MCP component's WebFacadeStub which properly handles null contextPath
         return new org.moqui.mcp.WebFacadeStub(ecfi, parameters, sessionAttributes, requestMethod, screenPath)
+    }
+
+    /**
+     * Patch ScreenRender instance to handle null fieldNode in getFieldValueString.
+     * This is a workaround for upstream Moqui bug where widget-template-include
+     * creates widget nodes with incomplete parent chain.
+     */
+    protected static void patchScreenRenderForNullFieldNode(ScreenRender screenRender) {
+        try {
+            def sriImpl = screenRender
+            def originalGetFieldValueString = sriImpl.&getFieldValueString
+
+            sriImpl.metaClass.getFieldValueString = { MNode widgetNode ->
+                if (widgetNode != null && widgetNode.parent != null && widgetNode.parent.parent != null) {
+                    return originalGetFieldValueString(widgetNode)
+                } else {
+                    String defaultValue = widgetNode?.attribute("default-value") ?: ""
+                    return delegate.ec.resourceFacade.expandNoL10n(defaultValue, null)
+                }
+            }
+
+            def originalGetFieldValueClass = sriImpl.&getFieldValueClass
+            sriImpl.metaClass.getFieldValueClass = { MNode fieldNodeWrapper ->
+                if (fieldNodeWrapper == null) return "String"
+                return originalGetFieldValueClass(fieldNodeWrapper)
+            }
+
+            def originalGetFieldEntityValue = sriImpl.&getFieldEntityValue
+            sriImpl.metaClass.getFieldEntityValue = { MNode widgetNode ->
+                if (widgetNode != null && widgetNode.parent != null && widgetNode.parent.parent != null) {
+                    return originalGetFieldEntityValue(widgetNode)
+                } else {
+                    return delegate.getDefaultText(widgetNode)
+                }
+            }
+
+            logger.debug("Patched ScreenRender with null fieldNode protection")
+        } catch (Throwable t) {
+            logger.warn("Failed to patch ScreenRender: ${t.getMessage()}", t)
+        }
     }
 
     @Override
@@ -205,7 +244,6 @@ class CustomScreenTestImpl implements McpScreenTest {
     /**
      * Custom ScreenTestRenderImpl that uses our WebFacadeStub
      */
-    @CompileStatic
     static class CustomScreenTestRenderImpl implements McpScreenTestRender {
         protected final CustomScreenTestImpl sti
         String screenPath = (String) null
@@ -334,8 +372,10 @@ class CustomScreenTestImpl implements McpScreenTest {
             // Put web facade objects in context for screen access
             cs.put("html_scripts", wfs.getHtmlScripts())
             cs.put("html_stylesheets", wfs.getHtmlStyleSheets())
-            // make the ScreenRender
+            // make ScreenRender
             ScreenRender screenRender = csti.sfi.makeRender()
+            // Patch ScreenRender to handle null fieldNode in getFieldValueString
+            patchScreenRenderForNullFieldNode(screenRender)
             stri.screenRender = screenRender
             // pass through various settings
             if (csti.rootScreenLocation != null && csti.rootScreenLocation.length() > 0) screenRender.rootScreen(csti.rootScreenLocation)

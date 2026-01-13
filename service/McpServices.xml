@@ -722,6 +722,10 @@ serializeMoquiObject = { obj, depth = 0, isTerse = false ->
     if (obj.getClass().getName().startsWith("org.moqui.impl.screen.ScreenDefinition")) {
         return [location: obj.location]
     }
+    // Skip EntityFind objects entirely - they're query definitions, not actual data
+    if (obj instanceof org.moqui.entity.EntityFind) {
+        return null
+    }
     // Fallback for unknown types - truncate if too long
     def str = obj.toString()
     if (str.length() > 200) {
@@ -1695,11 +1699,6 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                 } catch (Exception e) {
                                     ec.logger.warn("BrowseScreens: Failed to generate UI narrative: ${e.message}")
                                 }
-
-                                // Only truncate if terse=true
-                                if (renderedContent && context.terse == true && renderedContent.length() > 500) {
-                                    renderedContent = renderedContent.take(500) + "... (truncated, see uiNarrative for actions)"
-                                }
                             }
                         }
 
@@ -1713,18 +1712,15 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 if (actionResult) {
                     resultMap.actionResult = actionResult
                 }
+
+                // Don't include renderedContent for renderMode "mcp" - semanticState provides structured data
+                // Including both duplicates data and truncation breaks JSON structure
+                if (renderedContent && actualRenderMode != "mcp") {
+                    resultMap.renderedContent = renderedContent
+                }
                 
                 if (actionError) {
                     resultMap.actionError = actionError
-                }
-                
-                if (renderedContent) {
-                    resultMap.renderedContent = renderedContent
-                }
-
-                // Handle empty content case
-                if (!renderedContent && !renderError) {
-                    resultMap.renderedContent = "SCREEN_RENDERED_EMPTY: No output generated (screen may be waiting for parameters or has no content)"
                 }
 
                 if (wikiInstructions) {
