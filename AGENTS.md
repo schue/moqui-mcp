@@ -76,7 +76,6 @@ COMPLETED ITEMS REMOVED
 
 ### Path Delimiter Tests (Requires server restart)
 - [ ] `/PopCommerce/PopCommerceAdmin/Catalog/Product` works
-- [ ] `PopCommerce.PopCommerceAdmin.Catalog.Product` still works (backward compat)
 - [ ] Navigation links use `/` in output
 - [ ] Error messages reference paths with `/`
 - [ ] Documentation updated to use `/`
