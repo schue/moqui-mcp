@@ -45,23 +45,23 @@ Use the following discovery tools to explore available functionality:
 ## Common Screen Paths
 
 ### Catalog Operations
-- `PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct`: Search and browse products
-- `PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature`: Search by features like color or size
-- `PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices`: View and update product prices
+- `/PopCommerce/PopCommerceAdmin.Catalog.Product.FindProduct`: Search and browse products
+- `/PopCommerce/PopCommerceAdmin.Catalog.Feature.FindFeature`: Search by features like color or size
+- `/PopCommerce/PopCommerceAdmin.Catalog.Product.EditPrices`: View and update product prices
 
 ### Order Management
-- `PopCommerce.PopCommerceAdmin.Order.FindOrder`: Lookup order status and details
-- `PopCommerce.PopCommerceAdmin.QuickSearch`: General order and customer search
+- `/PopCommerce/PopCommerceAdmin.Order.FindOrder`: Lookup order status and details
+- `/PopCommerce/PopCommerceAdmin.QuickSearch`: General order and customer search
 
 ### Customer Management
-- `PopCommerce.PopCommerceRoot.Customer`: Manage customer accounts
-- `PopCommerce.PopCommerceAdmin.QuickSearch`: Customer lookup
+- `/PopCommerce/PopCommerceRoot.Customer`: Manage customer accounts
+- `/PopCommerce/PopCommerceAdmin.QuickSearch`: Customer lookup
 
 ## Tips for LLM Clients
 
 - All screens support parameterized queries for filtering results
 - Use `moqui_render_screen` with screen path to execute screens
-- Screen paths use dot notation (e.g., `PopCommerce.Catalog.Product`)
+- Screen paths use dot notation (e.g., `/PopCommerce/Catalog.Product`)
 - Check `moqui_get_screen_details` for required parameters before rendering
 - Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></fileData>
     </moqui.resource.DbResourceFile>
@@ -107,23 +107,23 @@ Use the following discovery tools to explore available functionality:
 ## Common Screen Paths
 
 ### Catalog Operations
-- `PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct`: Search and browse products
-- `PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature`: Search by features like color or size
-- `PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices`: View and update product prices
+- `/PopCommerce/PopCommerceAdmin.Catalog.Product.FindProduct`: Search and browse products
+- `/PopCommerce/PopCommerceAdmin.Catalog.Feature.FindFeature`: Search by features like color or size
+- `/PopCommerce/PopCommerceAdmin.Catalog.Product.EditPrices`: View and update product prices
 
 ### Order Management
-- `PopCommerce.PopCommerceAdmin.Order.FindOrder`: Lookup order status and details
-- `PopCommerce.PopCommerceAdmin.QuickSearch`: General order and customer search
+- `/PopCommerce/PopCommerceAdmin.Order.FindOrder`: Lookup order status and details
+- `/PopCommerce/PopCommerceAdmin.QuickSearch`: General order and customer search
 
 ### Customer Management
-- `PopCommerce.PopCommerceRoot.Customer`: Manage customer accounts
-- `PopCommerce.PopCommerceAdmin.QuickSearch`: Customer lookup
+- `/PopCommerce/PopCommerceRoot.Customer`: Manage customer accounts
+- `/PopCommerce/PopCommerceAdmin.QuickSearch`: Customer lookup
 
 ## Tips for LLM Clients
 
 - All screens support parameterized queries for filtering results
 - Use `moqui_render_screen` with screen path to execute screens
-- Screen paths use dot notation (e.g., `PopCommerce.Catalog.Product`)
+- Screen paths use dot notation (e.g., `/PopCommerce/Catalog.Product`)
 - Check `moqui_get_screen_details` for required parameters before rendering
 - Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></fileData>
     </moqui.resource.DbResourceFile>
@@ -132,7 +132,7 @@ Use the following discovery tools to explore available functionality:
     <moqui.resource.DbResource
         resourceId="WIKI_MCP_DOCS_POPCOMM_ROOT"
         parentResourceId="WIKI_MCP_SCREEN_DOCS"
-        filename="PopCommerce.PopCommerceRoot.md"
+        filename="PopCommerce/PopCommerceRoot.md"
         isFile="Y"/>
     <moqui.resource.DbResourceFile
         resourceId="WIKI_MCP_DOCS_POPCOMM_ROOT"
@@ -158,7 +158,7 @@ Use browse tools to explore the full catalog of PopCommerce screens starting fro
     <moqui.resource.wiki.WikiPage
         wikiPageId="MCP_SCREEN_DOCS/PopCommerceRoot"
         wikiSpaceId="MCP_SCREEN_DOCS"
-        pagePath="PopCommerce.PopCommerceRoot"
+        pagePath="PopCommerce/PopCommerceRoot"
         publishedVersionName="v1"
         restrictView="N">
     </moqui.resource.wiki.WikiPage>

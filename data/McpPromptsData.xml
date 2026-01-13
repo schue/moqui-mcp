@@ -67,21 +67,21 @@ For ${focus?.capitalize() ?: 'General'} operations:
 
 ${focus == 'catalog' ? '''
 ## Catalog Operations
-- **FindProduct**: Use `PopCommerce.PopCommerceAdmin.Catalog.Product.FindProduct` for product catalog
-- **FindFeature**: Use `PopCommerce.PopCommerceAdmin.Catalog.Feature.FindFeature` to search by features like color or size
-- **EditPrices**: Use `PopCommerce.PopCommerceAdmin.Catalog.Product.EditPrices` to check prices
+- **FindProduct**: Use `/PopCommerce/PopCommerceAdmin.Catalog.Product.FindProduct` for product catalog
+- **FindFeature**: Use `/PopCommerce/PopCommerceAdmin.Catalog.Feature.FindFeature` to search by features like color or size
+- **EditPrices**: Use `/PopCommerce/PopCommerceAdmin.Catalog.Product.EditPrices` to check prices
 ''' : ''}
 
 ${focus == 'orders' ? '''
 ## Order Operations
-- **FindOrder**: Use `PopCommerce.PopCommerceAdmin.Order.FindOrder` for order status and lookup
-- **QuickSearch**: Use `PopCommerce.PopCommerceAdmin.QuickSearch` for general order searches
+- **FindOrder**: Use `/PopCommerce/PopCommerceAdmin.Order.FindOrder` for order status and lookup
+- **QuickSearch**: Use `/PopCommerce/PopCommerceAdmin.QuickSearch` for general order searches
 ''' : ''}
 
 ${focus == 'customers' ? '''
 ## Customer Operations
-- **CustomerRoot**: Use `PopCommerce.PopCommerceRoot.Customer` for customer management
-- **QuickSearch**: Use `PopCommerce.PopCommerceAdmin.QuickSearch` for customer lookup
+- **CustomerRoot**: Use `/PopCommerce/PopCommerceRoot.Customer` for customer management
+- **QuickSearch**: Use `/PopCommerce/PopCommerceAdmin.QuickSearch` for customer lookup
 ''' : ''}
 
 ${detailLevel == 'advanced' ? '''

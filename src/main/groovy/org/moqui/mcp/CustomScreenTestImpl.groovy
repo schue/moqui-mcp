@@ -93,13 +93,26 @@ class CustomScreenTestImpl implements McpScreenTest {
         return this
     }
     
+    protected static List<String> pathToList(String path) {
+        List<String> pathList = new ArrayList<>()
+        if (path && path.contains('/')) {
+            String[] pathSegments = path.split('/')
+            for (String segment in pathSegments) {
+                if (segment && segment.trim().length() > 0) {
+                    pathList.add(segment)
+                }
+            }
+        }
+        return pathList
+    }
+
     @Override
     McpScreenTest baseScreenPath(String screenPath) {
         if (!rootScreenLocation) throw new BaseArtifactException("No rootScreen specified")
         baseScreenPath = screenPath
         if (baseScreenPath.endsWith("/")) baseScreenPath = baseScreenPath.substring(0, baseScreenPath.length() - 1)
         if (baseScreenPath) {
-            baseScreenPathList = ScreenUrlInfo.parseSubScreenPath(rootScreenDef, rootScreenDef, [], baseScreenPath, null, sfi)
+            baseScreenPathList = ScreenUrlInfo.parseSubScreenPath(rootScreenDef, rootScreenDef, pathToList(baseScreenPath), baseScreenPath, [:], sfi)
             if (baseScreenPathList == null) throw new BaseArtifactException("Error in baseScreenPath, could find not base screen path ${baseScreenPath} under ${rootScreenDef.location}")
             for (String screenName in baseScreenPathList) {
                 ScreenDefinition.SubscreensItem ssi = baseScreenDef.getSubscreensItem(screenName)
@@ -282,10 +295,24 @@ class CustomScreenTestImpl implements McpScreenTest {
                     }
                 }
                 logger.info("Custom screen path parsing for non-webroot root: ${screenPathList}")
-            } else {
-                screenPathList = ScreenUrlInfo.parseSubScreenPath(csti.rootScreenDef, csti.baseScreenDef,
-                        csti.baseScreenPathList, stri.screenPath, stri.parameters, csti.sfi)
-            }
+              } else {
+                  // For webroot or other cases, use ScreenUrlInfo.parseSubScreenPath for resolution
+                  // Convert screenPath to list for parseSubScreenPath
+                  List<String> inputPathList = new ArrayList<>()
+                  if (stri.screenPath && stri.screenPath.contains('/')) {
+                      String[] pathSegments = stri.screenPath.split('/')
+                      for (String segment in pathSegments) {
+                          if (segment && segment.trim().length() > 0) {
+                              inputPathList.add(segment)
+                          }
+                      }
+                  }
+
+                  // Use Moqui's parseSubScreenPath to resolve actual screen path
+                  // Note: pass null for fromPathList since stri.screenPath is already relative to root or from screen
+                  screenPathList = ScreenUrlInfo.parseSubScreenPath(csti.rootScreenDef, csti.baseScreenDef,
+                          null, stri.screenPath, stri.parameters, csti.sfi)
+             }
             if (screenPathList == null) throw new BaseArtifactException("Could not find screen path ${stri.screenPath} under base screen ${csti.baseScreenDef.location}")
 
             // push the context

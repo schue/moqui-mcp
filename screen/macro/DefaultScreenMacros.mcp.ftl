@@ -7,7 +7,9 @@
 
 <#macro @element></#macro>
 
-<#macro screen><#recurse></#macro>
+<#macro screen>
+    <#recurse>
+</#macro>
 
 <#macro widgets>
     <#recurse>
@@ -48,6 +50,7 @@
 
 <#macro "container-dialog">
 [Button: ${ec.resource.expand(.node["@button-text"], "")}]
+<#recurse>
 </#macro>
 
 <#-- ================== Standalone Fields ==================== -->
@@ -66,18 +69,18 @@
              <#assign linkText = sri.getFieldValueString(.node?parent?parent)>
         </#if>
 
-        <#-- Convert path to dot notation for moqui_render_screen -->
+        <#-- Convert path to slash notation for moqui_render_screen (matches browser URLs) -->
         <#assign fullPath = urlInstance.sui.fullPathNameList![]>
-        <#assign dotPath = "">
-        <#list fullPath as pathPart><#assign dotPath = dotPath + (dotPath?has_content)?then(".", "") + pathPart></#list>
+        <#assign slashPath = "">
+        <#list fullPath as pathPart><#assign slashPath = slashPath + (slashPath?has_content)?then("/", "") + pathPart></#list>
         
         <#assign paramStr = urlInstance.getParameterString()>
-        <#if paramStr?has_content><#assign dotPath = dotPath + "?" + paramStr></#if>
+        <#if paramStr?has_content><#assign slashPath = slashPath + "?" + paramStr></#if>
         
-        [${linkText}](${dotPath})<#t>
+        [${linkText}](${slashPath})<#t>
         <#if mcpSemanticData??>
             <#if !mcpSemanticData.links??><#assign dummy = mcpSemanticData.put("links", [])></#if>
-            <#assign linkInfo = {"text": linkText, "path": dotPath, "type": "navigation"}>
+            <#assign linkInfo = {"text": linkText, "path": slashPath, "type": "navigation"}>
             <#assign dummy = mcpSemanticData.links.add(linkInfo)>
         </#if>
     </#if>
@@ -98,17 +101,16 @@
 <#-- ======================= Form ========================= -->
 <#macro "form-single">
     <#assign formNode = sri.getFormNode(.node["@name"])>
-    <#assign mapName = formNode["@map"]!"fieldValues">
+     <#assign mapName = (formNode["@map"]!"fieldValues")>
     <#assign formMap = ec.resource.expression(mapName, "")!>
     
     <#if mcpSemanticData??>
-        <#if !mcpSemanticData.formMetadata??><#assign dummy = mcpSemanticData.put("formMetadata", {})</#if>
+        <#if !mcpSemanticData.formMetadata??><#assign dummy = mcpSemanticData.put("formMetadata", {})></#if>
         
-        <#assign formMeta = {}>
-        <#assign formMeta = formMeta + {"name": .node["@name"]!"", "map": mapName}>
+        <#assign formMeta = {"name": (.node["@name"]!""), "map": mapName}>
         <#assign fieldMetaList = []>
         
-        <#assign dummy = mcpSemanticData.formMeta.put(.node["@name"], formMeta)>
+        <#assign dummy = mcpSemanticData.formMetadata.put(.node["@name"], formMeta)>
     </#if>
     
     <#if mcpSemanticData?? && formMap?has_content><#assign dummy = mcpSemanticData.put(.node["@name"], formMap)></#if>
@@ -121,8 +123,7 @@
             <#assign title><@fieldTitle fieldSubNode/></#assign>
             
             <#if mcpSemanticData??>
-                <#assign fieldMeta = {}>
-                <#assign fieldMeta = fieldMeta + {"name": fieldNode["@name"]!"", "title": title!"", "required": (fieldNode["@required"]! == "true")}>
+                <#assign fieldMeta = {"name": (fieldNode["@name"]!""), "title": (title!), "required": (fieldNode["@required"]! == "true")}>
                 
                 <#if fieldSubNode["text-line"]?has_content><#assign dummy = fieldMeta.put("type", "text")></#if>
                 <#if fieldSubNode["text-area"]?has_content><#assign dummy = fieldMeta.put("type", "textarea")></#if>
@@ -138,7 +139,7 @@
     </#list>
     
     <#if mcpSemanticData?? && fieldMetaList?has_content>
-        <#assign dummy = mcpSemanticData.formMeta[.node["@name"]!].put("fields", fieldMetaList)>
+        <#assign dummy = mcpSemanticData.formMetadata[.node["@name"]!].put("fields", fieldMetaList)>
     </#if>
     
     <#t>${sri.popContext()}
@@ -154,12 +155,9 @@
     
     <#if mcpSemanticData?? && listObject?has_content>
         <#assign truncatedList = listObject>
-        <#if listObject?size > 50>
-            <#assign truncatedList = listObject?take(50)>
-        </#if>
         <#assign dummy = mcpSemanticData.put(.node["@name"], truncatedList)>
         
-        <#if !mcpSemanticData.listMetadata??><#assign dummy = mcpSemanticData.put("listMetadata", {})</#if>
+        <#if !mcpSemanticData.listMetadata??><#assign dummy = mcpSemanticData.put("listMetadata", {})></#if>
         
         <#assign columnNames = []>
         <#list formListColumnList as columnFieldList>
@@ -167,11 +165,11 @@
             <#assign dummy = columnNames.add(fieldNode["@name"]!"")>
         </#list>
         
-        <#assign dummy = mcpSemanticData.listMeta.put(.node["@name"]!"", {
+        <#assign dummy = mcpSemanticData.listMetadata.put(.node["@name"]!"", {
             "name": .node["@name"]!"",
             "totalItems": totalItems,
-            "displayedItems": truncatedList?size,
-            "truncated": (listObject?size > 50),
+            "displayedItems": (totalItems > 50)?then(50, totalItems),
+            "truncated": (totalItems > 50),
             "columns": columnNames
         })>
     </#if>
@@ -185,7 +183,8 @@
     |
     <#list formListColumnList as columnFieldList>| --- </#list>|
     <#-- Data Rows -->
-    <#list (truncatedList?? && truncatedList?size > 0)!listObject as listEntry>
+    <#list listObject as listEntry>
+        <#if (listEntry_index >= 50)><#break></#if>
         <#t>${sri.startFormListRow(formListInfo, listEntry, listEntry_index, listEntry_has_next)}
         <#list formListColumnList as columnFieldList>
             <#t>| <#list columnFieldList as fieldNode><@formListSubField fieldNode/><#if fieldNode_has_next> </#if></#list><#t>
