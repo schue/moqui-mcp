@@ -198,13 +198,14 @@
 <#macro formListWidget fieldSubNode>
     <#if fieldSubNode["ignored"]?has_content || fieldSubNode["hidden"]?has_content || fieldSubNode?parent["@hide"]! == "true"><#return></#if>
     <#if fieldSubNode["submit"]?has_content>
-        <#assign submitText = sri.getFieldValueString(fieldSubNode)!>
-        <#assign screenName = sri.getEffectiveScreen().name!?string>
-        <#assign formName = .node["@name"]!?string>
-        <#assign fieldName = fieldSubNode["@name"]!?string>
+        <#assign submitText = fieldSubNode["@title"]!fieldSubNode?parent["@title"]!fieldSubNode?parent["@name"]!>
+        <#assign screenName = (sri.getActiveScreenDef().getName())!"">
+        <#assign formName = (fieldSubNode?parent?parent["@name"])!"">
+        <#assign fieldName = (fieldSubNode?parent["@name"])!"">
         [${submitText}](#${screenName}.${formName}.${fieldName})
+    <#else>
+        <#recurse fieldSubNode>
     </#if>
-    <#recurse fieldSubNode>
 </#macro>
 
 <#macro fieldTitle fieldSubNode>
@@ -233,8 +234,7 @@
 
 <#macro "display">
     <#assign fieldValue = "">
-    <#assign dispFieldNode = .node?parent?parent>
-     <#if .node["@text"]?has_content>
+    <#if .node["@text"]?has_content>
         <#assign textMap = {}>
         <#if .node["@text-map"]?has_content><#assign textMap = ec.getResource().expression(.node["@text-map"], {})!></#if>
         <#assign fieldValue = ec.getResource().expand(.node["@text"], "", textMap, false)>
@@ -242,7 +242,7 @@
             <#assign fieldValue = ec.getL10n().formatCurrency(fieldValue, ec.getResource().expression(.node["@currency-unit-field"], ""))>
         </#if>
     <#else>
-        <#assign fieldValue = sri.getFieldValueString(.node)>
+        <#assign fieldValue = (sri.getFieldValueString(.node))!"">
     </#if>
     <#t>${fieldValue}
 </#macro>
@@ -257,9 +257,9 @@
     <#t>${(options[currentValue])!currentValue}
 </#macro>
 
-<#macro "text-area"><#t>${sri.getFieldValueString(.node)}</#macro>
-<#macro "text-line"><#t>${sri.getFieldValueString(.node)}</#macro>
-<#macro "text-find"><#t>${sri.getFieldValueString(.node)}</#macro>
+<#macro "text-area"><#t>${(sri.getFieldValueString(.node))!""}</#macro>
+<#macro "text-line"><#t>${(sri.getFieldValueString(.node))!""}</#macro>
+<#macro "text-find"><#t>${(sri.getFieldValueString(.node))!""}</#macro>
 <#macro "submit"></#macro>
 <#macro "password"></#macro>
 <#macro "hidden"></#macro>
