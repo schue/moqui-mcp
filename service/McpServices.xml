@@ -568,7 +568,7 @@
             <parameter name="action"><description>Action being processed: if not null, use real screen rendering instead of test mock</description></parameter>
             <parameter name="renderMode" default="mcp"><description>Render mode: mcp, text, html, xml, vuet, qvt</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
-            <parameter name="terse" type="Boolean" default="false"><description>If true, return minimal data (10 items, 200 chars strings). If false, include full data (50 items, no truncation).</description></parameter>
+            <parameter name="terse" type="Boolean" default="false"><description>If true, return condensed data (50 items, 5000 char strings). If false, include full data (1000 items, 50k char strings).</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
@@ -661,20 +661,20 @@ serializeMoquiObject = { obj, depth = 0, isTerse = false ->
     if (obj instanceof Iterable) {
         def list = obj.collect()
         // Apply truncation only if terse mode is enabled
-        if (isTerse && list.size() > 10) {
-            ec.logger.info("serializeMoquiObject: Terse mode - truncating list from ${list.size()} to 10 items")
-            def truncated = list.take(10)
+        if (isTerse && list.size() > 50) {
+            ec.logger.info("serializeMoquiObject: Terse mode - truncating list from ${list.size()} to 50 items")
+            def truncated = list.take(50)
             def resultList = truncated.collect { serializeMoquiObject(it, depth + 1, isTerse) }
             return [
                 _items: resultList,
                 _totalCount: list.size(),
                 _truncated: true,
                 _hasMore: true,
-                _message: "Terse mode: showing first 10 of ${list.size()} items. Set terse=false to get more data."
+                _message: "Terse mode: showing first 50 of ${list.size()} items. Set terse=false to get full data."
             ]
         }
-        // Increased limits for non-terse mode
-        def maxItems = isTerse ? 10 : 250
+        // Increased limits for non-terse mode - effectively unlimited for operational use
+        def maxItems = isTerse ? 50 : 1000
         def truncated = list.take(maxItems)
         def resultList = truncated.collect { serializeMoquiObject(it, depth + 1, isTerse) }
         if (!isTerse && list.size() > maxItems) {
@@ -700,21 +700,21 @@ serializeMoquiObject = { obj, depth = 0, isTerse = false ->
     }
     if (obj instanceof String) {
         // Apply truncation only if terse mode is enabled
-        if (isTerse && obj.length() > 200) {
+        if (isTerse && obj.length() > 5000) {
             return [
-                _value: obj.substring(0, 200) + "...",
+                _value: obj.substring(0, 5000) + "...",
                 _fullLength: obj.length(),
                 _truncated: true,
-                _message: "Terse mode: truncated to 200 chars. Set terse=false to get more data."
+                _message: "Terse mode: truncated to 5000 chars. Set terse=false to get more data."
             ]
         }
-        // Non-terse limit increased to 2000 for safety but much larger than before
-        if (!isTerse && obj.length() > 2000) {
+        // Non-terse limit increased to 50000 for safety
+        if (!isTerse && obj.length() > 50000) {
             return [
-                _value: obj.substring(0, 2000) + "...",
+                _value: obj.substring(0, 50000) + "...",
                 _fullLength: obj.length(),
                 _truncated: true,
-                _message: "Truncated to 2000 chars for safety."
+                _message: "Truncated to 50000 chars for safety."
             ]
         }
         return obj
@@ -1330,7 +1330,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             <parameter name="renderMode" default="mcp"><description>Render mode: mcp (default), text, html, xml, vuet, qvt</description></parameter>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering or action</description></parameter>
             <parameter name="sessionId"/>
-            <parameter name="terse" type="Boolean" default="false"><description>If true, return minimal data (10 items, 200 chars strings). If false, include full data (50 items, no truncation).</description></parameter>
+            <parameter name="terse" type="Boolean" default="false"><description>If true, return condensed data (50 items, 5000 char strings). If false, include full data (1000 items, 50k char strings).</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
