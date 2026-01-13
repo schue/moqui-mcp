@@ -891,22 +891,94 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     }
                 }
                 
-                // Extract transitions (Actions) with metadata (from screen definition, not macros)
+                // Extract transitions (Actions) with type classification and metadata
                 semanticState.actions = []
                 finalScreenDef.getAllTransitions().each { trans ->
+                    def transName = trans.getName()
+                    def service = trans.getSingleServiceName()
+                    
+                    // Classify action type
+                    def actionType = "screen-transition"
+                    def transNameLower = transName?.toString()?.toLowerCase() ?: ''
+                    
+                    if (service) {
+                        actionType = "service-action"
+                    } else if (transNameLower.contains('delete')) {
+                        actionType = "delete-action"
+                    } else if (transNameLower.startsWith('form') || transNameLower == 'find' || transNameLower == 'search') {
+                        actionType = "form-action"
+                    }
+                    
                     def actionInfo = [
-                        name: trans.getName(),
-                        service: trans.getSingleServiceName()
+                        name: transName,
+                        service: service,
+                        type: actionType
                     ]
+                    
                     semanticState.actions << actionInfo
                 }
                 
-                // 3. Extract parameters that are currently set
+                // 3. Extract parameters with metadata
                 semanticState.parameters = [:]
                 if (finalScreenDef.parameterByName) {
                     finalScreenDef.parameterByName.each { name, param ->
                         def value = postContext.get(name) ?: parameters?.get(name)
-                        if (value != null) semanticState.parameters[name] = serializeMoquiObject(value, 0, isTerse)
+                        
+                        // Build parameter metadata
+                        def paramInfo = [:]
+                        
+                        // Add value if exists
+                        if (value != null) {
+                            paramInfo.value = serializeMoquiObject(value, 0, isTerse)
+                        }
+                        
+                        // Extract parameter type - try multiple approaches
+                        def type = "string"
+                        try {
+                            // Try to get type via reflection or known properties
+                            if (param.hasProperty('type')) {
+                                def typeObj = param.type
+                                if (typeObj != null) type = typeObj.toString().toLowerCase()
+                            } else if (param.hasProperty('parameterType')) {
+                                def typeObj = param.parameterType
+                                if (typeObj != null) type = typeObj.toString().toLowerCase()
+                            }
+                        } catch (Exception e) {
+                            // Fall back to type inference from value
+                        }
+                        
+                        // Infer type from value if type couldn't be extracted
+                        if (type == "string" && value != null) {
+                            if (value instanceof Number) {
+                                type = (value instanceof Integer || value instanceof Long) ? "long" : "decimal"
+                            } else if (value instanceof Boolean) {
+                                type = "boolean"
+                            } else if (value instanceof Collection || value instanceof Map) {
+                                type = (value instanceof Collection) ? "list" : "map"
+                            }
+                        }
+                        paramInfo.type = type
+                        
+                        // Extract required flag - defensive check
+                        paramInfo.required = false
+                        try {
+                            if (param.hasProperty('required')) {
+                                paramInfo.required = (param.required == true)
+                            }
+                        } catch (Exception e) {
+                            // Skip if property doesn't exist
+                        }
+                        
+                        // Extract default value - defensive check
+                        try {
+                            if (param.hasProperty('defaultValue') && param.defaultValue != null) {
+                                paramInfo.defaultValue = param.defaultValue.toString()
+                            }
+                        } catch (Exception e) {
+                            // Skip if property doesn't exist
+                        }
+                        
+                        semanticState.parameters[name] = paramInfo
                     }
                 }
                 

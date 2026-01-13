@@ -79,7 +79,11 @@
         
         [${linkText}](${slashPath})<#t>
         <#if mcpSemanticData??>
-            <#assign dummy = ec.resource.expression("mcpSemanticData.links.add([text: '" + (linkText!"")?js_string + "', path: '" + (slashPath!"")?js_string + "', type: 'navigation'])", "")!>
+            <#assign linkType = "navigation">
+            <#if slashPath?starts_with("#")><#assign linkType = "action"></#if>
+            <#if slashPath?starts_with("http://") || slashPath?starts_with("https://")><#assign linkType = "external"></#if>
+            <#if .node["@icon"]?has_content && .node["@icon"]?contains("trash")><#assign linkType = "delete"></#if>
+            <#assign dummy = ec.resource.expression("mcpSemanticData.links.add([text: '" + (linkText!"")?js_string + "', path: '" + (slashPath!"")?js_string + "', type: '" + linkType + "'])", "")!>
         </#if>
     </#if>
 </#macro>
@@ -122,7 +126,12 @@
                 <#if fieldSubNode["text-area"]?has_content><#assign fieldMeta = fieldMeta + {"type": "textarea"}></#if>
                 <#if fieldSubNode["drop-down"]?has_content><#assign fieldMeta = fieldMeta + {"type": "dropdown"}></#if>
                 <#if fieldSubNode["check"]?has_content><#assign fieldMeta = fieldMeta + {"type": "checkbox"}></#if>
+                <#if fieldSubNode["radio"]?has_content><#assign fieldMeta = fieldMeta + {"type": "radio"}></#if>
                 <#if fieldSubNode["date-find"]?has_content><#assign fieldMeta = fieldMeta + {"type": "date"}></#if>
+                <#if fieldSubNode["display"]?has_content || fieldSubNode["display-entity"]?has_content><#assign fieldMeta = fieldMeta + {"type": "display"}></#if>
+                <#if fieldSubNode["link"]?has_content><#assign fieldMeta = fieldMeta + {"type": "link"}></#if>
+                <#if fieldSubNode["file"]?has_content><#assign fieldMeta = fieldMeta + {"type": "file-upload"}></#if>
+                <#if fieldSubNode["hidden"]?has_content><#assign fieldMeta = fieldMeta + {"type": "hidden"}></#if>
                 
                 <#assign fieldMetaList = fieldMetaList + [fieldMeta]>
             </#if>

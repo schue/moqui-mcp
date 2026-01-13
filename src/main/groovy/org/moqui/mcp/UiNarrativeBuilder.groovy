@@ -105,23 +105,28 @@ class UiNarrativeBuilder {
 
     List<String> describeActions(ScreenDefinition screenDef, Map<String, Object> semanticState, String currentPath, boolean isTerse) {
         def actions = []
-        
+
         def transitions = semanticState?.actions
         if (transitions) {
             transitions.each { trans ->
                 def transName = trans.name?.toString()
                 def service = trans.service?.toString()
-                
+                def actionType = classifyActionType(trans, semanticState)
+
                 if (transName) {
-                    if (service) {
+                    if (actionType == 'service-action' && service) {
                         actions << buildServiceActionNarrative(transName, service, currentPath, semanticState)
-                    } else if (transName.toLowerCase().startsWith('create') || transName.toLowerCase().startsWith('update')) {
-                        actions << buildTransitionActionNarrative(transName, currentPath, semanticState)
+                    } else if (actionType == 'form-action') {
+                        actions << buildFormActionNarrative(transName, currentPath, semanticState)
+                    } else if (actionType == 'screen-transition') {
+                        actions << buildScreenTransitionNarrative(transName, currentPath, semanticState)
+                    } else if (service) {
+                        actions << buildServiceActionNarrative(transName, service, currentPath, semanticState)
                     }
                 }
             }
         }
-        
+
         def forms = semanticState?.data
         if (forms) {
             def formNames = forms.keySet().findAll { k -> k.contains('Form') || k.contains('form') }
@@ -129,12 +134,31 @@ class UiNarrativeBuilder {
                 actions << buildFormSubmitNarrative(formName, currentPath, semanticState)
             }
         }
-        
+
         if (actions.isEmpty()) {
             actions << "No explicit actions available on this screen. Use navigation links to explore."
         }
-        
+
         return actions
+    }
+
+    private String classifyActionType(def trans, Map semanticState) {
+        def transName = trans.name?.toString()?.toLowerCase() ?: ''
+        def service = trans.service?.toString()
+
+        // Delete actions are special
+        if (transName.contains('delete')) return 'delete-action'
+
+        // Service actions
+        if (service) return 'service-action'
+
+        // Form actions (built-in)
+        if (transName.startsWith('form') || transName == 'find' || transName == 'search') {
+            return 'form-action'
+        }
+
+        // Screen transitions
+        return 'screen-transition'
     }
 
     List<String> describeLinks(Map<String, Object> semanticState, String currentPath, boolean isTerse) {
@@ -151,12 +175,31 @@ class UiNarrativeBuilder {
                 def linkType = link.type?.toString() ?: 'navigation'
                 
                 if (linkPath) {
-                    if (linkPath.startsWith('#')) {
-                        def actionName = linkPath.substring(1)
-                        navigation << "To ${linkText.toLowerCase()}, use the '${actionName}' action (see actions section)."
+                    if (linkType == 'action' || linkPath.startsWith('#')) {
+                        def actionName = linkPath.startsWith('#') ? linkPath.substring(1) : linkPath
+                        navigation << "To ${linkText.toLowerCase()}, use action '${actionName}' (type: action)."
+                    } else if (linkType == 'delete') {
+                        navigation << "To ${linkText.toLowerCase() ?: 'delete'}, call moqui_render_screen(path='${linkPath}') (type: delete)."
+                    } else if (linkType == 'external') {
+                        navigation << "To ${linkText.toLowerCase() ?: 'external link'}, visit ${linkPath} (type: external)."
+                    } else if (linkType == 'button') {
+                        navigation << "To ${linkText.toLowerCase()}, click button action (type: button)."
                     } else {
-                        navigation << "To ${linkText.toLowerCase()}, call moqui_render_screen(path='${linkPath}')."
+                        navigation << "To ${linkText.toLowerCase()}, call moqui_render_screen(path='${linkPath}') (type: navigation)."
                     }
+                }
+            }
+        }
+        
+        if (navigation.isEmpty()) {
+            def parentPath = getParentPath(currentPath)
+            if (parentPath) {
+                navigation << "To go back, call moqui_render_screen(path='${parentPath}')."
+            }
+        }
+        
+        return navigation
+    }
                 }
             }
         }
@@ -250,11 +293,47 @@ class UiNarrativeBuilder {
     private String buildFormSubmitNarrative(String formName, String currentPath, Map semanticState) {
         def formFriendly = formFriendlyName(formName)
         def params = extractFormParameters(formName, semanticState)
-        
+
         def sb = new StringBuilder()
         sb.append("To submit ${formFriendly.toLowerCase()}, call moqui_render_screen(path='${currentPath}', parameters={${params}}). ")
-        sb.append("This filters or processes the ${formFriendly.toLowerCase()} form.")
-        
+        sb.append("This filters or processes ${formFriendly.toLowerCase()} form.")
+
+        return sb.toString()
+    }
+
+    private String buildFormActionNarrative(String actionName, String currentPath, Map semanticState) {
+        def actionLower = actionName.toLowerCase()
+        def verb = actionLower.startsWith('find') ? 'find' : actionLower.startsWith('search') ? 'search' : 'filter'
+
+        def params = extractTransitionParameters(actionName, semanticState)
+
+        def sb = new StringBuilder()
+        sb.append("To ${verb} ")
+        sb.append("results, call moqui_render_screen(path='${currentPath}', action='${actionName}'")
+
+        if (params) {
+            sb.append(", parameters={${params}}")
+        }
+
+        sb.append("). ")
+        sb.append("This is a built-in form action (type: form-action).")
+
+        return sb.toString()
+    }
+
+    private String buildScreenTransitionNarrative(String actionName, String currentPath, Map semanticState) {
+        def params = extractTransitionParameters(actionName, semanticState)
+
+        def sb = new StringBuilder()
+        sb.append("To execute '${actionName}', call moqui_render_screen(path='${currentPath}', action='${actionName}'")
+
+        if (params) {
+            sb.append(", parameters={${params}}")
+        }
+
+        sb.append("). ")
+        sb.append("This triggers a screen transition (type: screen-transition).")
+
         return sb.toString()
     }
 
