@@ -142,7 +142,26 @@
                 
                 <#if fieldSubNode["text-line"]?has_content><#assign fieldMeta = fieldMeta + {"type": "text"}></#if>
                 <#if fieldSubNode["text-area"]?has_content><#assign fieldMeta = fieldMeta + {"type": "textarea"}></#if>
-                <#if fieldSubNode["drop-down"]?has_content><#assign fieldMeta = fieldMeta + {"type": "dropdown"}></#if>
+                <#if fieldSubNode["drop-down"]?has_content>
+                    <#assign dropdownOptions = sri.getFieldOptions(.node)!>
+                    <#if dropdownOptions?has_content>
+                        <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": dropdownOptions?js_string!}>
+                    <#else>
+                        <#assign dynamicOptionNode = fieldSubNode["drop-down"]["dynamic-options"][0]!>
+                        <#if dynamicOptionNode?has_content>
+                            <#assign fieldMeta = fieldMeta + {"type": "dropdown", "dynamicOptions": {
+                                "transition": (dynamicOptionNode["@transition"]!""),
+                                "serverSearch": (dynamicOptionNode["@server-search"]! == "true"),
+                                "minLength": (dynamicOptionNode["@min-length"]!"0"),
+                                "parameterMap": (dynamicOptionNode["@parameter-map"]!"")?js_string!""
+                            }}>
+                        <#else>
+                            <#assign fieldMeta = fieldMeta + {"type": "dropdown"}>
+                        </#if>
+                    </#if>
+                </#if>
+                </#if>
+                </#if>
                 <#if fieldSubNode["check"]?has_content><#assign fieldMeta = fieldMeta + {"type": "checkbox"}></#if>
                 <#if fieldSubNode["radio"]?has_content><#assign fieldMeta = fieldMeta + {"type": "radio"}></#if>
                 <#if fieldSubNode["date-find"]?has_content><#assign fieldMeta = fieldMeta + {"type": "date"}></#if>

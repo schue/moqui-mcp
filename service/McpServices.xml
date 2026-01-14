@@ -868,9 +868,83 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             renderParams.userId = ec.user.userId
             renderParams.username = ec.user.username
 
+            // --- Execute Action if specified ---
+            def actionResult = [:]
+            if (action && resolvedScreenDef) {
+                ec.logger.info("MCP Screen Execution: Processing action '${action}' before rendering")
+                
+                def transition = resolvedScreenDef.getAllTransitions().find { it.getName() == action }
+                if (transition) {
+                    def serviceName = transition.getSingleServiceName()
+                    
+                    if (serviceName) {
+                        // Service action - execute service
+                        ec.logger.info("MCP Screen Execution: Executing service action: ${serviceName}")
+                        try {
+                            def serviceParams = parameters ?: [:]
+                            // Add standard context parameters
+                            serviceParams.userId = ec.user.userId
+                            serviceParams.username = ec.user.username
+                            
+                            def svcResult = ec.service.sync().name(serviceName).parameters(serviceParams).call()
+                            
+                            // Check for errors in execution context after service call
+                            def hasError = ec.message.hasError()
+                            
+                            // Flush transaction to ensure data is committed
+                            ec.getTransaction().flush()
+                            
+                            // Check again after flush - this catches constraint violations that occur during flush
+                            hasError = hasError || ec.message.hasError()
+                            
+                            if (hasError) {
+                                actionResult = [
+                                    action: action,
+                                    status: "error",
+                                    message: ec.message.getErrorsString(),
+                                    result: null
+                                ]
+                                ec.logger.error("MCP Screen Execution: Service ${serviceName} completed with errors: ${ec.message.getErrorsString()}")
+                            } else {
+                                actionResult = [
+                                    action: action,
+                                    status: "executed",
+                                    message: "Executed service ${serviceName}",
+                                    result: svcResult
+                                ]
+                                ec.logger.info("MCP Screen Execution: Service ${serviceName} executed successfully")
+                            }
+                            ec.logger.info("MCP Screen Execution: Transaction flushed after action execution")
+                        } catch (Exception e) {
+                            actionResult = [
+                                action: action,
+                                status: "error",
+                                message: "Error executing service ${serviceName}: ${e.message}"
+                            ]
+                            ec.logger.error("MCP Screen Execution: Error executing service ${serviceName}", e)
+                            throw e
+                        }
+                    } else {
+                        // Screen transition - just navigate, no action result
+                        actionResult = [
+                            action: action,
+                            status: "transition",
+                            message: "Screen transition to ${action}"
+                        ]
+                        ec.logger.info("MCP Screen Execution: Screen transition to ${action}")
+                    }
+                } else {
+                    ec.logger.warn("MCP Screen Execution: Action '${action}' not found in screen transitions")
+                }
+            }
+            
+            // Clear entity cache before rendering to ensure fresh data
+            ec.cache.clearAllCaches()
+            ec.logger.info("MCP Screen Execution: Entity cache cleared before rendering")
+            
             def relativePath = testScreenPath
             ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
-
+            
             def testRender = screenTest.render(relativePath, renderParams, "POST")
             output = testRender.getOutput()
 
@@ -1007,6 +1081,11 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     isError: isError,
                     semanticState: semanticState
                 ]
+                
+                // Add action result if an action was executed
+                if (actionResult) {
+                    mcpResult.actionResult = actionResult
+                }
                 
                 // Truncate text preview only if terse=true
                 if (output) {
@@ -1598,12 +1677,26 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                 if (serviceName) {
                                     ec.logger.info("BrowseScreens: Executing service: ${serviceName}")
                                     def serviceCallResult = ec.service.sync().name(serviceName).parameters(actionParams).call()
-                                    actionResult = [
-                                        action: action,
-                                        status: "executed",
-                                        message: "Executed service ${serviceName}",
-                                        result: serviceCallResult
-                                    ]
+                                    
+                                    // Check for errors in execution context after service call
+                                    def hasError = ec.message.hasError()
+                                    
+                                    if (hasError) {
+                                        actionResult = [
+                                            action: action,
+                                            status: "error",
+                                            message: ec.message.getErrorsString(),
+                                            result: null
+                                        ]
+                                        ec.logger.error("BrowseScreens: Service ${serviceName} completed with errors: ${ec.message.getErrorsString()}")
+                                    } else {
+                                        actionResult = [
+                                            action: action,
+                                            status: "executed",
+                                            message: "Executed service ${serviceName}",
+                                            result: serviceCallResult
+                                        ]
+                                    }
                                 } else {
                                     actionResult = [
                                         action: action,
