@@ -160,9 +160,7 @@
                         </#if>
                     </#if>
                 </#if>
-                </#if>
-                </#if>
-                <#if fieldSubNode["check"]?has_content><#assign fieldMeta = fieldMeta + {"type": "checkbox"}></#if>
+                 <#if fieldSubNode["check"]?has_content><#assign fieldMeta = fieldMeta + {"type": "checkbox"}></#if>
                 <#if fieldSubNode["radio"]?has_content><#assign fieldMeta = fieldMeta + {"type": "radio"}></#if>
                 <#if fieldSubNode["date-find"]?has_content><#assign fieldMeta = fieldMeta + {"type": "date"}></#if>
                 <#if fieldSubNode["display"]?has_content || fieldSubNode["display-entity"]?has_content><#assign fieldMeta = fieldMeta + {"type": "display"}></#if>
