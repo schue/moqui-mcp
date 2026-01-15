@@ -52,13 +52,13 @@ class UiNarrativeBuilder {
         narrative.screen = describeScreen(screenDef, semanticState, isTerse)
         narrative.actions = describeActions(screenDef, semanticState, currentPath, isTerse)
         narrative.navigation = describeLinks(semanticState, currentPath, isTerse)
-        narrative.notes = describeNotes(semanticState, isTerse)
+        narrative.notes = describeNotes(semanticState, currentPath, isTerse)
         
         return narrative
     }
 
     String describeScreen(ScreenDefinition screenDef, Map<String, Object> semanticState, boolean isTerse) {
-        def screenName = screenDef?.name ?: "Screen"
+        def screenName = screenDef?.getScreenName() ?: "Screen"
         def sb = new StringBuilder()
         
         sb.append("${screenName} displays ")
@@ -201,7 +201,7 @@ class UiNarrativeBuilder {
         return navigation
     }
 
-    List<String> describeNotes(Map<String, Object> semanticState, boolean isTerse) {
+    List<String> describeNotes(Map<String, Object> semanticState, String currentPath, boolean isTerse) {
         def notes = []
         
         def data = semanticState?.data
@@ -218,6 +218,29 @@ class UiNarrativeBuilder {
         def actions = semanticState?.actions
         if (actions && actions.size() > 5) {
             notes << "This screen has ${actions.size()} actions. Use semanticState.actions for complete list."
+        }
+        
+        // Add note about moqui_get_screen_details for dropdown options
+        def formData = semanticState?.data
+        if (formData && formData.containsKey('formMetadata') && formData.formMetadata instanceof Map) {
+            def formMetadata = formData.formMetadata
+            def allFields = []
+            formMetadata.each { formName, formInfo ->
+                if (formInfo instanceof Map && formInfo.containsKey('fields')) {
+                    def fields = formInfo.fields
+                    if (fields instanceof Collection) {
+                        def dynamicFields = fields.findAll { f -> f instanceof Map && f.containsKey('dynamicOptions') }
+                        if (dynamicFields) {
+                            def fieldNames = dynamicFields.collect { it.name }.take(3)
+                            allFields.addAll(fieldNames)
+                        }
+                    }
+                }
+            }
+            if (allFields) {
+                def uniqueFields = allFields.unique().take(5)
+                notes << "Fields with autocomplete: ${uniqueFields.join(', ')}. Use moqui_get_screen_details(path='${currentPath}', fieldName='${uniqueFields[0]}') to get field-specific options."
+            }
         }
         
         def parameters = semanticState?.parameters

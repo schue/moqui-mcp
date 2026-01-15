@@ -147,14 +147,61 @@
                     <#if dropdownOptions?has_content>
                         <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": dropdownOptions?js_string!}>
                     <#else>
-                        <#assign dynamicOptionNode = fieldSubNode["drop-down"]["dynamic-options"][0]!>
+                        <#assign dropdownNode = fieldSubNode["drop-down"]!>
+                        <#if dropdownNode?is_hash>
+                            <#assign dynamicOptionNode = dropdownNode["dynamic-options"][0]!>
+                        <#else>
+                            <#assign dynamicOptionNode = dropdownNode[0]["dynamic-options"][0]!>
+                        </#if>
                         <#if dynamicOptionNode?has_content>
+                            <#-- Try to extract transition metadata for better autocomplete support -->
+                            <#assign transitionMetadata = {}>
+                            <#if dynamicOptionNode["@transition"]?has_content>
+                                <#assign transitionNode = sri.getScreenDefinition().getTransitionItem(dynamicOptionNode["@transition"]!"")!>
+                                <#if transitionNode?has_content>
+                                    <#-- Extract service name if present -->
+                                    <#assign serviceCallNode = transitionNode["service-call"][0]!>
+                                    <#if serviceCallNode?has_content && serviceCallNode["@name"]?has_content>
+                                        <#assign transitionMetadata = transitionMetadata + {"serviceName": (serviceCallNode["@name"]!"")}>
+                                    </#if>
+                                    <#-- Extract in-map parameter mapping -->
+                                    <#if serviceCallNode["@in-map"]?has_content>
+                                        <#assign transitionMetadata = transitionMetadata + {"inParameterMap": ((serviceCallNode["@in-map"]!"")?js_string)!""}>
+                                    <#elseif transitionNode["parameter"]?has_content>
+                                        <#assign paramNode = transitionNode["parameter"][0]!>
+                                        <#if paramNode?has_content>
+                                            <#assign transitionMetadata = transitionMetadata + {"inParameterMap": "[]"}>
+                                        </#if>
+                                    </#if>
+                                </#if>
+                            </#if>
+                            
+                            <#-- Capture depends-on with parameter attribute -->
+                            <#assign dependsOnList = []>
+                            <#list dynamicOptionNode["depends-on"]! as depNode>
+                                <#assign depField = depNode["@field"]!"">
+                                <#assign depParameter = depNode["@parameter"]!depField>
+                                <#assign dependsOnItem = depField + "|" + depParameter>
+                                <#assign dependsOnList = dependsOnList + [dependsOnItem]>
+                            </#list>
+                            <#assign dependsOnJson = '[]'>
+                            <#if dependsOnList?size gt 0>
+                                <#assign dependsOnJson = '['>
+                                <#list dependsOnList as dep>
+                                    <#if dep_index gt 0><#assign dependsOnJson = dependsOnJson + ', '></#if>
+                                    <#assign dependsOnJson = dependsOnJson + '"' + dep + '"'>
+                                </#list>
+                                <#assign dependsOnJson = dependsOnJson + ']'>
+                            </#if>
+                            
+                            <#-- Build dynamicOptions metadata -->
                             <#assign fieldMeta = fieldMeta + {"type": "dropdown", "dynamicOptions": {
                                 "transition": (dynamicOptionNode["@transition"]!""),
                                 "serverSearch": (dynamicOptionNode["@server-search"]! == "true"),
                                 "minLength": (dynamicOptionNode["@min-length"]!"0"),
-                                "parameterMap": (dynamicOptionNode["@parameter-map"]!"")?js_string!""
-                            }}>
+                                "parameterMap": ((dynamicOptionNode["@parameter-map"]!"")?js_string)!"",
+                                "dependsOn": dependsOnJson
+                            } + transitionMetadata}>
                         <#else>
                             <#assign fieldMeta = fieldMeta + {"type": "dropdown"}>
                         </#if>

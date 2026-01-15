@@ -45,17 +45,28 @@ Use the following discovery tools to explore available functionality:
 ## Common Screen Paths
 
 ### Catalog Operations
+- `/PopCommerce/PopCommerceAdmin/Catalog/dashboard`: Catalog overview and management
 - `/PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct`: Search and browse products
 - `/PopCommerce/PopCommerceAdmin/Catalog/Feature/FindFeature`: Search by features like color or size
 - `/PopCommerce/PopCommerceAdmin/Catalog/Product/EditPrices`: View and update product prices
 
 ### Order Management
-- `/PopCommerce/PopCommerceAdmin/Order/FindOrder`: Lookup order status and details
+- `/PopCommerce/PopCommerceAdmin/Order/FindOrder`: Lookup and create sales/purchase orders
 - `/PopCommerce/PopCommerceAdmin/QuickSearch`: General order and customer search
 
-### Customer Management
-- `/PopCommerce/PopCommerceRoot/Customer`: Manage customer accounts
+### Party & Customer Management
+- `/PopCommerce/PopCommerceAdmin/Party/FindParty`: Manage all parties (People, Organizations)
+- `/PopCommerce/PopCommerceRoot/Customer`: Customer storefront account management
+- `User`: Internal user account, notifications, and messages
 - `/PopCommerce/PopCommerceAdmin/QuickSearch`: Customer lookup
+
+### Facility & Accounting
+- `/PopCommerce/PopCommerceAdmin/Facility/FindFacility`: Manage warehouses and inventory locations
+- `/PopCommerce/PopCommerceAdmin/Accounting/dashboard`: Financial management and GL accounting
+
+### System & Developer Tools
+- `/tools/Tools`: Developer tools, entity data editing, and service references
+- `/tools/System`: System administration, cache management, and security settings
 
 ## Tips for LLM Clients
 
@@ -107,17 +118,28 @@ Use the following discovery tools to explore available functionality:
 ## Common Screen Paths
 
 ### Catalog Operations
+- `/PopCommerce/PopCommerceAdmin/Catalog/dashboard`: Catalog overview and management
 - `/PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct`: Search and browse products
 - `/PopCommerce/PopCommerceAdmin/Catalog/Feature/FindFeature`: Search by features like color or size
 - `/PopCommerce/PopCommerceAdmin/Catalog/Product/EditPrices`: View and update product prices
 
 ### Order Management
-- `/PopCommerce/PopCommerceAdmin/Order/FindOrder`: Lookup order status and details
+- `/PopCommerce/PopCommerceAdmin/Order/FindOrder`: Lookup and create sales/purchase orders
 - `/PopCommerce/PopCommerceAdmin/QuickSearch`: General order and customer search
 
-### Customer Management
-- `/PopCommerce/PopCommerceRoot/Customer`: Manage customer accounts
+### Party & Customer Management
+- `/PopCommerce/PopCommerceAdmin/Party/FindParty`: Manage all parties (People, Organizations)
+- `/PopCommerce/PopCommerceRoot/Customer`: Customer storefront account management
+- `User`: Internal user account, notifications, and messages
 - `/PopCommerce/PopCommerceAdmin/QuickSearch`: Customer lookup
+
+### Facility & Accounting
+- `/PopCommerce/PopCommerceAdmin/Facility/FindFacility`: Manage warehouses and inventory locations
+- `/PopCommerce/PopCommerceAdmin/Accounting/dashboard`: Financial management and GL accounting
+
+### System & Developer Tools
+- `/tools/Tools`: Developer tools, entity data editing, and service references
+- `/tools/System`: System administration, cache management, and security settings
 
 ## Tips for LLM Clients
 
@@ -144,14 +166,15 @@ Main storefront and customer-facing screens for PopCommerce e-commerce component
 
 ## Key Screens
 
-- **Customer Management**: Browse and manage customer accounts
-- **Order Status**: View order history and track shipments
-- **Product Catalog**: Browse products and categories
-- **Shopping Cart**: Review and checkout items
+- **Catalog & Products**: Browse the product catalog and view details
+- **Customer Management**: Manage customer profiles and account settings
+- **Order Management**: Track order history and status
+- **Shopping Cart**: Review items and proceed to checkout
+- **Messages**: Access `User/Messages` for internal communications
 
 ## Navigation
 
-Use browse tools to explore the full catalog of PopCommerce screens starting from this root screen.]]></fileData>
+Use browse tools to explore the full catalog of PopCommerce screens. For administrative tasks, use the `/PopCommerce/PopCommerceAdmin` hierarchy.]]></fileData>
     </moqui.resource.DbResourceFile>
 
     <!-- PopCommerce Root Wiki Page -->
@@ -211,5 +234,127 @@ These screens are primarily for learning Moqui screen development patterns.]]></
         versionName="v1"
         userId="EX_JOHN_DOE"
         changeDateTime="2025-01-02 00:00:00.000"/>
+
+    <!-- User Messages Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_USER_MESSAGES"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="User/Messages.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_USER_MESSAGES"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# User Messages
+
+Interface for sending and receiving messages between users and other parties.
+
+## Key Actions
+
+- **Create Message**: Send a new message. Requires `toPartyId`, `subject`, and `body`.
+- **View Thread**: View the conversation history for a message.
+- **Find Messages**: Search for existing messages by various criteria.
+
+## Usage
+
+Use this screen to communicate about orders, products, or general administrative tasks.]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/UserMessages"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="User/Messages"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/UserMessages"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-14 00:00:00.000"/>
+
+    <!-- Tools Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_TOOLS"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="tools/Tools.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_TOOLS"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Developer Tools
+
+Central hub for developer and data management utilities.
+
+## Key Subscreens
+
+- **Entity**: Data editing, import/export, and performance stats. Use `tools/Tools/Entity/DataEdit/EntityList` to browse and edit any entity.
+- **Service**: Service reference and testing tools.
+- **AutoScreen**: Automatically generated screens for all entities.
+- **GroovyShell**: Execute arbitrary Groovy code (use with extreme caution).
+
+## Usage
+
+Use these tools for low-level data manipulation or system exploration when standard administrative screens are insufficient.]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/Tools"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="tools/Tools"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/Tools"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-14 00:00:00.000"/>
+
+    <!-- System Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_SYSTEM"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="tools/System.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_SYSTEM"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# System Administration
+
+Core system management and monitoring screens.
+
+## Key Subscreens
+
+- **Security**: Manage users, user groups, and artifact permissions.
+- **Cache**: View and clear system caches.
+- **ServiceJob**: Manage scheduled and background service jobs.
+- **LogViewer**: View system logs and hit statistics.
+
+## Usage
+
+Use these screens to monitor system health, manage user access, and troubleshoot operational issues.]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/System"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="tools/System"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/System"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-14 00:00:00.000"/>
 
 </entity-facade-xml>

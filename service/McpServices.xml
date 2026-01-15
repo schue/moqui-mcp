@@ -194,7 +194,8 @@
                     
                     // Handle internal discovery/utility tools
                     def internalToolMappings = [
-                        "moqui_search_screens": "McpServices.mcp#SearchScreens"
+                        "moqui_search_screens": "McpServices.mcp#SearchScreens",
+                        "moqui_get_screen_details": "McpServices.mcp#GetScreenDetails"
                     ]
                     
                     def targetServiceName = internalToolMappings[name]
@@ -1929,6 +1930,20 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                         ]
                      ],
                      [
+                        name: "moqui_get_screen_details",
+                        title: "Get Screen Details",
+                        description: "Get screen field details including dropdown options. Use this to understand available fields and their options before submitting forms.",
+                        inputSchema: [
+                            type: "object",
+                            properties: [
+                                "path": [type: "string", description: "Screen path to analyze (e.g., 'PopCommerce/PopCommerceAdmin/Party/FindParty')"],
+                                "fieldName": [type: "string", description: "Optional specific field name. If not provided, returns all fields."],
+                                "parameters": [type: "object", description: "Optional parameters to set in context before rendering (for autocomplete contexts)."]
+                            ],
+                            required: ["path"]
+                        ]
+                     ],
+                      [
                         name: "prompts_list",
                         title: "List Prompts",
                         description: "List available MCP prompt templates.",
@@ -1953,6 +1968,36 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 ]
                 
                 result = [tools: tools]
+            ]]></script>
+        </actions>
+    </service>
+
+    <service verb="mcp" noun="GetScreenDetails" authenticate="true" allow-remote="true" transaction-timeout="60">
+        <description>Get screen field details including dropdown options. Use this to understand available fields and their options before submitting forms.</description>
+        <in-parameters>
+            <parameter name="path" required="true"><description>Screen path to analyze (e.g., '/PopCommerce/PopCommerceAdmin/Party/FindParty').</description></parameter>
+            <parameter name="fieldName"><description>Optional specific field name. If not provided, returns all fields.</description></parameter>
+            <parameter name="parameters" type="Map"><description>Optional parameters to set in context before rendering (for autocomplete contexts).</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                import org.moqui.mcp.McpFieldOptionsService
+                
+                ExecutionContext ec = context.ec
+                
+                def serviceResult = McpFieldOptionsService.service(path, fieldName, parameters, ec)
+                
+                // Return in standard MCP format with content array
+                def resultJson = new JsonBuilder(serviceResult).toString()
+                result = [
+                    content: [[type: "text", text: resultJson]],
+                    isError: false
+                ]
             ]]></script>
         </actions>
     </service>
