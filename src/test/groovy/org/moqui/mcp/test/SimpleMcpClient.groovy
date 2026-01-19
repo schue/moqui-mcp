@@ -155,6 +155,23 @@ class SimpleMcpClient {
     }
 
     /**
+     * Call any tool
+     */
+    Map callTool(String toolName, Map arguments = [:]) {
+        try {
+            def result = makeJsonRpcRequest("tools/call", [
+                name: toolName,
+                arguments: arguments
+            ])
+            
+            return result ?: [error: [message: "No response from server"]]
+        } catch (Exception e) {
+            println "Error calling tool ${toolName}: ${e.message}"
+            return [error: [message: e.message]]
+        }
+    }
+
+    /**
      * Call a screen tool
      */
     Map callScreen(String screenPath, Map parameters = [:]) {

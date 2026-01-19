@@ -143,34 +143,45 @@
                 <#if fieldSubNode["text-line"]?has_content><#assign fieldMeta = fieldMeta + {"type": "text"}></#if>
                 <#if fieldSubNode["text-area"]?has_content><#assign fieldMeta = fieldMeta + {"type": "textarea"}></#if>
                 <#if fieldSubNode["drop-down"]?has_content>
-                    <#assign dropdownOptions = sri.getFieldOptions(.node)!>
-                    <#if dropdownOptions?has_content>
-                        <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": dropdownOptions?js_string!}>
-                    <#else>
-                        <#assign dropdownNode = fieldSubNode["drop-down"]!>
-                        <#if dropdownNode?is_hash>
-                            <#assign dynamicOptionNode = dropdownNode["dynamic-options"][0]!>
-                        <#else>
-                            <#assign dynamicOptionNode = dropdownNode[0]["dynamic-options"][0]!>
+                    <#-- Get the actual drop-down node (getFieldOptions expects the widget node, not its parent) -->
+                    <#assign dropdownNodeList = fieldSubNode["drop-down"]>
+                    <#assign dropdownNode = (dropdownNodeList?is_sequence)?then(dropdownNodeList[0], dropdownNodeList)>
+                    
+                    <#-- Evaluate any 'set' nodes from widget-template-include before getting options -->
+                    <#-- These set variables like enumTypeId needed by entity-options -->
+                    <#assign setNodes = fieldSubNode["set"]!>
+                    <#list setNodes as setNode>
+                        <#if setNode["@field"]?has_content>
+                            <#assign dummy = sri.setInContext(setNode)>
                         </#if>
-                        <#if dynamicOptionNode?has_content>
+                    </#list>
+                    <#-- Get dropdown options - pass the drop-down node, not fieldSubNode -->
+                    <#assign dropdownOptions = sri.getFieldOptions(dropdownNode)!>
+                    <#if (dropdownOptions?size!0) gt 0>
+                        <#-- Build options list from the LinkedHashMap -->
+                        <#assign optionsList = []>
+                        <#list (dropdownOptions.keySet())! as optKey>
+                            <#assign optLabel = (dropdownOptions.get(optKey))!optKey>
+                            <#assign optionsList = optionsList + [{"value": optKey, "label": optLabel}]>
+                        </#list>
+                        <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": optionsList}>
+                    <#else>
+                        <#-- No static options - check for dynamic-options -->
+                        <#assign dynamicOptionsList = dropdownNode["dynamic-options"]!>
+                        
+                        <#if dynamicOptionsList?has_content && dynamicOptionsList?size gt 0>
+                             <#assign dynamicOptionNode = dynamicOptionsList[0]>
+                             
                             <#-- Try to extract transition metadata for better autocomplete support -->
                             <#assign transitionMetadata = {}>
                             <#if dynamicOptionNode["@transition"]?has_content>
-                                <#assign transitionNode = sri.getScreenDefinition().getTransitionItem(dynamicOptionNode["@transition"]!"")!>
-                                <#if transitionNode?has_content>
-                                    <#-- Extract service name if present -->
-                                    <#assign serviceCallNode = transitionNode["service-call"][0]!>
-                                    <#if serviceCallNode?has_content && serviceCallNode["@name"]?has_content>
-                                        <#assign transitionMetadata = transitionMetadata + {"serviceName": (serviceCallNode["@name"]!"")}>
-                                    </#if>
-                                    <#-- Extract in-map parameter mapping -->
-                                    <#if serviceCallNode["@in-map"]?has_content>
-                                        <#assign transitionMetadata = transitionMetadata + {"inParameterMap": ((serviceCallNode["@in-map"]!"")?js_string)!""}>
-                                    <#elseif transitionNode["parameter"]?has_content>
-                                        <#assign paramNode = transitionNode["parameter"][0]!>
-                                        <#if paramNode?has_content>
-                                            <#assign transitionMetadata = transitionMetadata + {"inParameterMap": "[]"}>
+                                <#assign activeScreenDef = sri.getActiveScreenDef()!>
+                                <#if activeScreenDef?has_content>
+                                    <#assign transitionItem = activeScreenDef.getTransitionItem(dynamicOptionNode["@transition"]!"", null)!>
+                                    <#if transitionItem?has_content>
+                                        <#assign serviceName = transitionItem.getSingleServiceName()!"">
+                                        <#if serviceName?has_content && serviceName != "">
+                                            <#assign transitionMetadata = transitionMetadata + {"serviceName": serviceName}>
                                         </#if>
                                     </#if>
                                 </#if>
@@ -237,9 +248,9 @@
     <#assign formNode = formListInfo.getFormNode()>
     <#assign formListColumnList = formListInfo.getAllColInfo()>
     <#assign listObject = formListInfo.getListObject(false)!>
-    <#assign totalItems = listObject?size>
+    <#assign totalItems = (listObject?size)!0>
     
-    <#if mcpSemanticData?? && listObject?has_content>
+    <#if mcpSemanticData??>
         <#assign formName = (.node["@name"]!"")?string>
         <#assign displayedItems = (totalItems > 50)?then(50, totalItems)>
         <#assign isTruncated = (totalItems > 50)>
@@ -248,9 +259,99 @@
             <#assign fieldNode = columnFieldList[0]>
             <#assign columnNames = columnNames + [fieldNode["@name"]!""]>
         </#list>
+        
+        <#-- Extract Field Metadata for form-list (header fields usually) -->
+        <#assign fieldMetaList = []>
+        <#list formListColumnList as columnFieldList>
+            <#assign fieldNode = columnFieldList[0]>
+            <#assign fieldSubNode = fieldNode["header-field"][0]!fieldNode["default-field"][0]!fieldNode["conditional-field"][0]!>
+            
+            <#if fieldSubNode?has_content && !fieldSubNode["ignored"]?has_content && !fieldSubNode["hidden"]?has_content>
+                <#assign title><@fieldTitle fieldSubNode/></#assign>
+                <#assign fieldMeta = {"name": (fieldNode["@name"]!""), "title": (title!), "required": (fieldNode["@required"]! == "true")}>
+                
+                <#if fieldSubNode["text-line"]?has_content><#assign fieldMeta = fieldMeta + {"type": "text"}></#if>
+                <#if fieldSubNode["text-area"]?has_content><#assign fieldMeta = fieldMeta + {"type": "textarea"}></#if>
+                <#if fieldSubNode["drop-down"]?has_content>
+                    <#-- Evaluate any 'set' nodes from widget-template-include before getting options -->
+                    <#list fieldSubNode["set"]! as setNode>
+                        <#if setNode["@field"]?has_content>
+                            <#assign dummy = sri.setInContext(setNode)>
+                        </#if>
+                    </#list>
+                    <#assign dropdownOptions = sri.getFieldOptions(fieldSubNode)!>
+                    <#if dropdownOptions?has_content && dropdownOptions?size gt 0>
+                        <#-- Convert LinkedHashMap<String,String> to list of {value, label} objects for JSON -->
+                        <#assign optionsList = []>
+                        <#list dropdownOptions?keys as optKey>
+                            <#assign optionsList = optionsList + [{"value": optKey, "label": dropdownOptions[optKey]!optKey}]>
+                        </#list>
+                        <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": optionsList}>
+                    <#else>
+                        <#assign dropdownNode = fieldSubNode["drop-down"]!>
+                        
+                        <#-- Robust dynamic-options extraction -->
+                        <#assign actualDropdown = (dropdownNode?is_sequence)?then(dropdownNode[0]!dropdownNode, dropdownNode)>
+                        <#assign dynamicOptionsList = actualDropdown["dynamic-options"]!>
+                        
+                        <#if dynamicOptionsList?has_content && dynamicOptionsList?size gt 0>
+                             <#assign dynamicOptionNode = dynamicOptionsList[0]>
+                             
+                            <#-- Try to extract transition metadata for better autocomplete support -->
+                            <#assign transitionMetadata = {}>
+                            <#if dynamicOptionNode["@transition"]?has_content>
+                                <#assign activeScreenDef = sri.getActiveScreenDef()!>
+                                <#if activeScreenDef?has_content>
+                                    <#assign transitionItem = activeScreenDef.getTransitionItem(dynamicOptionNode["@transition"]!"", null)!>
+                                    <#if transitionItem?has_content>
+                                        <#assign serviceName = transitionItem.getSingleServiceName()!"">
+                                        <#if serviceName?has_content && serviceName != "">
+                                            <#assign transitionMetadata = transitionMetadata + {"serviceName": serviceName}>
+                                        </#if>
+                                    </#if>
+                                </#if>
+                            </#if>
+                            <#assign dependsOnList = []>
+                            <#list dynamicOptionNode["depends-on"]! as depNode>
+                                <#assign depField = depNode["@field"]!"">
+                                <#assign depParameter = depNode["@parameter"]!depField>
+                                <#assign dependsOnItem = depField + "|" + depParameter>
+                                <#assign dependsOnList = dependsOnList + [dependsOnItem]>
+                            </#list>
+                            <#assign dependsOnJson = '[]'>
+                            <#if dependsOnList?size gt 0>
+                                <#assign dependsOnJson = '['>
+                                <#list dependsOnList as dep><#if dep_index gt 0><#assign dependsOnJson = dependsOnJson + ', '></#if><#assign dependsOnJson = dependsOnJson + '"' + dep + '"'></#list>
+                                <#assign dependsOnJson = dependsOnJson + ']'>
+                            </#if>
+                            <#assign fieldMeta = fieldMeta + {"type": "dropdown", "dynamicOptions": {
+                                "transition": (dynamicOptionNode["@transition"]!""),
+                                "serverSearch": (dynamicOptionNode["@server-search"]! == "true"),
+                                "minLength": (dynamicOptionNode["@min-length"]!"0"),
+                                "parameterMap": ((dynamicOptionNode["@parameter-map"]!"")?js_string)!"",
+                                "dependsOn": dependsOnJson
+                            } + transitionMetadata}>
+                        <#else>
+                            <#assign fieldMeta = fieldMeta + {"type": "dropdown"}>
+                        </#if>
+                    </#if>
+                </#if>
+                <#if fieldSubNode["check"]?has_content><#assign fieldMeta = fieldMeta + {"type": "checkbox"}></#if>
+                <#if fieldSubNode["radio"]?has_content><#assign fieldMeta = fieldMeta + {"type": "radio"}></#if>
+                <#if fieldSubNode["date-find"]?has_content><#assign fieldMeta = fieldMeta + {"type": "date"}></#if>
+                <#if fieldSubNode["display"]?has_content || fieldSubNode["display-entity"]?has_content><#assign fieldMeta = fieldMeta + {"type": "display"}></#if>
+                <#if fieldSubNode["link"]?has_content><#assign fieldMeta = fieldMeta + {"type": "link"}></#if>
+                <#if fieldSubNode["file"]?has_content><#assign fieldMeta = fieldMeta + {"type": "file-upload"}></#if>
+                <#if fieldSubNode["hidden"]?has_content><#assign fieldMeta = fieldMeta + {"type": "hidden"}></#if>
+                
+                <#assign fieldMetaList = fieldMetaList + [fieldMeta]>
+            </#if>
+        </#list>
+
         <#assign dummy = ec.context.put("tempListObject", listObject)!>
         <#assign dummy = ec.context.put("tempColumnNames", columnNames)!>
-        <#assign dummy = ec.resource.expression("mcpSemanticData.put('" + formName?js_string + "', tempListObject); if (mcpSemanticData.listMetadata == null) mcpSemanticData.listMetadata = [:]; mcpSemanticData.listMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', totalItems: " + totalItems + ", displayedItems: " + displayedItems + ", truncated: " + isTruncated?string + ", columns: tempColumnNames])", "")!>
+        <#assign dummy = ec.context.put("tempFieldMetaList", fieldMetaList)!>
+        <#assign dummy = ec.resource.expression("mcpSemanticData.put('" + formName?js_string + "', tempListObject); if (mcpSemanticData.formMetadata == null) mcpSemanticData.formMetadata = [:]; mcpSemanticData.formMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', type: 'form-list', map: '', fields: tempFieldMetaList]); if (mcpSemanticData.listMetadata == null) mcpSemanticData.listMetadata = [:]; mcpSemanticData.listMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', totalItems: " + totalItems + ", displayedItems: " + displayedItems + ", truncated: " + isTruncated?string + ", columns: tempColumnNames])", "")!>
     </#if>
     
     <#-- Header Row -->

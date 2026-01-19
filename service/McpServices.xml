@@ -569,7 +569,6 @@
             <parameter name="action"><description>Action being processed: if not null, use real screen rendering instead of test mock</description></parameter>
             <parameter name="renderMode" default="mcp"><description>Render mode: mcp, text, html, xml, vuet, qvt</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
-            <parameter name="terse" type="Boolean" default="false"><description>If true, return condensed data (50 items, 5000 char strings). If false, include full data (1000 items, 50k char strings).</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
@@ -639,11 +638,11 @@ def getWikiInstructions = { lookupPath ->
     return null
 }
 
-// Optimized recursive serializer for Moqui/Java objects to JSON-friendly Map/List
-// When terse=true, returns minimal data with truncation metadata for easy access to full version
+// Recursive serializer for Moqui/Java objects to JSON-friendly Map/List
+// Applies reasonable safety limits to prevent massive payloads
 def serializeMoquiObject
-serializeMoquiObject = { obj, depth = 0, isTerse = false ->
-    if (depth > 5) return "..." // Prevent deep recursion
+serializeMoquiObject = { obj, depth = 0 ->
+    if (depth > 8) return "..." // Prevent deep recursion
     
     if (obj == null) return null
     if (obj instanceof Map) {
@@ -654,44 +653,31 @@ serializeMoquiObject = { obj, depth = 0, isTerse = false ->
             if (keyStr.startsWith("_") || keyStr == "ec" || keyStr == "sri") return
             // Skip audit fields to reduce payload
             if (keyStr in ["lastUpdatedStamp", "lastUpdatedTxStamp", "createdDate", "createdTxStamp", "createdByUserLogin"]) return
-            def value = serializeMoquiObject(v, depth + 1, isTerse)
+            def value = serializeMoquiObject(v, depth + 1)
             if (value != null) newMap[keyStr] = value
         }
         return newMap
     }
     if (obj instanceof Iterable) {
         def list = obj.collect()
-        // Apply truncation only if terse mode is enabled
-        if (isTerse && list.size() > 50) {
-            ec.logger.info("serializeMoquiObject: Terse mode - truncating list from ${list.size()} to 50 items")
-            def truncated = list.take(50)
-            def resultList = truncated.collect { serializeMoquiObject(it, depth + 1, isTerse) }
+        // Safety limit: truncate very large lists (10000+ items)
+        def maxItems = 10000
+        if (list.size() > maxItems) {
+            ec.logger.info("serializeMoquiObject: Truncating large list from ${list.size()} to ${maxItems} items")
+            def truncated = list.take(maxItems)
+            def resultList = truncated.collect { serializeMoquiObject(it, depth + 1) }
             return [
                 _items: resultList,
                 _totalCount: list.size(),
                 _truncated: true,
                 _hasMore: true,
-                _message: "Terse mode: showing first 50 of ${list.size()} items. Set terse=false to get full data."
+                _message: "Showing first ${maxItems} of ${list.size()} items. Use pagination for more."
             ]
         }
-        // Increased limits for non-terse mode - effectively unlimited for operational use
-        def maxItems = isTerse ? 50 : 1000
-        def truncated = list.take(maxItems)
-        def resultList = truncated.collect { serializeMoquiObject(it, depth + 1, isTerse) }
-        if (!isTerse && list.size() > maxItems) {
-            ec.logger.info("serializeMoquiObject: Non-terse mode - truncating large list from ${list.size()} to ${maxItems} items for safety")
-            return [
-                _items: resultList,
-                _totalCount: list.size(),
-                _truncated: true,
-                _hasMore: true,
-                _message: "Truncated to ${maxItems} items (size safety limit reached)"
-            ]
-        }
-        return resultList
+        return list.collect { serializeMoquiObject(it, depth + 1) }
     }
     if (obj instanceof org.moqui.entity.EntityValue) {
-        return serializeMoquiObject(obj.getMap(), depth + 1, isTerse)
+        return serializeMoquiObject(obj.getMap(), depth + 1)
     }
     if (obj instanceof java.sql.Timestamp || obj instanceof java.util.Date) {
         return obj.toString()
@@ -700,22 +686,13 @@ serializeMoquiObject = { obj, depth = 0, isTerse = false ->
         return obj
     }
     if (obj instanceof String) {
-        // Apply truncation only if terse mode is enabled
-        if (isTerse && obj.length() > 5000) {
+        // Safety limit: truncate very large strings (1MB+)
+        if (obj.length() > 1000000) {
             return [
-                _value: obj.substring(0, 5000) + "...",
+                _value: obj.substring(0, 1000000) + "...",
                 _fullLength: obj.length(),
                 _truncated: true,
-                _message: "Terse mode: truncated to 5000 chars. Set terse=false to get more data."
-            ]
-        }
-        // Non-terse limit increased to 50000 for safety
-        if (!isTerse && obj.length() > 50000) {
-            return [
-                _value: obj.substring(0, 50000) + "...",
-                _fullLength: obj.length(),
-                _truncated: true,
-                _message: "Truncated to 50000 chars for safety."
+                _message: "Truncated to 1MB for safety."
             ]
         }
         return obj
@@ -727,11 +704,11 @@ serializeMoquiObject = { obj, depth = 0, isTerse = false ->
     if (obj instanceof org.moqui.entity.EntityFind) {
         return null
     }
-    // Fallback for unknown types - truncate if too long
+    // Fallback for unknown types
     def str = obj.toString()
-    if (str.length() > 200) {
+    if (str.length() > 10000) {
         return [
-            _value: str.substring(0, 200) + "...",
+            _value: str.substring(0, 10000) + "...",
             _fullLength: str.length(),
             _truncated: true
         ]
@@ -892,12 +869,6 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             // Check for errors in execution context after service call
                             def hasError = ec.message.hasError()
                             
-                            // Flush transaction to ensure data is committed
-                            ec.getTransaction().flush()
-                            
-                            // Check again after flush - this catches constraint violations that occur during flush
-                            hasError = hasError || ec.message.hasError()
-                            
                             if (hasError) {
                                 actionResult = [
                                     action: action,
@@ -949,24 +920,22 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             def testRender = screenTest.render(relativePath, renderParams, "POST")
             output = testRender.getOutput()
 
-            // --- NEW: Semantic State Extraction ---
+            // --- Semantic State Extraction ---
             def postContext = testRender.getPostRenderContext()
             def semanticState = [:]
-            def isTerse = context.terse == true
 
             // Get final screen definition using resolved screen location
             def finalScreenDef = resolvedScreenDef
 
             if (finalScreenDef && postContext) {
                 semanticState.screenPath = inputScreenPath
-                semanticState.terse = isTerse
                 semanticState.data = [:]
                 
                 // Use the explicit semantic data captured by macros if available
                 def explicitData = postContext.get("mcpSemanticData")
                 if (explicitData instanceof Map) {
                     explicitData.each { k, v ->
-                        semanticState.data[k] = serializeMoquiObject(v, 0, isTerse)
+                        semanticState.data[k] = serializeMoquiObject(v, 0)
                     }
                 }
                 
@@ -1008,7 +977,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                         
                         // Add value if exists
                         if (value != null) {
-                            paramInfo.value = serializeMoquiObject(value, 0, isTerse)
+                            paramInfo.value = serializeMoquiObject(value, 0)
                         }
                         
                         // Extract parameter type - try multiple approaches
@@ -1064,7 +1033,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 // Log semantic state size for optimization tracking
                 def semanticStateJson = new groovy.json.JsonBuilder(semanticState).toString()
                 def semanticStateSize = semanticStateJson.length()
-                ec.logger.info("MCP Screen Execution: Semantic state size: ${semanticStateSize} bytes, data keys: ${semanticState.data.keySet()}, actions count: ${semanticState.actions.size()}, terse=${isTerse}")
+                ec.logger.info("MCP Screen Execution: Semantic state size: ${semanticStateSize} bytes, data keys: ${semanticState.data.keySet()}, actions count: ${semanticState.actions.size()}")
             }
             
             ec.logger.info("MCP Screen Execution: Successfully rendered screen ${screenPath}, output length: ${output?.length() ?: 0}")
@@ -1088,13 +1057,9 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     mcpResult.actionResult = actionResult
                 }
                 
-                // Truncate text preview only if terse=true
+                // Include text output preview (truncated for readability)
                 if (output) {
-                    if (isTerse) {
-                        mcpResult.textPreview = output.take(500) + (output.length() > 500 ? "..." : "")
-                    } else {
-                        mcpResult.textPreview = output
-                    }
+                    mcpResult.textPreview = output.take(2000) + (output.length() > 2000 ? "..." : "")
                 }
                 if (wikiInstructions) mcpResult.wikiInstructions = wikiInstructions
                 
@@ -1414,7 +1379,6 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             <parameter name="renderMode" default="mcp"><description>Render mode: mcp (default), text, html, xml, vuet, qvt</description></parameter>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering or action</description></parameter>
             <parameter name="sessionId"/>
-            <parameter name="terse" type="Boolean" default="false"><description>If true, return condensed data (50 items, 5000 char strings). If false, include full data (1000 items, 50k char strings).</description></parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
@@ -1749,8 +1713,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             path: path,
                             parameters: parameters ?: [:],
                             renderMode: actualRenderMode,
-                            sessionId: sessionId,
-                            terse: context.terse == true
+                            sessionId: sessionId
                         ]
 
                         // Call ScreenAsMcpTool to render
@@ -1785,8 +1748,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                     def uiNarrative = narrativeBuilder.buildNarrative(
                                         screenDefForNarrative,
                                         resultObj.semanticState,
-                                        currentPath,
-                                        context.terse == true
+                                        currentPath
                                     )
                                     resultMap.uiNarrative = uiNarrative
                                     ec.logger.info("BrowseScreens: Generated UI narrative for ${currentPath}: ${uiNarrative?.keySet()}")
@@ -1912,8 +1874,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                 "path": [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
                                 "action": [type: "string", description: "Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name"],
                                 "renderMode": [type: "string", description: "Render mode: mcp (default), text, html, xml, vuet, qvt"],
-                                "parameters": [type: "object", description: "Parameters to pass to screen during rendering or action"],
-                                "terse": [type: "boolean", description: "If true, return minimal data (10 items, 200 chars strings). If false, include full data (50 items). Default: false"]
+                                "parameters": [type: "object", description: "Parameters to pass to screen during rendering or action"]
                             ]
                         ]
                     ],

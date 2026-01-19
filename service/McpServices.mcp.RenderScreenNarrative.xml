@@ -17,7 +17,6 @@ warranty.
             <parameter name="parameters" type="Map"/>
             <parameter name="renderMode" default="mcp"/>
             <parameter name="sessionId"/>
-            <parameter name="terse" type="Boolean" default="false"/>
         </in-parameters>
         <out-parameters>
             <parameter name="result" type="Map"/>
@@ -48,8 +47,7 @@ warranty.
                     path: screenPath,
                     parameters: parameters ?: [:],
                     renderMode: renderMode ?: "mcp",
-                    sessionId: sessionId,
-                    terse: terse == true
+                    sessionId: sessionId
                 ]
                 if (subscreenName) screenCallParams.subscreenName = subscreenName
                 
@@ -86,8 +84,7 @@ warranty.
                                 uiNarrative = narrativeBuilder.buildNarrative(
                                     screenDefForNarrative,
                                     semanticState,
-                                    path,
-                                    terse == true
+                                    path
                                 )
                                 ec.logger.info("RenderScreenNarrative: Generated UI narrative for ${path}")
                             } catch (Exception e) {

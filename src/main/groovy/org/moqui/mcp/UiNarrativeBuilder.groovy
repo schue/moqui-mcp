@@ -46,18 +46,18 @@ class UiNarrativeBuilder {
         return count
     }
 
-    Map<String, Object> buildNarrative(ScreenDefinition screenDef, Map<String, Object> semanticState, String currentPath, boolean isTerse) {
+    Map<String, Object> buildNarrative(ScreenDefinition screenDef, Map<String, Object> semanticState, String currentPath) {
         def narrative = [:]
         
-        narrative.screen = describeScreen(screenDef, semanticState, isTerse)
-        narrative.actions = describeActions(screenDef, semanticState, currentPath, isTerse)
-        narrative.navigation = describeLinks(semanticState, currentPath, isTerse)
-        narrative.notes = describeNotes(semanticState, currentPath, isTerse)
+        narrative.screen = describeScreen(screenDef, semanticState)
+        narrative.actions = describeActions(screenDef, semanticState, currentPath)
+        narrative.navigation = describeLinks(semanticState, currentPath)
+        narrative.notes = describeNotes(semanticState, currentPath)
         
         return narrative
     }
 
-    String describeScreen(ScreenDefinition screenDef, Map<String, Object> semanticState, boolean isTerse) {
+    String describeScreen(ScreenDefinition screenDef, Map<String, Object> semanticState) {
         def screenName = screenDef?.getScreenName() ?: "Screen"
         def sb = new StringBuilder()
         
@@ -103,7 +103,7 @@ class UiNarrativeBuilder {
         return sb.toString()
     }
 
-    List<String> describeActions(ScreenDefinition screenDef, Map<String, Object> semanticState, String currentPath, boolean isTerse) {
+    List<String> describeActions(ScreenDefinition screenDef, Map<String, Object> semanticState, String currentPath) {
         def actions = []
 
         def transitions = semanticState?.actions
@@ -161,7 +161,7 @@ class UiNarrativeBuilder {
         return 'screen-transition'
     }
 
-    List<String> describeLinks(Map<String, Object> semanticState, String currentPath, boolean isTerse) {
+    List<String> describeLinks(Map<String, Object> semanticState, String currentPath) {
         def navigation = []
         
         def links = semanticState?.data?.links
@@ -201,7 +201,7 @@ class UiNarrativeBuilder {
         return navigation
     }
 
-    List<String> describeNotes(Map<String, Object> semanticState, String currentPath, boolean isTerse) {
+    List<String> describeNotes(Map<String, Object> semanticState, String currentPath) {
         def notes = []
         
         def data = semanticState?.data
@@ -210,7 +210,7 @@ class UiNarrativeBuilder {
                 if (value instanceof Map && value.containsKey('_truncated') && value._truncated == true) {
                     def total = value._totalCount ?: 0
                     def shown = value._items?.size() ?: 0
-                    notes << "List truncated: showing ${shown} of ${total} item${total > 1 ? 's' : ''}. Set terse=false to view all."
+                    notes << "List truncated: showing ${shown} of ${total} item${total > 1 ? 's' : ''}. Use pagination for more."
                 }
             }
         }
