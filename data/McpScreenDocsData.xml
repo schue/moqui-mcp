@@ -536,23 +536,34 @@ This screen manages: Party, Person/Organization, PartyRole, PartyClassification,
 
 Send and view messages to/from parties. Use for internal communications about orders, products, or customers.
 
+## Required Parameter
+
+**partyId** is required to view this screen. Always pass a party ID:
+```
+path: PopCommerce/PopCommerceAdmin/Party/PartyMessages/FindMessage
+parameters: {partyId: "JohnSales"}
+```
+
 ## Send a Message
 
 ```
 action: createMessage
 parameters: {
+  partyId: "JohnSales",
   toPartyId: "JohnSales",
   subject: "New product available",
   body: "The green variant of DEMO_VAR is now in stock."
 }
 ```
 
-## Filter Messages
+## View Messages for a Party
 
-Pass `partyId` to see messages for a specific party:
 ```
+path: PopCommerce/PopCommerceAdmin/Party/PartyMessages/FindMessage
 parameters: {partyId: "JohnSales"}
 ```
+
+This shows all messages to or from the specified party.
 
 ## Message Types
 
@@ -564,8 +575,8 @@ Messages are stored as CommunicationEvent entities with:
 
 ## Difference from User/Messages
 
-- **Party/PartyMessages**: Admin screen for messaging any party in the system
-- **User/Messages**: User-facing screen for current user's own messages
+- **Party/PartyMessages**: Admin screen for messaging any party in the system (requires partyId)
+- **User/Messages**: User-facing screen for current user's own messages (no partyId needed)
 
 Use PartyMessages when you need to send messages on behalf of the system or to parties who may not have user accounts.]]></fileData>
     </moqui.resource.DbResourceFile>

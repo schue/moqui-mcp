@@ -906,10 +906,20 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
     def data = semanticState.data
     def formMetadata = data?.formMetadata ?: [:]
     def actions = semanticState.actions ?: []
+    def params = semanticState.parameters ?: [:]
     
     def result = [
         screen: targetScreenPath?.split('/')?.last() ?: "Screen"
     ]
+    
+    // Check for missing required parameters
+    def missingRequired = params.findAll { name, info -> 
+        info.required == true && info.value == null
+    }
+    if (missingRequired) {
+        result.missingRequired = missingRequired.keySet().toList()
+        result.error = "Required parameters missing: ${missingRequired.keySet().join(', ')}. Pass these parameters to view the screen."
+    }
     
     // Build summary
     def formCount = formMetadata.count { k, v -> v.type != "form-list" }
