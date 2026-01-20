@@ -617,38 +617,64 @@ def extractSummary = { wikiText ->
 }
 
 // Helper function to load wiki instructions for a screen
+// Walks up the path hierarchy to find the most specific wiki doc available
+// e.g., for "Catalog/Product/EditProduct/Assocs", tries in order:
+//   1. Catalog/Product/EditProduct/Assocs (most specific)
+//   2. Catalog/Product/EditProduct
+//   3. Catalog/Product
+//   4. Catalog
 def getWikiInstructions = { lookupPath ->
-    try {
-        def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
-            .condition("wikiSpaceId", "MCP_SCREEN_DOCS")
-            .condition("pagePath", lookupPath)
-            .useCache(true)
-            .one()
+    if (!lookupPath) return null
+    
+    // Normalize path - remove leading/trailing slashes
+    def normalizedPath = lookupPath.replaceAll('^/+', '').replaceAll('/+$', '')
+    if (!normalizedPath) return null
+    
+    // Build list of paths from most specific to least specific
+    def pathsToTry = []
+    def segments = normalizedPath.split('/')
+    for (int i = segments.length; i > 0; i--) {
+        pathsToTry.add(segments[0..i-1].join('/'))
+    }
+    
+    ec.logger.debug("Wiki lookup: trying paths ${pathsToTry} for ${lookupPath}")
+    
+    for (def tryPath in pathsToTry) {
+        try {
+            def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
+                .condition("wikiSpaceId", "MCP_SCREEN_DOCS")
+                .condition("pagePath", tryPath)
+                .useCache(true)
+                .one()
 
-        if (!wikiPage) return null
+            if (!wikiPage) continue
 
-        def wikiSpace = ec.entity.find("moqui.resource.wiki.WikiSpace")
-            .condition("wikiSpaceId", wikiPage.wikiSpaceId)
-            .one()
+            def wikiSpace = ec.entity.find("moqui.resource.wiki.WikiSpace")
+                .condition("wikiSpaceId", wikiPage.wikiSpaceId)
+                .one()
 
-        if (!wikiSpace) return null
+            if (!wikiSpace) continue
 
-        // Build the resource location for the page
-        def pageLocation = wikiSpace.rootPageLocation
-        if (!pageLocation.endsWith('/')) {
-            pageLocation += '/'
+            // Build the resource location for the page
+            def pageLocation = wikiSpace.rootPageLocation
+            if (!pageLocation.endsWith('/')) {
+                pageLocation += '/'
+            }
+            pageLocation += wikiPage.pagePath + '.md'
+
+            // Get the resource reference and text content
+            def pageRef = ec.resource.getLocationReference(pageLocation)
+            def wikiText = pageRef?.getText()
+
+            if (wikiText) {
+                if (tryPath != normalizedPath) {
+                    ec.logger.debug("Wiki lookup: found inherited docs at ${tryPath} for ${lookupPath}")
+                }
+                return wikiText
+            }
+        } catch (Exception e) {
+            ec.logger.debug("Could not load wiki instructions for ${tryPath}: ${e.message}")
         }
-        pageLocation += wikiPage.pagePath + '.md'
-
-        // Get the resource reference and text content
-        def pageRef = ec.resource.getLocationReference(pageLocation)
-        def wikiText = pageRef?.getText()
-
-        if (wikiText) {
-            return wikiText
-        }
-    } catch (Exception e) {
-        ec.logger.debug("Could not load wiki instructions for ${screenPath}: ${e.message}")
     }
     return null
 }
@@ -1833,16 +1859,10 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     currentPath = currentPath.split("\\?")[0]
                 }
                 
-                // Helper function to load wiki content
-                def loadWikiContent = { path ->
-                    ec.logger.info("BrowseScreens: loadWikiContent CALLED for ${path}")
+                // Helper to load wiki content for a specific path (no hierarchy walk)
+                def loadWikiContentForPath = { simplePath ->
                     try {
-                        def simplePath = (path == "root") ? "root" : path
-                        if (simplePath.contains("?")) {
-                            simplePath = simplePath.split("\\?")[0]
-                        }
-
-                        ec.logger.info("BrowseScreens: Looking up wiki instructions for ${simplePath}")
+                        ec.logger.debug("BrowseScreens: Looking up wiki instructions for ${simplePath}")
 
                         def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
                             .condition("wikiSpaceId", "MCP_SCREEN_DOCS")
@@ -1851,51 +1871,78 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             .one()
 
                         if (wikiPage) {
-                            ec.logger.info("BrowseScreens: Found wikiPage: ${wikiPage.pagePath}")
+                            ec.logger.debug("BrowseScreens: Found wikiPage: ${wikiPage.pagePath}")
                             def wikiSpace = ec.entity.find("moqui.resource.wiki.WikiSpace")
                                 .condition("wikiSpaceId", wikiPage.wikiSpaceId)
                                 .one()
 
                             if (wikiSpace) {
-                                ec.logger.info("BrowseScreens: Found wikiSpace: ${wikiSpace.wikiSpaceId}")
-
                                 def dbResource = ec.entity.find("moqui.resource.DbResource")
                                     .condition("parentResourceId", "WIKI_MCP_SCREEN_DOCS")
                                     .condition("filename", wikiPage.pagePath + ".md")
                                     .one()
 
                                 if (dbResource) {
-                                    ec.logger.info("BrowseScreens: Found dbResource: ${dbResource.resourceId}")
                                     def dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
                                         .condition("resourceId", dbResource.resourceId)
                                         .condition("versionName", wikiPage.publishedVersionName)
                                         .one()
 
-                                    ec.logger.info("BrowseScreens: dbResourceFile query result: ${dbResourceFile ? 'found' : 'null'}")
-
                                     if (!dbResourceFile) {
                                         dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
                                             .condition("resourceId", dbResource.resourceId)
                                             .one()
-                                        ec.logger.info("BrowseScreens: dbResourceFile fallback query result: ${dbResourceFile ? 'found' : 'null'}")
-                                    }
-
-                                    if (dbResourceFile) {
-                                        ec.logger.info("BrowseScreens: dbResourceFile.fileData: ${dbResourceFile.fileData ? 'exists, size=' + dbResourceFile.fileData.length() : 'null'}")
                                     }
 
                                     if (dbResourceFile && dbResourceFile.fileData) {
                                         def content = new String(dbResourceFile.fileData.getBytes(new Long(1).longValue(), new Long(dbResourceFile.fileData.length()).intValue()), "UTF-8")
-                                        ec.logger.info("BrowseScreens: Found wiki instructions for ${simplePath}, length: ${content?.length()}")
+                                        ec.logger.debug("BrowseScreens: Found wiki instructions for ${simplePath}, length: ${content?.length()}")
                                         return content
                                     }
-                                } else {
-                                    ec.logger.warn("BrowseScreens: No dbResource found for ${wikiPage.pagePath}.md")
                                 }
                             }
                         }
                     } catch (Exception e) {
-                        ec.logger.warn("BrowseScreens: Error getting wiki instructions: ${e.message}")
+                        ec.logger.debug("BrowseScreens: Error getting wiki instructions for ${simplePath}: ${e.message}")
+                    }
+                    return null
+                }
+                
+                // Helper function to load wiki content with path hierarchy walk
+                // Walks up the path hierarchy to find the most specific wiki doc available
+                // e.g., for "Catalog/Product/EditProduct/Assocs", tries in order:
+                //   1. Catalog/Product/EditProduct/Assocs (most specific)
+                //   2. Catalog/Product/EditProduct
+                //   3. Catalog/Product
+                //   4. Catalog
+                def loadWikiContent = { path ->
+                    ec.logger.info("BrowseScreens: loadWikiContent CALLED for ${path}")
+                    
+                    if (!path || path == "root") {
+                        // For root, try exact match only
+                        return loadWikiContentForPath("root")
+                    }
+                    
+                    def simplePath = path
+                    if (simplePath.contains("?")) {
+                        simplePath = simplePath.split("\\?")[0]
+                    }
+                    // Normalize - remove leading/trailing slashes
+                    simplePath = simplePath.replaceAll('^/+', '').replaceAll('/+$', '')
+                    
+                    if (!simplePath) return null
+                    
+                    // Build list of paths from most specific to least specific
+                    def segments = simplePath.split('/')
+                    for (int i = segments.length; i > 0; i--) {
+                        def tryPath = segments[0..i-1].join('/')
+                        def content = loadWikiContentForPath(tryPath)
+                        if (content) {
+                            if (tryPath != simplePath) {
+                                ec.logger.info("BrowseScreens: Found inherited wiki docs at ${tryPath} for ${simplePath}")
+                            }
+                            return content
+                        }
                     }
                     return null
                 }
