@@ -247,17 +247,37 @@ These screens are primarily for learning Moqui screen development patterns.]]></
         versionName="v1">
         <fileData><![CDATA[# User Messages
 
-Interface for sending and receiving messages between users and other parties.
+Current user's messages interface. No partyId required - defaults to logged-in user.
 
-## Key Actions
+## Recommended: Use FindMessage Subscreen
 
-- **Create Message**: Send a new message. Requires `toPartyId`, `subject`, and `body`.
-- **View Thread**: View the conversation history for a message.
-- **Find Messages**: Search for existing messages by various criteria.
+For full functionality (forms, actions, transitions), use the FindMessage subscreen:
+```
+path: User/Messages/FindMessage
+```
 
-## Usage
+## Send a Message
 
-Use this screen to communicate about orders, products, or general administrative tasks.]]></fileData>
+```
+path: User/Messages/FindMessage
+action: createMessage
+parameters: {
+  toPartyId: "JohnSales",
+  subject: "Question about order",
+  body: "Can you check order status?"
+}
+```
+
+## Available Subscreens
+
+- **FindMessage**: List and create messages (use this for most operations)
+- **MessageThread**: View conversation thread for a specific message
+- **EditMessage**: Edit/view a single message
+
+## Difference from Party/PartyMessages
+
+- **User/Messages**: Current user's messages (no partyId needed)
+- **Party/PartyMessages**: Admin view of any party's messages (requires partyId)]]></fileData>
     </moqui.resource.DbResourceFile>
 
     <moqui.resource.wiki.WikiPage
