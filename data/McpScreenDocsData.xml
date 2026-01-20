@@ -357,4 +357,423 @@ Use these screens to monitor system health, manage user access, and troubleshoot
         userId="EX_JOHN_DOE"
         changeDateTime="2025-01-14 00:00:00.000"/>
 
+    <!-- ========================================== -->
+    <!-- Party Management Screens                   -->
+    <!-- ========================================== -->
+
+    <!-- FindParty Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_FIND_PARTY"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="PopCommerce/PopCommerceAdmin/Party/FindParty.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_FIND_PARTY"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Find Party
+
+Search and create parties (People, Organizations, Sales Accounts, Employees).
+
+## Quick Actions
+
+### Create Person (Minimal)
+```
+action: createPerson
+parameters: {firstName: "John", lastName: "Doe"}
+```
+
+### Create Organization
+```
+action: createOrganization
+parameters: {organizationName: "Acme Corp"}
+```
+
+### Create Sales Account
+```
+action: createAccount
+parameters: {organizationName: "New Account Inc"}
+```
+
+### Create Employee
+```
+action: createPersonEmployee
+parameters: {firstName: "Jane", lastName: "Smith", emailAddress: "jane@example.com"}
+```
+
+### Create Customer (Full)
+```
+action: createPersonCustomer
+parameters: {
+  firstName: "Bob", lastName: "Customer",
+  roleTypeId: "Customer",
+  emailAddress: "bob@example.com",
+  address1: "123 Main St", city: "Austin",
+  stateProvinceGeoId: "USA_TX", countryGeoId: "USA", postalCode: "78701"
+}
+```
+
+## Searching
+
+Pass `anyField` parameter to search across all party fields:
+```
+parameters: {anyField: "john"}
+```
+
+## Results
+
+The PartyListForm grid shows matching parties. Click a party ID link to navigate to EditParty for details.
+
+## Key Fields
+
+- **roleTypeId**: Customer, Supplier, Employee, etc. (140 options)
+- **partyClassificationId**: CustConsumer, CustDistributor, etc. (49 options)
+- **stateProvinceGeoId**: Depends on countryGeoId - use `moqui_get_screen_details` for dynamic options]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/FindParty"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="PopCommerce/PopCommerceAdmin/Party/FindParty"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/FindParty"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-19 00:00:00.000"/>
+
+    <!-- EditParty Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_EDIT_PARTY"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="PopCommerce/PopCommerceAdmin/Party/EditParty.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_EDIT_PARTY"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Edit Party
+
+View and modify party details including contact info, roles, classifications, and user accounts.
+
+## Required Parameter
+
+- **partyId**: The party to edit (e.g., `JohnSales`, `100051`)
+
+## Key Actions
+
+### Update Basic Info
+```
+action: updateParty
+parameters: {partyId: "100051", firstName: "John", lastName: "Updated", comments: "VIP customer"}
+```
+
+### Add Role
+```
+action: createPartyRole
+parameters: {partyId: "100051", roleTypeId: "Customer"}
+```
+
+### Add Classification
+```
+action: setPartyClassification
+parameters: {partyId: "100051", partyClassificationId: "CustConsumer"}
+```
+
+### Create User Account
+```
+action: createUserAccount
+parameters: {partyId: "100051", username: "jdoe", emailAddress: "jdoe@example.com", newPassword: "secret123", newPasswordVerify: "secret123", userGroupId: "POP_COMMERCE_USER"}
+```
+
+### Add Contact Info
+```
+action: storePartyContactMech
+parameters: {partyId: "100051", emailAddress: "newemail@example.com"}
+```
+
+## Subscreens
+
+- **FindDuplicates**: Find potential duplicate party records
+- **UpdateContactInfo**: Manage postal addresses, phone numbers, emails
+- **UpdatePaymentMethodInfo**: Manage credit cards and payment methods
+
+## Related Entities
+
+This screen manages: Party, Person/Organization, PartyRole, PartyClassification, PartyContactMech, UserAccount]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/EditParty"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="PopCommerce/PopCommerceAdmin/Party/EditParty"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/EditParty"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-19 00:00:00.000"/>
+
+    <!-- PartyMessages/FindMessage Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_PARTY_MESSAGES"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="PopCommerce/PopCommerceAdmin/Party/PartyMessages/FindMessage.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_PARTY_MESSAGES"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Party Messages
+
+Send and view messages to/from parties. Use for internal communications about orders, products, or customers.
+
+## Send a Message
+
+```
+action: createMessage
+parameters: {
+  toPartyId: "JohnSales",
+  subject: "New product available",
+  body: "The green variant of DEMO_VAR is now in stock."
+}
+```
+
+## Filter Messages
+
+Pass `partyId` to see messages for a specific party:
+```
+parameters: {partyId: "JohnSales"}
+```
+
+## Message Types
+
+Messages are stored as CommunicationEvent entities with:
+- **communicationEventTypeId**: Defaults to internal message type
+- **statusId**: Message status (sent, read, etc.)
+- **fromPartyId**: Sender (defaults to current user)
+- **toPartyId**: Recipient party
+
+## Difference from User/Messages
+
+- **Party/PartyMessages**: Admin screen for messaging any party in the system
+- **User/Messages**: User-facing screen for current user's own messages
+
+Use PartyMessages when you need to send messages on behalf of the system or to parties who may not have user accounts.]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/PartyMessages"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="PopCommerce/PopCommerceAdmin/Party/PartyMessages/FindMessage"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/PartyMessages"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-19 00:00:00.000"/>
+
+    <!-- ========================================== -->
+    <!-- Catalog/Product Screens                    -->
+    <!-- ========================================== -->
+
+    <!-- FindProduct Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_FIND_PRODUCT"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_FIND_PRODUCT"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Find Product
+
+Search and create products in the catalog.
+
+## Searching Products
+
+### By Name or ID
+```
+parameters: {productId: "DEMO", anyField: "widget"}
+```
+
+### By Category
+```
+parameters: {productCategoryId: "CATALOG"}
+```
+
+### By Feature
+```
+parameters: {productFeatureId: "ColorBlue"}
+```
+
+## Creating Products
+
+### Standard Product
+```
+action: createProduct
+parameters: {
+  productName: "New Widget",
+  productTypeEnumId: "PtAsset",
+  assetTypeEnumId: "AstTpInventory"
+}
+```
+
+### Virtual Product (for variants)
+```
+action: createProduct
+parameters: {
+  productName: "Widget with Options",
+  productTypeEnumId: "PtVirtual"
+}
+```
+
+## Product Types
+
+- **PtAsset**: Standard inventory product
+- **PtVirtual**: Parent product for variants (has selectable features)
+- **PtService**: Service or labor product
+- **PtDigital**: Downloadable digital product
+
+## Workflow: Creating Variants
+
+1. Create virtual parent: `productTypeEnumId: "PtVirtual"`
+2. Navigate to EditProduct, add selectable features (e.g., Color: Red, Blue)
+3. Create variant products: `productTypeEnumId: "PtAsset"`
+4. On variants, add distinguishing features (e.g., Color: Red)
+5. Create ProductAssoc linking parent to variants with `productAssocTypeEnumId: "PatVariant"`
+
+## Results
+
+ProductListForm grid shows matches. Click product link to navigate to EditProduct.]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/FindProduct"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/FindProduct"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-19 00:00:00.000"/>
+
+    <!-- EditProduct Documentation -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_DOCS_EDIT_PRODUCT"
+        parentResourceId="WIKI_MCP_SCREEN_DOCS"
+        filename="PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_DOCS_EDIT_PRODUCT"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Edit Product
+
+Manage product details, features, prices, categories, and associations.
+
+## Required Parameter
+
+- **productId**: Product to edit (e.g., `DEMO_1`, `100000`)
+
+## Key Subscreens
+
+- **EditProduct** (main): Basic product info
+- **EditFeatures**: Product features (selectable/distinguishing)
+- **EditAssocs**: Product associations (variants, accessories, etc.)
+- **EditPrices**: Price configuration
+- **EditCategories**: Category membership
+
+## Managing Features
+
+### Add Selectable Feature (Virtual Products)
+```
+path: PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct/EditFeatures
+action: createProductFeature
+parameters: {
+  productId: "DEMO_VAR",
+  productFeatureId: "ColorRed",
+  applTypeEnumId: "PfatSelectable"
+}
+```
+
+### Add Distinguishing Feature (Variant Products)
+```
+action: createProductFeature
+parameters: {
+  productId: "DEMO_VAR_RED",
+  productFeatureId: "ColorRed",
+  applTypeEnumId: "PfatDistinguishing"
+}
+```
+
+## Feature Application Types
+
+- **PfatSelectable**: Customer can choose this feature (on virtual parent)
+- **PfatDistinguishing**: Identifies a specific variant
+- **PfatStandard**: Always included with product
+- **PfatRequired**: Must be selected at purchase
+
+## Managing Associations
+
+### Link Variant to Parent
+```
+path: PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct/EditAssocs
+action: createProductAssoc
+parameters: {
+  productId: "DEMO_VAR",
+  toProductId: "DEMO_VAR_RED",
+  productAssocTypeEnumId: "PatVariant"
+}
+```
+
+## Association Types
+
+- **PatVariant**: Links virtual parent to variant
+- **PatAccessory**: Suggested accessory
+- **PatComplement**: Complementary product
+- **PatSubstitute**: Equivalent alternative
+
+## Complete Variant Workflow
+
+1. Edit virtual product, go to EditFeatures
+2. Add selectable features (PfatSelectable) for each option
+3. Create variant products via FindProduct
+4. Edit each variant, add distinguishing feature (PfatDistinguishing)
+5. Edit parent, go to EditAssocs, create PatVariant associations]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SCREEN_DOCS/EditProduct"
+        wikiSpaceId="MCP_SCREEN_DOCS"
+        pagePath="PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="MCP_SCREEN_DOCS/EditProduct"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2025-01-19 00:00:00.000"/>
+
 </entity-facade-xml>
