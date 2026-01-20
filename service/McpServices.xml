@@ -1056,7 +1056,7 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
     }
     if (grids) result.grids = grids
     
-    // Actions with parameter hints
+    // Actions - service actions with parameter hints
     def actionMap = [:]
     actions.findAll { it.type == "service-action" && it.service }.each { action ->
         def actionInfo = [service: action.service]
@@ -1077,6 +1077,16 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
         actionMap[action.name] = actionInfo
     }
     if (actionMap) result.actions = actionMap
+    
+    // Transitions - screen navigation actions (toolbar buttons, row actions)
+    def transitionList = actions.findAll { 
+        it.type == "screen-transition" && 
+        it.name && 
+        !it.name.startsWith("form") &&  // Skip formSelectColumns, formSaveFind
+        it.name != "actions" &&          // Skip generic 'actions'
+        it.name != "screenDoc"           // Skip documentation link
+    }.collect { it.name }
+    if (transitionList) result.transitions = transitionList
     
     // Navigation - only external/important links
     def navLinks = data?.links?.findAll { link ->
