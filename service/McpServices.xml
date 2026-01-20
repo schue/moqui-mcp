@@ -567,7 +567,7 @@
             <parameter name="path" required="true"/>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen</description></parameter>
             <parameter name="action"><description>Action being processed: if not null, use real screen rendering instead of test mock</description></parameter>
-            <parameter name="renderMode" default="mcp"><description>Render mode: mcp, text, html, xml, vuet, qvt</description></parameter>
+            <parameter name="renderMode" default="compact"><description>Render mode: compact (default, actionable summary), aria (accessibility tree), mcp (full metadata), text, html, xml, vuet, qvt</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
         </in-parameters>
         <out-parameters>
@@ -731,6 +731,352 @@ serializeMoquiObject = { obj, depth = 0 ->
     return str
 }
 
+// Convert MCP semantic state to ARIA accessibility tree format
+// This produces a compact, standard representation matching W3C ARIA roles
+def convertToAriaTree = { semanticState, targetScreenPath ->
+    if (!semanticState) return null
+    
+    def data = semanticState.data
+    if (!data) return [role: "document", name: targetScreenPath, children: []]
+    
+    def children = []
+    def formMetadata = data.formMetadata ?: [:]
+    
+    // Map Moqui field types to ARIA roles
+    def fieldToAriaRole = { field ->
+        switch (field.type) {
+            case "dropdown": return "combobox"
+            case "text": return "textbox"
+            case "textarea": return "textbox"
+            case "checkbox": return "checkbox"
+            case "radio": return "radio"
+            case "date": return "textbox"  // with date semantics
+            case "date-time": return "textbox"
+            case "number": return "spinbutton"
+            case "password": return "textbox"
+            case "hidden": return null  // skip hidden fields
+            default: return "textbox"
+        }
+    }
+    
+    // Convert a field to ARIA node
+    def fieldToAriaNode = { field ->
+        def role = fieldToAriaRole(field)
+        if (!role) return null
+        
+        def node = [
+            role: role,
+            name: field.title ?: field.name
+        ]
+        
+        // Add required attribute
+        if (field.required) node.required = true
+        
+        // For dropdowns, show option count instead of all options
+        if (field.type == "dropdown") {
+            def optionCount = field.options?.size() ?: 0
+            if (field.totalOptions) optionCount = field.totalOptions
+            if (optionCount > 0) {
+                node.options = optionCount
+                if (field.optionsTruncated) {
+                    node.fetchHint = field.fetchHint
+                }
+            }
+            // Check for dynamic options
+            if (field.dynamicOptions) {
+                node.autocomplete = true
+            }
+        }
+        
+        return node
+    }
+    
+    // Process forms (form-single types become form landmarks)
+    formMetadata.each { formName, formData ->
+        if (formData.type == "form-list") return  // Handle separately
+        
+        def formNode = [
+            role: "form",
+            name: formData.name ?: formName,
+            children: []
+        ]
+        
+        // Add fields
+        formData.fields?.each { field ->
+            def fieldNode = fieldToAriaNode(field)
+            if (fieldNode) formNode.children << fieldNode
+        }
+        
+        // Find submit button by matching form name pattern
+        // e.g., CreatePersonForm -> createPerson action
+        def formBaseName = formName.replaceAll(/Form$/, "")
+        def expectedActionName = formBaseName.substring(0,1).toLowerCase() + formBaseName.substring(1)
+        def submitAction = semanticState.actions?.find { a -> 
+            a.name == expectedActionName || a.name?.equalsIgnoreCase(expectedActionName)
+        }
+        if (submitAction) {
+            formNode.children << [role: "button", name: submitAction.name]
+        }
+        
+        if (formNode.children) children << formNode
+    }
+    
+    // Process form-lists (become grids)
+    formMetadata.findAll { k, v -> v.type == "form-list" }.each { formName, formData ->
+        def listData = data[formName]
+        def itemCount = 0
+        if (listData instanceof List) {
+            itemCount = listData.size()
+        } else if (listData?._totalCount) {
+            itemCount = listData._totalCount
+        }
+        
+        def gridNode = [
+            role: "grid",
+            name: formData.name ?: formName,
+            rowcount: itemCount
+        ]
+        
+        // Add column info
+        def columns = formData.fields?.collect { it.title ?: it.name }
+        if (columns) gridNode.columns = columns
+        
+        // Add sample rows (first 3)
+        if (listData instanceof List && listData.size() > 0) {
+            gridNode.children = []
+            listData.take(3).each { row ->
+                def rowNode = [role: "row"]
+                // Extract key identifying info
+                def name = row.combinedName ?: row.name ?: row.productName ?: row.pseudoId ?: row.id
+                if (name) rowNode.name = name
+                gridNode.children << rowNode
+            }
+            if (listData.size() > 3) {
+                gridNode.moreRows = listData.size() - 3
+            }
+        }
+        
+        children << gridNode
+    }
+    
+    // Process navigation links
+    def navLinks = semanticState.data?.links?.findAll { it.type == "navigation" }
+    if (navLinks && navLinks.size() > 0) {
+        def navNode = [
+            role: "navigation",
+            name: "Links",
+            children: navLinks.take(10).collect { link ->
+                [role: "link", name: link.text, path: link.path]
+            }
+        ]
+        if (navLinks.size() > 10) {
+            navNode.moreLinks = navLinks.size() - 10
+        }
+        children << navNode
+    }
+    
+    // Process actions as a toolbar
+    def serviceActions = semanticState.actions?.findAll { it.type == "service-action" }
+    if (serviceActions && serviceActions.size() > 0) {
+        def toolbarNode = [
+            role: "toolbar",
+            name: "Actions",
+            children: serviceActions.take(10).collect { action ->
+                [role: "button", name: action.name]
+            }
+        ]
+        if (serviceActions.size() > 10) {
+            toolbarNode.moreActions = serviceActions.size() - 10
+        }
+        children << toolbarNode
+    }
+    
+    return [
+        role: "main",
+        name: targetScreenPath?.split('/')?.last() ?: "Screen",
+        children: children
+    ]
+}
+
+// Convert MCP semantic state to compact actionable format
+// Designed for LLM efficiency: enough info to act without fetching more
+def convertToCompactFormat = { semanticState, targetScreenPath ->
+    if (!semanticState) return null
+    
+    def data = semanticState.data
+    def formMetadata = data?.formMetadata ?: [:]
+    def actions = semanticState.actions ?: []
+    
+    def result = [
+        screen: targetScreenPath?.split('/')?.last() ?: "Screen"
+    ]
+    
+    // Build summary
+    def formCount = formMetadata.count { k, v -> v.type != "form-list" }
+    def listCount = formMetadata.count { k, v -> v.type == "form-list" }
+    def actionNames = actions.findAll { it.type == "service-action" }.collect { it.name }.take(5)
+    
+    def summaryParts = []
+    if (formCount > 0) summaryParts << "${formCount} form${formCount > 1 ? 's' : ''}"
+    if (listCount > 0) {
+        // Get total row count
+        def totalRows = 0
+        formMetadata.findAll { k, v -> v.type == "form-list" }.each { formName, formData ->
+            def listData = data[formName]
+            if (listData instanceof List) totalRows += listData.size()
+        }
+        summaryParts << "${totalRows} result${totalRows != 1 ? 's' : ''}"
+    }
+    if (actionNames) summaryParts << "actions: ${actionNames.join(', ')}"
+    result.summary = summaryParts.join(". ")
+    
+    // Process forms (non-list)
+    def forms = [:]
+    formMetadata.findAll { k, v -> v.type != "form-list" }.each { formName, formData ->
+        def formInfo = [:]
+        def fields = []
+        
+        formData.fields?.each { field ->
+            if (field.type == "hidden") return
+            
+            def fieldInfo
+            def fieldName = field.name
+            def displayName = field.title ?: field.name
+            
+            if (field.type == "dropdown") {
+                def optionCount = field.totalOptions ?: field.options?.size() ?: 0
+                if (optionCount > 0) {
+                    fieldInfo = [(fieldName): [type: "dropdown", options: optionCount]]
+                    // Include first few options as examples
+                    if (field.options && field.options.size() > 0) {
+                        def examples = field.options.take(3).collect { it.value }
+                        fieldInfo[fieldName].examples = examples
+                    }
+                    if (field.dynamicOptions) {
+                        fieldInfo[fieldName].autocomplete = true
+                    }
+                } else {
+                    fieldInfo = [(fieldName): [type: "dropdown"]]
+                }
+                if (displayName != fieldName) fieldInfo[fieldName].label = displayName
+            } else {
+                // Simple field - just use name, add label if different
+                if (displayName != fieldName) {
+                    fieldInfo = [(fieldName): displayName]
+                } else {
+                    fieldInfo = fieldName
+                }
+            }
+            
+            if (field.required) {
+                if (fieldInfo instanceof String) {
+                    fieldInfo = [(fieldName): [required: true]]
+                } else if (fieldInfo instanceof Map && fieldInfo[fieldName] instanceof String) {
+                    fieldInfo[fieldName] = [label: fieldInfo[fieldName], required: true]
+                } else if (fieldInfo instanceof Map && fieldInfo[fieldName] instanceof Map) {
+                    fieldInfo[fieldName].required = true
+                }
+            }
+            
+            fields << fieldInfo
+        }
+        
+        formInfo.fields = fields
+        
+        // Find matching action for this form
+        def formBaseName = formName.replaceAll(/Form$/, "")
+        def expectedActionName = formBaseName.substring(0,1).toLowerCase() + formBaseName.substring(1)
+        def submitAction = actions.find { a -> 
+            a.name == expectedActionName || a.name?.equalsIgnoreCase(expectedActionName)
+        }
+        if (submitAction) {
+            formInfo.submit = submitAction.name
+            if (submitAction.service) {
+                formInfo.service = submitAction.service
+            }
+        }
+        
+        forms[formName] = formInfo
+    }
+    if (forms) result.forms = forms
+    
+    // Process grids (form-lists)
+    def grids = [:]
+    formMetadata.findAll { k, v -> v.type == "form-list" }.each { formName, formData ->
+        def listData = data[formName]
+        def gridInfo = [:]
+        
+        // Column names
+        def columns = formData.fields?.findAll { it.type != "hidden" }?.collect { it.title ?: it.name }
+        if (columns) gridInfo.columns = columns
+        
+        // Rows with key data and links
+        if (listData instanceof List && listData.size() > 0) {
+            gridInfo.rowCount = listData.size()
+            gridInfo.rows = listData.take(10).collect { row ->
+                def rowInfo = [:]
+                
+                // Get identifying info
+                def id = row.pseudoId ?: row.partyId ?: row.productId ?: row.orderId ?: row.id
+                def name = row.combinedName ?: row.productName ?: row.name
+                
+                if (id) rowInfo.id = id
+                if (name && name != id) rowInfo.name = name
+                
+                // Find link for this row
+                def rowLinks = data.links?.findAll { link ->
+                    link.path?.contains(id?.toString()) && link.type == "navigation"
+                }
+                if (rowLinks && rowLinks.size() > 0) {
+                    // Pick the most relevant link (edit/view)
+                    def editLink = rowLinks.find { it.path?.contains("Edit") }
+                    rowInfo.link = (editLink ?: rowLinks[0]).path
+                }
+                
+                rowInfo
+            }
+            if (listData.size() > 10) {
+                gridInfo.more = listData.size() - 10
+            }
+        } else {
+            gridInfo.rowCount = 0
+        }
+        
+        grids[formName] = gridInfo
+    }
+    if (grids) result.grids = grids
+    
+    // Actions with parameter hints
+    def actionMap = [:]
+    actions.findAll { it.type == "service-action" && it.service }.each { action ->
+        def actionInfo = [service: action.service]
+        
+        // Find form that uses this action to get parameter hints
+        def matchingForm = forms.find { k, v -> v.submit == action.name }
+        if (matchingForm) {
+            def requiredFields = matchingForm.value.fields?.findAll { f ->
+                (f instanceof Map && f.values().any { v -> 
+                    (v instanceof Map && v.required) || v == "required"
+                })
+            }?.collect { f ->
+                f instanceof Map ? f.keySet()[0] : f
+            }
+            if (requiredFields) actionInfo.required = requiredFields
+        }
+        
+        actionMap[action.name] = actionInfo
+    }
+    if (actionMap) result.actions = actionMap
+    
+    // Navigation - only external/important links
+    def navLinks = data?.links?.findAll { link ->
+        link.type == "navigation" && link.path && !link.path.contains("?")
+    }?.take(5)?.collect { [name: it.text, path: it.path] }
+    if (navLinks) result.nav = navLinks
+    
+    return result
+}
+
 // Resolve input screen path to simple path for lookup
 def inputScreenPath = screenPath
 if (screenPath.startsWith("component://")) {
@@ -852,76 +1198,42 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             }
 
             // Regular screen rendering with current user context - use our custom ScreenTestImpl
+            // For compact/ARIA modes, we still render with MCP to get semantic data, then convert
+            def actualScreenRenderMode = (renderMode == "aria" || renderMode == "compact" || renderMode == null) ? "mcp" : renderMode
             def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
                 .rootScreen(rootScreen)
-                .renderMode(renderMode ?: "mcp")
+                .renderMode(actualScreenRenderMode)
                 .auth(ec.user.username)
 
             def renderParams = parameters ?: [:]
             renderParams.userId = ec.user.userId
             renderParams.username = ec.user.username
 
-            // --- Execute Action if specified ---
+            // Build the screen path - append action/transition if specified
+            // This lets the framework handle transition execution properly (inheritance, pre/post actions, etc.)
+            def relativePath = testScreenPath
             def actionResult = [:]
+            
             if (action && resolvedScreenDef) {
-                ec.logger.info("MCP Screen Execution: Processing action '${action}' before rendering")
-                
+                // Verify the transition exists
                 def transition = resolvedScreenDef.getAllTransitions().find { it.getName() == action }
                 if (transition) {
+                    // Append transition to path - framework will execute it via recursiveRunTransition
+                    relativePath = "${testScreenPath}/${action}"
                     def serviceName = transition.getSingleServiceName()
-                    
-                    if (serviceName) {
-                        // Service action - execute service
-                        ec.logger.info("MCP Screen Execution: Executing service action: ${serviceName}")
-                        try {
-                            def serviceParams = parameters ?: [:]
-                            // Add standard context parameters
-                            serviceParams.userId = ec.user.userId
-                            serviceParams.username = ec.user.username
-                            
-                            def svcResult = ec.service.sync().name(serviceName).parameters(serviceParams).call()
-                            
-                            // Check for errors in execution context after service call
-                            def hasError = ec.message.hasError()
-                            
-                            if (hasError) {
-                                actionResult = [
-                                    action: action,
-                                    status: "error",
-                                    message: ec.message.getErrorsString(),
-                                    result: null
-                                ]
-                                ec.logger.error("MCP Screen Execution: Service ${serviceName} completed with errors: ${ec.message.getErrorsString()}")
-                            } else {
-                                actionResult = [
-                                    action: action,
-                                    status: "executed",
-                                    message: "Executed service ${serviceName}",
-                                    result: svcResult
-                                ]
-                                ec.logger.info("MCP Screen Execution: Service ${serviceName} executed successfully")
-                            }
-                            ec.logger.info("MCP Screen Execution: Transaction flushed after action execution")
-                        } catch (Exception e) {
-                            actionResult = [
-                                action: action,
-                                status: "error",
-                                message: "Error executing service ${serviceName}: ${e.message}"
-                            ]
-                            ec.logger.error("MCP Screen Execution: Error executing service ${serviceName}", e)
-                            throw e
-                        }
-                    } else {
-                        // Screen transition - just navigate, no action result
-                        actionResult = [
-                            action: action,
-                            status: "transition",
-                            message: "Screen transition to ${action}"
-                        ]
-                        ec.logger.info("MCP Screen Execution: Screen transition to ${action}")
-                    }
+                    actionResult = [
+                        action: action,
+                        service: serviceName,
+                        status: "pending"  // Will be updated after render based on errors
+                    ]
+                    ec.logger.info("MCP Screen Execution: Will execute transition '${action}' via framework (service: ${serviceName ?: 'none'})")
                 } else {
                     ec.logger.warn("MCP Screen Execution: Action '${action}' not found in screen transitions")
+                    actionResult = [
+                        action: action,
+                        status: "error",
+                        message: "Transition '${action}' not found on screen"
+                    ]
                 }
             }
             
@@ -929,14 +1241,56 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             ec.cache.clearAllCaches()
             ec.logger.info("MCP Screen Execution: Entity cache cleared before rendering")
             
-            def relativePath = testScreenPath
             ec.logger.info("TESTRENDER root=${rootScreen} path=${relativePath} params=${renderParams}")
             
             def testRender = screenTest.render(relativePath, renderParams, "POST")
             output = testRender.getOutput()
+            
+            // --- Capture Action Result from Framework Execution ---
+            def postContext = testRender.getPostRenderContext()
+            
+            if (action && actionResult.status == "pending") {
+                // Check for errors from transition execution
+                def errorMessages = testRender.getErrorMessages()
+                def hasError = errorMessages && errorMessages.size() > 0
+                
+                if (hasError) {
+                    actionResult.status = "error"
+                    actionResult.message = errorMessages.join("; ")
+                    ec.logger.error("MCP Screen Execution: Transition '${action}' completed with errors: ${actionResult.message}")
+                } else {
+                    actionResult.status = "executed"
+                    actionResult.message = "Transition '${action}' executed successfully"
+                    
+                    // Try to extract result from context (services often put results in context)
+                    // Common patterns: result, serviceResult, *Id (for create operations)
+                    def result = [:]
+                    if (postContext) {
+                        // Look for common result patterns
+                        ['result', 'serviceResult', 'createResult'].each { key ->
+                            if (postContext.containsKey(key)) {
+                                result[key] = postContext.get(key)
+                            }
+                        }
+                        // Look for created IDs (common pattern: partyId, productId, orderId, etc.)
+                        postContext.each { key, value ->
+                            if (key.toString().endsWith('Id') && value && !key.toString().startsWith('_')) {
+                                // Only include if it looks like a created/returned ID
+                                def keyStr = key.toString()
+                                if (!['userId', 'username', 'sessionId', 'requestId'].contains(keyStr)) {
+                                    result[keyStr] = value
+                                }
+                            }
+                        }
+                    }
+                    if (result) {
+                        actionResult.result = result
+                    }
+                    ec.logger.info("MCP Screen Execution: Transition '${action}' executed successfully, result: ${result}")
+                }
+            }
 
             // --- Semantic State Extraction ---
-            def postContext = testRender.getPostRenderContext()
             def semanticState = [:]
 
             // Get final screen definition using resolved screen location
@@ -1057,7 +1411,49 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             
             // Build result based on renderMode
             def content = []
-            if ((renderMode == "mcp" || renderMode == "json") && semanticState) {
+            if ((renderMode == null || renderMode == "compact") && semanticState) {
+                // Return compact actionable format (default)
+                def compactData = convertToCompactFormat(semanticState, screenPath)
+                
+                // Include wiki summary if available
+                if (wikiInstructions) {
+                    def wikiSummary = extractSummary(wikiInstructions)
+                    if (wikiSummary) compactData.help = wikiSummary
+                }
+                
+                // Add action result if an action was executed
+                if (actionResult) {
+                    compactData.result = actionResult
+                }
+                
+                content << [
+                    type: "text",
+                    text: new groovy.json.JsonBuilder(compactData).toString()
+                ]
+            } else if (renderMode == "aria" && semanticState) {
+                // Return ARIA accessibility tree format
+                def ariaTree = convertToAriaTree(semanticState, screenPath)
+                def ariaResult = [
+                    screenPath: screenPath,
+                    aria: ariaTree
+                ]
+                
+                // Include summary if available
+                if (wikiInstructions) {
+                    def summary = extractSummary(wikiInstructions)
+                    if (summary) ariaResult.summary = summary
+                }
+                
+                // Add action result if an action was executed
+                if (actionResult) {
+                    ariaResult.actionResult = actionResult
+                }
+                
+                content << [
+                    type: "text",
+                    text: new groovy.json.JsonBuilder(ariaResult).toString()
+                ]
+            } else if ((renderMode == "mcp" || renderMode == "json") && semanticState) {
                 // Return structured MCP data
                 def mcpResult = [
                     screenPath: screenPath,
@@ -1395,7 +1791,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
         <in-parameters>
             <parameter name="path" required="false"><description>Screen path to browse (e.g. 'PopCommerce'). Leave empty for root apps.</description></parameter>
             <parameter name="action"><description>Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name</description></parameter>
-            <parameter name="renderMode" default="mcp"><description>Render mode: mcp (default), text, html, xml, vuet, qvt</description></parameter>
+            <parameter name="renderMode" default="compact"><description>Render mode: compact (default, actionable summary), aria (accessibility tree), mcp (full metadata), text, html, xml, vuet, qvt</description></parameter>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering or action</description></parameter>
             <parameter name="sessionId"/>
         </in-parameters>
@@ -1637,71 +2033,10 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 }
                 
                 // Process action before rendering
-                def actionResult = null
-                def actionError = null
-                
-                if (action && resolvedScreenDef) {
-                    try {
-                        ec.logger.info("BrowseScreens: Executing action '${action}' on ${currentPath}")
-                        def actionParams = parameters ?: [:]
-                        
-                        if (action == "submit") {
-                            actionResult = [
-                                action: "submit",
-                                status: "success",
-                                message: "Form parameters submitted",
-                                parametersProcessed: actionParams.keySet()
-                            ]
-                        } else {
-                            def foundTransition = resolvedScreenDef.getAllTransitions().find { it.getName() == action }
-                            
-                            if (foundTransition) {
-                                def serviceName = foundTransition.getSingleServiceName()
-                                
-                                if (serviceName) {
-                                    ec.logger.info("BrowseScreens: Executing service: ${serviceName}")
-                                    def serviceCallResult = ec.service.sync().name(serviceName).parameters(actionParams).call()
-                                    
-                                    // Check for errors in execution context after service call
-                                    def hasError = ec.message.hasError()
-                                    
-                                    if (hasError) {
-                                        actionResult = [
-                                            action: action,
-                                            status: "error",
-                                            message: ec.message.getErrorsString(),
-                                            result: null
-                                        ]
-                                        ec.logger.error("BrowseScreens: Service ${serviceName} completed with errors: ${ec.message.getErrorsString()}")
-                                    } else {
-                                        actionResult = [
-                                            action: action,
-                                            status: "executed",
-                                            message: "Executed service ${serviceName}",
-                                            result: serviceCallResult
-                                        ]
-                                    }
-                                } else {
-                                    actionResult = [
-                                        action: action,
-                                        status: "success",
-                                        message: "Transition '${action}' found"
-                                    ]
-                                }
-                            } else {
-                                // Fallback: check if it's a CRUD convention action for mantle entities
-                                def actionPrefix = action.size() > 6 ? action.take(6) : ""
-                                if (actionPrefix in ['create', 'update', 'delete']) {
-                                    // Try to infer entity from screen context or parameters
-                                    actionResult = [status: "error", message: "Dynamic CRUD not implemented without transition"]
-                                } else {
-                                    actionError = "Transition '${action}' not found on screen ${currentPath}"
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        actionError = "Action execution failed: ${e.message}"
-                    }
+                // Action execution is now handled by ScreenAsMcpTool via framework's transition handling
+                // Just log that we're passing the action through
+                if (action) {
+                    ec.logger.info("BrowseScreens: Passing action '${action}' to ScreenAsMcpTool for framework execution")
                 }
                 
                 // Try to get wiki instructions for screen
@@ -1714,7 +2049,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 // Render current screen if not root browsing
                 def renderedContent = null
                 def renderError = null
-                def actualRenderMode = renderMode ?: "mcp"
+                def actualRenderMode = renderMode ?: "compact"
 
                 def resultMap = [
                     currentPath: currentPath,
@@ -1728,9 +2063,11 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
 
                         // Pass forward-slash path directly to ScreenAsMcpTool
                         // ScreenAsMcpTool will use Moqui's ScreenUrlInfo.parseSubScreenPath to navigate through screen hierarchy
+                        // Action is passed through for framework-based transition execution
                         def browseScreenCallParams = [
                             path: path,
                             parameters: parameters ?: [:],
+                            action: action,  // Let ScreenAsMcpTool handle via framework
                             renderMode: actualRenderMode,
                             sessionId: sessionId
                         ]
@@ -1755,7 +2092,18 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                 }
                             }
 
-                            if (resultObj && resultObj.semanticState) {
+                            // Handle compact mode - pass through compact data directly
+                            if ((actualRenderMode == "compact" || actualRenderMode == null) && resultObj && resultObj.screen) {
+                                // Compact mode returns flat structure, merge it into resultMap
+                                resultObj.each { k, v -> if (k != "screen") resultMap[k] = v }
+                                resultMap.screen = resultObj.screen
+                                ec.logger.info("BrowseScreens: Compact mode - passing through for ${currentPath}")
+                            // Handle ARIA mode - pass through the aria tree directly
+                            } else if (actualRenderMode == "aria" && resultObj && resultObj.aria) {
+                                resultMap.aria = resultObj.aria
+                                if (resultObj.summary) resultMap.summary = resultObj.summary
+                                ec.logger.info("BrowseScreens: ARIA mode - passing through aria tree for ${currentPath}")
+                            } else if (resultObj && resultObj.semanticState) {
                                 resultMap.semanticState = resultObj.semanticState
 
                                 // Build UI narrative for LLM guidance
@@ -1788,9 +2136,9 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     resultMap.actionResult = actionResult
                 }
 
-                // Don't include renderedContent for renderMode "mcp" - semanticState provides structured data
+                // Don't include renderedContent for renderMode "mcp", "aria", or "compact" - structured data is provided instead
                 // Including both duplicates data and truncation breaks JSON structure
-                if (renderedContent && actualRenderMode != "mcp") {
+                if (renderedContent && actualRenderMode != "mcp" && actualRenderMode != "aria" && actualRenderMode != "compact") {
                     resultMap.renderedContent = renderedContent
                 }
                 
@@ -1897,7 +2245,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             properties: [
                                 "path": [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
                                 "action": [type: "string", description: "Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name"],
-                                "renderMode": [type: "string", description: "Render mode: mcp (default), text, html, xml, vuet, qvt"],
+                                "renderMode": [type: "string", description: "Render mode: compact (default, actionable summary), aria (accessibility tree), mcp (full metadata), text, html, xml, vuet, qvt"],
                                 "parameters": [type: "object", description: "Parameters to pass to screen during rendering or action"]
                             ]
                         ]

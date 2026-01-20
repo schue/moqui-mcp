@@ -324,12 +324,17 @@ class WebFacadeStub implements WebFacade {
         private String screenPath
         private String remoteUser = null
         private java.security.Principal userPrincipal = null
+        private Map<String, Object> attributes = [:]
         
         MockHttpServletRequest(Map<String, Object> parameters, String method, HttpSession session = null, String screenPath = null) {
             this.parameters = parameters ?: [:]
             this.method = method ?: "GET"
             this.session = session
             this.screenPath = screenPath
+            
+            // Mark request as authenticated for MCP - bypasses CSRF token check for transitions
+            // This is safe because MCP requests are already authenticated via the MCP session
+            this.attributes["moqui.request.authenticated"] = "true"
             
             // Extract user information from session attributes for authentication
             if (session) {
@@ -385,9 +390,9 @@ class WebFacadeStub implements WebFacade {
         @Override String getProtocol() { return "HTTP/1.1" }
         
         // Other required methods with minimal implementations
-        @Override Object getAttribute(String name) { return null }
-        @Override void setAttribute(String name, Object value) {}
-        @Override void removeAttribute(String name) {}
+        @Override Object getAttribute(String name) { return attributes.get(name) }
+        @Override void setAttribute(String name, Object value) { attributes[name] = value }
+        @Override void removeAttribute(String name) { attributes.remove(name) }
         @Override java.util.Enumeration<String> getAttributeNames() { return Collections.enumeration([]) }
         @Override String getAuthType() { return null }
         @Override String getRemoteUser() { return remoteUser }
