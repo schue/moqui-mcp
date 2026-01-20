@@ -159,12 +159,24 @@
                     <#assign dropdownOptions = sri.getFieldOptions(dropdownNode)!>
                     <#if (dropdownOptions?size!0) gt 0>
                         <#-- Build options list from the LinkedHashMap -->
+                        <#-- Truncate if > 10 unless mcpFullOptions is set (for get_screen_details) -->
                         <#assign optionsList = []>
+                        <#assign totalOptions = dropdownOptions?size>
+                        <#assign skipTruncation = (ec.context.mcpFullOptions!false) == true>
+                        <#assign optionLimit = skipTruncation?then(999999, 10)>
+                        <#assign optionCount = 0>
                         <#list (dropdownOptions.keySet())! as optKey>
-                            <#assign optLabel = (dropdownOptions.get(optKey))!optKey>
-                            <#assign optionsList = optionsList + [{"value": optKey, "label": optLabel}]>
+                            <#if optionCount lt optionLimit>
+                                <#assign optLabel = (dropdownOptions.get(optKey))!optKey>
+                                <#assign optionsList = optionsList + [{"value": optKey, "label": optLabel}]>
+                            </#if>
+                            <#assign optionCount = optionCount + 1>
                         </#list>
-                        <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": optionsList}>
+                        <#if (totalOptions gt 10) && !skipTruncation>
+                            <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": optionsList, "optionsTruncated": true, "totalOptions": totalOptions, "fetchHint": "Use moqui_get_screen_details(fieldName='" + (fieldNode["@name"]!"") + "') for all " + totalOptions + " options"}>
+                        <#else>
+                            <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": optionsList}>
+                        </#if>
                     <#else>
                         <#-- No static options - check for dynamic-options -->
                         <#assign dynamicOptionsList = dropdownNode["dynamic-options"]!>
@@ -281,12 +293,24 @@
                     </#list>
                     <#assign dropdownOptions = sri.getFieldOptions(fieldSubNode)!>
                     <#if dropdownOptions?has_content && dropdownOptions?size gt 0>
-                        <#-- Convert LinkedHashMap<String,String> to list of {value, label} objects for JSON -->
+                        <#-- Convert LinkedHashMap<String,String> to list of {value, label} objects -->
+                        <#-- Truncate if > 10 unless mcpFullOptions is set (for get_screen_details) -->
                         <#assign optionsList = []>
+                        <#assign totalOptions = dropdownOptions?size>
+                        <#assign skipTruncation = (ec.context.mcpFullOptions!false) == true>
+                        <#assign optionLimit = skipTruncation?then(999999, 10)>
+                        <#assign optionCount = 0>
                         <#list dropdownOptions?keys as optKey>
-                            <#assign optionsList = optionsList + [{"value": optKey, "label": dropdownOptions[optKey]!optKey}]>
+                            <#if optionCount lt optionLimit>
+                                <#assign optionsList = optionsList + [{"value": optKey, "label": dropdownOptions[optKey]!optKey}]>
+                            </#if>
+                            <#assign optionCount = optionCount + 1>
                         </#list>
-                        <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": optionsList}>
+                        <#if (totalOptions gt 10) && !skipTruncation>
+                            <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": optionsList, "optionsTruncated": true, "totalOptions": totalOptions, "fetchHint": "Use moqui_get_screen_details(fieldName='" + (fieldNode["@name"]!"") + "') for all " + totalOptions + " options"}>
+                        <#else>
+                            <#assign fieldMeta = fieldMeta + {"type": "dropdown", "options": optionsList}>
+                        </#if>
                     <#else>
                         <#assign dropdownNode = fieldSubNode["drop-down"]!>
                         

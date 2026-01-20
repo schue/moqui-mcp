@@ -23,8 +23,11 @@ class McpFieldOptionsService {
 
         def result = [screenPath: path, fields: [:]]
         try {
+            // Pass mcpFullOptions through parameters to get full dropdown options without truncation
+            def mergedParams = (parameters ?: [:]) + [mcpFullOptions: true]
+            
             def browseResult = ec.service.sync().name("McpServices.execute#ScreenAsMcpTool")
-                .parameters([path: path, parameters: parameters ?: [:], renderMode: "mcp", sessionId: null])
+                .parameters([path: path, parameters: mergedParams, renderMode: "mcp", sessionId: null])
                 .call()
 
             ec.logger.info("=== browseResult: ${browseResult != null}, result exists: ${browseResult?.result != null} ===")

@@ -601,6 +601,21 @@ def getSimplePath = { fullPath ->
     return parts.join('/')
 }
 
+// Helper to extract short description/summary from wiki content
+def extractSummary = { wikiText ->
+    if (!wikiText) return null
+    def textString = wikiText instanceof String ? wikiText : new String(wikiText, "UTF-8")
+    def lines = textString.split('\n')
+    for (def line : lines) {
+        def trimmed = line.trim()
+        // Skip empty lines and headers
+        if (trimmed && !trimmed.startsWith('#')) {
+            return trimmed.take(200)
+        }
+    }
+    return null
+}
+
 // Helper function to load wiki instructions for a screen
 def getWikiInstructions = { lookupPath ->
     try {
@@ -1061,7 +1076,11 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 if (output) {
                     mcpResult.textPreview = output.take(2000) + (output.length() > 2000 ? "..." : "")
                 }
-                if (wikiInstructions) mcpResult.wikiInstructions = wikiInstructions
+                if (wikiInstructions) {
+                    mcpResult.wikiInstructions = wikiInstructions
+                    def summary = extractSummary(wikiInstructions)
+                    if (summary) mcpResult.summary = summary
+                }
                 
                 content << [
                     type: "text",
@@ -1781,6 +1800,11 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
 
                 if (wikiInstructions) {
                     resultMap.wikiInstructions = wikiInstructions
+                    // Extract first non-header paragraph as summary
+                    def summary = getShortDescription(wikiInstructions)
+                    if (summary) {
+                        resultMap.summary = summary
+                    }
                 }
 
                 if (renderError) {
