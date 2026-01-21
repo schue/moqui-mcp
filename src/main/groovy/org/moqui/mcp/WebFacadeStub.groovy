@@ -294,6 +294,46 @@ class WebFacadeStub implements WebFacade {
         this.responseText = "System message not implemented in stub"
     }
     
+    // Save methods - capture errors/messages before redirect so they're available after render
+    void saveMessagesToSession() {
+        // Capture current errors and validation errors from ExecutionContext
+        if (ecfi instanceof org.moqui.impl.context.ExecutionContextFactoryImpl) {
+            org.moqui.impl.context.ExecutionContextFactoryImpl ecfiImpl = (org.moqui.impl.context.ExecutionContextFactoryImpl) ecfi
+            org.moqui.context.ExecutionContext eci = ecfiImpl.getEci()
+            if (eci != null) {
+                MessageFacade mf = eci.getMessage()
+                if (mf != null) {
+                    List<String> errors = mf.getErrors()
+                    if (errors != null && errors.size() > 0) {
+                        savedErrors.addAll(errors)
+                        logger.info("WebFacadeStub.saveMessagesToSession: Captured ${errors.size()} errors: ${errors}")
+                    }
+                    List<ValidationError> valErrors = mf.getValidationErrors()
+                    if (valErrors != null && valErrors.size() > 0) {
+                        savedValidationErrors.addAll(valErrors)
+                        logger.info("WebFacadeStub.saveMessagesToSession: Captured ${valErrors.size()} validation errors")
+                    }
+                }
+            }
+        }
+    }
+    
+    void saveRequestParametersToSession() {
+        // Store parameters for potential re-display
+        sessionAttributes.put("moqui.saved.parameters", new HashMap(parameters))
+    }
+    
+    void saveErrorParametersToSession() {
+        // Store error parameters 
+        errorParameters.putAll(parameters)
+    }
+    
+    void saveParametersToSession(Map parameters) {
+        if (parameters) {
+            sessionAttributes.put("moqui.saved.parameters", new HashMap(parameters))
+        }
+    }
+    
     // Helper methods for ScreenTestImpl
     String getResponseText() { 
         if (responseText != null) {

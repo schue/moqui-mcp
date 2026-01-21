@@ -762,13 +762,16 @@ Manage product details, features, prices, categories, and associations.
 
 Features are managed directly on the EditProduct screen (not a separate EditFeatures subscreen).
 
+**IMPORTANT:** Use `applyProductFeatures` to add existing features (like ColorGreen). 
+Use `createProductFeature` only to create NEW feature definitions.
+
 ### Add Selectable Feature (Virtual Products)
 ```
 path: PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct
-action: createProductFeature
+action: applyProductFeatures
 parameters: {
   productId: "DEMO_VAR",
-  productFeatureId: "ColorRed",
+  productFeatureIdList: ["ColorGreen"],
   applTypeEnumId: "PfatSelectable"
 }
 ```
@@ -776,10 +779,10 @@ parameters: {
 ### Add Distinguishing Feature (Variant Products)
 ```
 path: PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct
-action: createProductFeature
+action: applyProductFeatures
 parameters: {
-  productId: "DEMO_VAR_RED",
-  productFeatureId: "ColorRed",
+  productId: "DEMO_VAR_GR_SM",
+  productFeatureIdList: ["ColorGreen", "SizeSmall"],
   applTypeEnumId: "PfatDistinguishing"
 }
 ```
@@ -944,14 +947,31 @@ parameters: {
         versionName="v1">
         <fileData><![CDATA[# ProductFeature Service
 
-Apply features (like color, size) to products.
+Manage product features (color, size, etc.) - two different operations:
 
-## mantle.product.ProductServices.create#ProductFeature
+## IMPORTANT: Two Different Services
+
+1. **applyProductFeatures** - Apply EXISTING features to a product (most common)
+2. **createProductFeature** - Create a NEW feature definition (rare)
+
+Most of the time you want `applyProductFeatures` to link existing features like ColorGreen or SizeLarge to products.
+
+---
+
+## mantle.product.ProductServices.apply#ProductFeatures
+
+**Use this to apply existing features to products.**
+
+**Action:** `applyProductFeatures`
 
 **Required:**
-- `productId`: Product to add feature to
-- `productFeatureId`: Feature ID (e.g., ColorRed, SizeMedium)
-- `applTypeEnumId`: How feature applies to product
+- `productId`: Product to add features to
+- `productFeatureIdList`: List of feature IDs (e.g., ["ColorGreen", "SizeMedium"])
+
+**Optional:**
+- `applTypeEnumId`: How feature applies (default: PfatStandard)
+- `fromDate`: When feature becomes active (default: now)
+- `sequenceNum`: Display order
 
 **Application Types (applTypeEnumId):**
 - `PfatSelectable`: Customer can choose (use on virtual parent)
@@ -959,34 +979,61 @@ Apply features (like color, size) to products.
 - `PfatStandard`: Always included
 - `PfatRequired`: Must be selected at purchase
 
-**Optional:**
-- `fromDate`: When feature becomes active (default: now)
-- `sequenceNum`: Display order
-
-**Example - Virtual Parent:**
+**Example - Add Selectable Feature to Virtual Parent:**
 ```
-action: createProductFeature
+action: applyProductFeatures
 parameters: {
   productId: "DEMO_VAR",
-  productFeatureId: "ColorGreen",
+  productFeatureIdList: ["ColorGreen"],
   applTypeEnumId: "PfatSelectable"
 }
 ```
 
-**Example - Variant:**
+**Example - Add Distinguishing Feature to Variant:**
 ```
-action: createProductFeature  
+action: applyProductFeatures
 parameters: {
   productId: "DEMO_VAR_GR_SM",
-  productFeatureId: "ColorGreen",
+  productFeatureIdList: ["ColorGreen", "SizeSmall"],
   applTypeEnumId: "PfatDistinguishing"
 }
 ```
 
-## Common Feature IDs
+---
 
-Colors: ColorRed, ColorBlue, ColorGreen, ColorBlack, ColorWhite
-Sizes: SizeSmall, SizeMedium, SizeLarge, SizeXL]]></fileData>
+## mantle.product.ProductServices.create#ProductFeature
+
+**Use this ONLY to create a NEW feature that doesn't exist yet.**
+
+**Action:** `createProductFeature`
+
+**Required:**
+- `productFeatureTypeEnumId`: Type of feature (PftColor, PftSize, etc.)
+- `description`: Feature name/description (e.g., "Green", "Extra Small")
+
+**Optional:**
+- `productId`: If provided, also applies the new feature to this product
+- `applTypeEnumId`: How to apply (if productId provided)
+- `abbrev`: Short abbreviation (e.g., "GR", "XS")
+
+**Example - Create a new color feature:**
+```
+action: createProductFeature
+parameters: {
+  productFeatureTypeEnumId: "PftColor",
+  description: "Teal",
+  abbrev: "TL",
+  productId: "DEMO_VAR",
+  applTypeEnumId: "PfatSelectable"
+}
+```
+
+---
+
+## Common Feature IDs (already exist - use with applyProductFeatures)
+
+**Colors:** ColorRed, ColorBlue, ColorGreen, ColorBlack, ColorWhite
+**Sizes:** SizeSmall, SizeMedium, SizeLarge, SizeXL]]></fileData>
     </moqui.resource.DbResourceFile>
 
     <moqui.resource.wiki.WikiPage

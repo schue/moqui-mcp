@@ -397,6 +397,25 @@ class CustomScreenTestImpl implements McpScreenTest {
             try {
                 logger.info("Starting render for ${screenPathList} with root ${csti.rootScreenLocation}")
                 screenRender.render(wfs.getRequest(), wfs.getResponse())
+                
+                // IMMEDIATELY capture errors after render - before anything can clear them
+                // This is critical for transition validation errors which get cleared during redirect handling
+                if (eci.message.hasError()) {
+                    List<String> immediateErrors = new ArrayList<>(eci.message.getErrors())
+                    if (immediateErrors.size() > 0) {
+                        stri.errorMessages.addAll(immediateErrors)
+                        logger.warn("Captured ${immediateErrors.size()} errors immediately after render: ${immediateErrors}")
+                    }
+                }
+                List<org.moqui.context.ValidationError> immediateValErrors = eci.message.getValidationErrors()
+                if (immediateValErrors != null && immediateValErrors.size() > 0) {
+                    for (org.moqui.context.ValidationError ve : immediateValErrors) {
+                        String errMsg = ve.getMessage() ?: "${ve.getField()}: Validation error"
+                        stri.errorMessages.add(errMsg)
+                    }
+                    logger.warn("Captured ${immediateValErrors.size()} validation errors immediately after render")
+                }
+                
                 // get the response text from the WebFacadeStub
                 stri.outputString = wfs.getResponseText()
                 stri.jsonObj = wfs.getResponseJsonObj()
@@ -416,7 +435,7 @@ class CustomScreenTestImpl implements McpScreenTest {
             // pop the context stack, get rid of var space
             cs.pop()
 
-            // check, pass through, error messages
+            // check, pass through, error messages from ExecutionContext
             if (eci.message.hasError()) {
                 stri.errorMessages.addAll(eci.message.getErrors())
                 eci.message.clearErrors()
@@ -424,6 +443,29 @@ class CustomScreenTestImpl implements McpScreenTest {
                 for (String errorMessage in stri.errorMessages) sb.append("\n").append(errorMessage)
                 logger.warn(sb.toString())
                 csti.errorCount += stri.errorMessages.size()
+            }
+            
+            // Also check errors saved to session by saveMessagesToSession() during transition redirects
+            // This captures validation errors that occur during service calls but get cleared before we check
+            if (wfs instanceof WebFacadeStub) {
+                def savedErrors = wfs.getSavedErrors()
+                if (savedErrors && savedErrors.size() > 0) {
+                    stri.errorMessages.addAll(savedErrors)
+                    StringBuilder sb = new StringBuilder("Saved error messages from ${stri.screenPath}: ")
+                    for (String errorMessage in savedErrors) sb.append("\n").append(errorMessage)
+                    logger.warn(sb.toString())
+                    csti.errorCount += savedErrors.size()
+                }
+                def savedValidationErrors = wfs.getSavedValidationErrors()
+                if (savedValidationErrors && savedValidationErrors.size() > 0) {
+                    // Convert ValidationError objects to string messages
+                    for (def ve in savedValidationErrors) {
+                        def errMsg = ve.message ?: "${ve.field}: Validation error"
+                        stri.errorMessages.add(errMsg)
+                        csti.errorCount++
+                    }
+                    logger.warn("Saved validation errors from ${stri.screenPath}: ${savedValidationErrors.size()} errors")
+                }
             }
 
             // check for error strings in output
