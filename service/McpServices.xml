@@ -841,26 +841,12 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
         // Add required attribute
         if (field.required) node.required = true
         
-        // For dropdowns, show option count and examples
+        // For dropdowns, just indicate type - use get_screen_details for options
         if (field.type == "dropdown") {
-            def optionCount = field.options?.size() ?: 0
-            if (field.totalOptions) optionCount = field.totalOptions
-            if (optionCount > 0) {
-                node.options = optionCount
-                // Show first few example values
-                if (field.options instanceof List && field.options.size() > 0) {
-                    node.examples = field.options.take(3).collect { opt ->
-                        opt instanceof Map ? (opt.value ?: opt.label) : opt.toString()
-                    }
-                }
-                if (field.optionsTruncated) {
-                    node.description = "Use moqui_get_screen_details for all ${optionCount} options"
-                }
-            }
-            // Check for dynamic options
+            node.description = "dropdown - use moqui_get_screen_details for options"
+            // Check for dynamic options (autocomplete)
             if (field.dynamicOptions) {
-                node.autocomplete = true
-                node.description = "Type to search, options load dynamically"
+                node.description = "autocomplete - type to search"
             }
         }
         
@@ -952,9 +938,17 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
             gridNode.children = []
             listData.each { row ->
                 def rowNode = [role: "row"]
-                // Extract key identifying info
-                def id = row.pseudoId ?: row.partyId ?: row.productId ?: row.id
-                def name = row.combinedName ?: row.name ?: row.productName
+                // Extract key identifying info - prefer specific IDs over generic productId
+                // For features: productFeatureId, for assocs: toProductId, etc.
+                def id = row.pseudoId ?: row.toProductId ?: row.productFeatureId ?: 
+                         row.partyId ?: row.orderId ?: row.id
+                // Avoid using productId as ref when it's the same for all rows (e.g., feature list)
+                if (!id && row.productId) {
+                    // Only use productId if there's no better identifier
+                    id = row.productId
+                }
+                def name = row.combinedName ?: row.name ?: row.productName ?: 
+                           row.description ?: row.abbrev
                 if (id) rowNode.ref = id
                 if (name) rowNode.name = name
                 if (id && name && id != name) rowNode.description = id
@@ -965,18 +959,41 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
         children << gridNode
     }
     
-    // Process navigation links (no truncation)
+    // Process navigation links - filter out noise
     def navLinks = semanticState.data?.links?.findAll { it.type == "navigation" }
     if (navLinks && navLinks.size() > 0) {
-        def navNode = [
-            role: "navigation",
-            name: "Links",
-            children: navLinks.collect { link ->
-                def linkNode = [role: "link", name: link.text, ref: link.path]
-                linkNode
+        // Determine current app from target path
+        def currentApp = targetScreenPath?.split('/')?.find { it.startsWith('Popc') || it.startsWith('marble') || it.startsWith('hm') || it.startsWith('my') || it.startsWith('system') || it.startsWith('tools') }
+        
+        def filteredLinks = navLinks.findAll { link ->
+            def path = link.path?.toString() ?: ""
+            
+            // Skip links with encoded timestamps (delete/update action URLs) - these are action URLs, not navigation
+            if (path.contains("fromDate=") || path.contains("thruDate=")) {
+                return false
             }
-        ]
-        children << navNode
+            
+            // Skip cross-app navigation links (apps/marble, apps/hm, etc.) unless they're current app
+            if (path.startsWith("apps/")) {
+                def linkApp = path.split('/')[1]
+                // Keep if same app or if it's a my/User link (global nav)
+                return linkApp == currentApp || path.startsWith("apps/my/")
+            }
+            
+            return true
+        }
+        
+        if (filteredLinks.size() > 0) {
+            def navNode = [
+                role: "navigation",
+                name: "Links",
+                children: filteredLinks.collect { link ->
+                    def linkNode = [role: "link", name: link.text, ref: link.path]
+                    linkNode
+                }
+            ]
+            children << navNode
+        }
     }
     
     // Process ALL actions as buttons (unified - no separate transitions/actions, no truncation)
@@ -992,15 +1009,13 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
                     name: action.name,
                     ref: action.name
                 ]
-                // Add description based on service or action type
+                // Add description based on action type (no service names - they confuse models)
                 if (action.service) {
                     btnNode.description = actionDescription(action.name, action.service)
-                    btnNode.service = action.service
-                    // Add describedby for service documentation
-                    // e.g., "mantle.product.ProductServices.create#ProductFeature" -> "wiki:service:ProductServices.create#ProductFeature"
+                    // Add help reference for moqui_get_help tool
                     def serviceParts = action.service.split('\\.')
                     if (serviceParts.length > 0) {
-                        btnNode.describedby = "wiki:service:${serviceParts[-1]}"
+                        btnNode.help = "wiki:service:${serviceParts[-1]}"
                     }
                 } else if (action.type == "screen-transition") {
                     btnNode.description = "Navigate"
@@ -1021,12 +1036,8 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
         children: children
     ]
     
-    // Add describedby reference if wiki instructions exist for this screen
-    // This follows ARIA pattern: describedby points to extended documentation
-    // Use full screen path since that's how WikiPage.pagePath is stored
-    if (targetScreenPath) {
-        mainNode.describedby = "wiki:screen:${targetScreenPath}"
-    }
+    // Note: Removed wiki:screen references - models can't usefully act on them
+    // Wiki instructions are already included in the response when available
     
     return mainNode
 }
@@ -1087,19 +1098,10 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
             def displayName = field.title ?: field.name
             
             if (field.type == "dropdown") {
-                def optionCount = field.totalOptions ?: field.options?.size() ?: 0
-                if (optionCount > 0) {
-                    fieldInfo = [(fieldName): [type: "dropdown", options: optionCount]]
-                    // Include first few options as examples
-                    if (field.options && field.options.size() > 0) {
-                        def examples = field.options.take(3).collect { it.value }
-                        fieldInfo[fieldName].examples = examples
-                    }
-                    if (field.dynamicOptions) {
-                        fieldInfo[fieldName].autocomplete = true
-                    }
-                } else {
-                    fieldInfo = [(fieldName): [type: "dropdown"]]
+                // Just indicate it's a dropdown - use get_screen_details for actual options
+                fieldInfo = [(fieldName): [type: "dropdown"]]
+                if (field.dynamicOptions) {
+                    fieldInfo[fieldName].autocomplete = true
                 }
                 if (displayName != fieldName) fieldInfo[fieldName].label = displayName
             } else {
@@ -1134,9 +1136,7 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
         }
         if (submitAction) {
             formInfo.submit = submitAction.name
-            if (submitAction.service) {
-                formInfo.service = submitAction.service
-            }
+            // Note: Removed service name - it confuses models into trying to call services directly
         }
         
         forms[formName] = formInfo
@@ -1163,9 +1163,14 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
             gridInfo.rows = listData.take(10).collect { row ->
                 def rowInfo = [:]
                 
-                // Get identifying info
-                def id = row.pseudoId ?: row.partyId ?: row.productId ?: row.orderId ?: row.communicationEventId ?: row.id
-                def name = row.combinedName ?: row.productName ?: row.organizationName ?: row.subject ?: row.name
+                // Get identifying info - prefer specific IDs over generic productId
+                // For features: productFeatureId, for assocs: toProductId, etc.
+                def id = row.pseudoId ?: row.toProductId ?: row.productFeatureId ?: 
+                         row.partyId ?: row.orderId ?: row.communicationEventId ?: row.id
+                // Avoid using productId as id when it's the same for all rows (e.g., feature list)
+                if (!id && row.productId) id = row.productId
+                def name = row.combinedName ?: row.productName ?: row.organizationName ?: 
+                           row.subject ?: row.name ?: row.description ?: row.abbrev
                 
                 if (id) rowInfo.id = id
                 if (name && name != id) rowInfo.name = name
@@ -1233,10 +1238,16 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
     }
     if (grids) result.grids = grids
     
-    // Actions - service actions with parameter hints
+    // Actions - just action names with help references (no service names)
     def actionMap = [:]
     actions.findAll { it.type == "service-action" && it.service }.each { action ->
-        def actionInfo = [service: action.service]
+        def actionInfo = [:]
+        
+        // Add help reference for moqui_get_help tool
+        def serviceParts = action.service.split('\\.')
+        if (serviceParts.length > 0) {
+            actionInfo.help = "wiki:service:${serviceParts[-1]}"
+        }
         
         // Find form that uses this action to get parameter hints
         def matchingForm = forms.find { k, v -> v.submit == action.name }
@@ -1251,7 +1262,7 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
             if (requiredFields) actionInfo.required = requiredFields
         }
         
-        actionMap[action.name] = actionInfo
+        if (actionInfo) actionMap[action.name] = actionInfo
     }
     if (actionMap) result.actions = actionMap
     
