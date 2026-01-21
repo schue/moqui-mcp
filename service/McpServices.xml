@@ -601,7 +601,7 @@
             <parameter name="path" required="true"/>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen</description></parameter>
             <parameter name="action"><description>Action being processed: if not null, use real screen rendering instead of test mock</description></parameter>
-            <parameter name="renderMode" default="compact"><description>Render mode: compact (default, actionable summary), aria (accessibility tree), mcp (full metadata), text, html, xml, vuet, qvt</description></parameter>
+            <parameter name="renderMode" default="compact"><description>Render mode: compact (default, actionable summary), aria (accessibility tree), text, html, xml, vuet, qvt</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
         </in-parameters>
         <out-parameters>
@@ -1412,8 +1412,10 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             }
 
             // Regular screen rendering with current user context - use our custom ScreenTestImpl
-            // For compact/ARIA modes, we still render with MCP to get semantic data, then convert
-            def actualScreenRenderMode = (renderMode == "aria" || renderMode == "compact" || renderMode == null) ? "mcp" : renderMode
+            // For compact/ARIA modes, we still render internally with MCP to get semantic data, then convert
+            // Note: "mcp" is not exposed to users - if requested, treat as "compact"
+            def userRenderMode = (renderMode == "mcp") ? "compact" : renderMode
+            def actualScreenRenderMode = (userRenderMode == "aria" || userRenderMode == "compact" || userRenderMode == null) ? "mcp" : userRenderMode
             def screenTest = new org.moqui.mcp.CustomScreenTestImpl(ec.ecfi)
                 .rootScreen(rootScreen)
                 .renderMode(actualScreenRenderMode)
@@ -2165,7 +2167,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
         <in-parameters>
             <parameter name="path" required="false"><description>Screen path to browse (e.g. 'PopCommerce'). Leave empty for root apps.</description></parameter>
             <parameter name="action"><description>Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name</description></parameter>
-            <parameter name="renderMode" default="compact"><description>Render mode: compact (default, actionable summary), aria (accessibility tree), mcp (full metadata), text, html, xml, vuet, qvt</description></parameter>
+            <parameter name="renderMode" default="compact"><description>Render mode: compact (default, actionable summary), aria (accessibility tree), text, html, xml, vuet, qvt</description></parameter>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering or action</description></parameter>
             <parameter name="sessionId"/>
         </in-parameters>
@@ -2782,13 +2784,13 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     [
                         name: "moqui_browse_screens",
                         title: "Browse Screens",
-                        description: "Browse Moqui screen hierarchy, process actions, and render screen content. Input 'path' (empty for root). Default renderMode is 'mcp'.",
+                        description: "Browse Moqui screen hierarchy, process actions, and render screen content. Input 'path' (empty for root). Default renderMode is 'compact'.",
                         inputSchema: [
                             type: "object",
                             properties: [
                                 "path": [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
                                 "action": [type: "string", description: "Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name"],
-                                "renderMode": [type: "string", description: "Render mode: compact (default, actionable summary), aria (accessibility tree), mcp (full metadata), text, html, xml, vuet, qvt"],
+                                "renderMode": [type: "string", description: "Render mode: compact (default, actionable summary), aria (accessibility tree), text, html, xml, vuet, qvt"],
                                 "parameters": [type: "object", description: "Parameters to pass to screen during rendering or action"]
                             ]
                         ]
