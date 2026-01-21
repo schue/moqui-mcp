@@ -2449,6 +2449,15 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     subscreens: subscreens,
                     renderMode: actualRenderMode
                 ]
+                
+                // Add global navigation - these are always available regardless of current app
+                // Mirrors the MyAccountNav component in the web UI
+                resultMap.globalNav = [
+                    [name: "My Notifications", path: "apps/my/User/Notifications", icon: "info"],
+                    [name: "My Messages", path: "apps/my/User/Messages/FindMessage", icon: "message"],
+                    [name: "My Calendar", path: "apps/my/User/Calendar/MyCalendar", icon: "calendar"],
+                    [name: "My Tasks", path: "apps/my/User/Task/MyTasks", icon: "tasks"]
+                ]
 
                 if (currentPath != "root") {
                     try {

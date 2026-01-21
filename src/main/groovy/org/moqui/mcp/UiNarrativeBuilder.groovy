@@ -251,6 +251,9 @@ class UiNarrativeBuilder {
             }
         }
         
+        // Hint about global nav and search
+        notes << "Global nav (Messages, Tasks, Calendar, Notifications) available in response.globalNav. Use moqui_search_screens(query='...') to find other screens."
+        
         return notes
     }
 
