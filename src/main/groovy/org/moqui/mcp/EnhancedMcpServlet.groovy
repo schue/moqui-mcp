@@ -201,7 +201,7 @@ class EnhancedMcpServlet extends HttpServlet {
                 logger.debug("About to call handleJsonRpc with visit: ${visit?.visitId}")
                 handleJsonRpc(request, response, ec, webappName, requestBody, visit)
             } else if ("GET".equals(method) && (requestURI.equals("/mcp") || requestURI.endsWith("/mcp"))) {
-                // Handle GET requests to /mcp - maybe for server info or SSE fallback
+                // Handle GET requests to /mcp - SSE connection for streaming
                 handleSseConnection(request, response, ec, webappName)
             } else {
                 // Fallback to JSON-RPC handling

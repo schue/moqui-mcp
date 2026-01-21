@@ -132,10 +132,42 @@
                     logging: [:]
                 ]
                 
-                // Build server info
+                // Build server info with useful metadata
+                def moquiVersion = ec.factory.moquiVersion ?: "Unknown"
+                def runtimePath = ec.factory.runtimePath ?: "Unknown"
+                
+                // Get hostname and IP
+                def hostname = "Unknown"
+                def ipAddress = "Unknown"
+                try {
+                    def localhost = java.net.InetAddress.getLocalHost()
+                    hostname = localhost.getHostName()
+                    ipAddress = localhost.getHostAddress()
+                } catch (Exception e) { /* ignore */ }
+                
+                // Get Java/JVM info
+                def javaVersion = System.getProperty("java.version") ?: "Unknown"
+                def javaVendor = System.getProperty("java.vendor") ?: "Unknown"
+                
+                // Get server start time from Runtime MXBean
+                def serverStartTime = null
+                try {
+                    def runtimeMXBean = java.lang.management.ManagementFactory.getRuntimeMXBean()
+                    serverStartTime = runtimeMXBean.getStartTime()
+                } catch (Exception e) { /* ignore */ }
+                
                 def serverInfo = [
                     name: "Moqui MCP Server",
-                    version: "2.0.1"
+                    version: "2.0.2",
+                    moquiVersion: moquiVersion,
+                    hostname: hostname,
+                    ipAddress: ipAddress,
+                    javaVersion: javaVersion,
+                    javaVendor: javaVendor,
+                    serverStartTime: serverStartTime,
+                    runtimePath: runtimePath,
+                    currentUser: ec.user?.username,
+                    currentUserId: ec.user?.userId
                 ]
                 
                 result = [
