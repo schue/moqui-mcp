@@ -1,90 +1,234 @@
-# Moqui MCP: AI in the Corporate Cockpit
+# Moqui MCP: AI Agents in the Enterprise
 
-**⚠️ WARNING: THIS DOG MAY EAT YOUR HOMEWORK! ⚠️**
-
-This system can give AI agents god-mode access to an entire ERP system - that's not a feature, it's a loaded weapon requiring serious security consideration.
-
-## 🎥 **SEE IT WORK**
+**Give AI agents real jobs in real business systems.**
 
 [![Moqui MCP Demo](https://img.youtube.com/vi/Tauucda-NV4/0.jpg)](https://www.youtube.com/watch?v=Tauucda-NV4)
 
-**AI agents running real business operations.**
+## What This Is
 
----
+Moqui MCP connects AI agents to [Moqui Framework](https://www.moqui.org/), an open-source ERP platform. Through MCP (Model Context Protocol), agents can browse screens, fill forms, execute transactions, and query data - the same operations humans perform through the web interface.
 
-## 🚀 **THE POSSIBILITIES**
+**This isn't a chatbot bolted onto an ERP. It's AI with direct access to business operations.**
 
-### **Autonomous Business Operations**
-- **AI Purchasing Agents**: Negotiate with suppliers using real inventory data
-- **Dynamic Pricing**: Adjust prices based on live demand and supply constraints  
-- **Workforce Intelligence**: Optimize scheduling with real financial modeling
-- **Supply Chain Orchestration**: Coordinate global logistics automatically
+## What Agents Can Do
 
-### **Real-World Intelligence**
-- **Market Analysis**: AI sees actual sales data, not just trends
-- **Financial Forecasting**: Ground predictions in real business metrics
-- **Risk Management**: Monitor operations for anomalies and opportunities
-- **Compliance Automation**: Enforce business rules across all processes
+- **Browse** the complete application hierarchy - catalog, orders, parties, accounting
+- **Search** products, customers, inventory with full query capabilities  
+- **Create** orders, invoices, shipments, parties, products
+- **Update** prices, quantities, statuses, relationships
+- **Execute** workflows spanning multiple screens and services
 
-### **The Agentic Economy**
-- **Multi-Agent Systems**: Sales, purchasing, operations AI working together
-- **ECA/SECA Integration**: Event-driven autonomous decision making
-- **Cross-Company Coordination**: AI agents negotiating with other AI agents
-- **Economic Simulation**: Test strategies in real business environment
+All operations respect Moqui's security model. Agents see only what their user account permits.
 
-ERP systems naturally create the perfect **agentic theater** - casting distinct roles around HR, Sales, Production, Accounting, and more. This organizational structure provides a powerful grounding framework where AI agents can inhabit authentic business personas with clear responsibilities, workflows, and relationships. The departmental boundaries and process flows that govern human collaboration become the stage directions for autonomous agents, turning corporate hierarchy into a narrative engine for AI coordination.
+## Why Moqui?
 
-**Every product you touch passed through an inventory system. Now AI touches back.**
+ERP systems are the operational backbone of business. They contain:
 
----
+- **Real data**: Actual inventory levels, customer records, financial transactions
+- **Real processes**: Order-to-cash, procure-to-pay, hire-to-retire workflows
+- **Real constraints**: Business rules, approval chains, compliance requirements
 
-### 💬 **From the Maintainer**
+Moqui provides all of this as open-source software with a uniquely AI-friendly architecture:
 
-> *"About 50% of this is slop. Ideas for JobSandbox integration?"*
+- **Declarative screens**: XML definitions with rich semantic metadata
+- **Service-oriented**: Clean separation between UI and business logic
+- **Artifact security**: Fine-grained permissions on every screen, service, and entity
+- **Extensible**: Add AI-specific screens and services without forking
 
-**Your input shapes the roadmap.**
+## The MARIA Format
 
----
+Enterprise screens are built for humans with visual context. AI agents need structured semantics. We solved this with **MARIA (MCP Accessible Rich Internet Applications)** - a JSON format based on W3C accessibility standards.
 
+MARIA transforms Moqui screens into accessibility trees that LLMs naturally understand:
 
+```json
+{
+  "role": "document",
+  "name": "FindParty",
+  "children": [
+    {
+      "role": "form",
+      "name": "CreatePersonForm", 
+      "children": [
+        {"role": "textbox", "name": "First Name", "required": true},
+        {"role": "textbox", "name": "Last Name", "required": true},
+        {"role": "combobox", "name": "Role", "options": 140},
+        {"role": "button", "name": "createPerson"}
+      ]
+    },
+    {
+      "role": "grid",
+      "name": "PartyListForm",
+      "rowcount": 47,
+      "columns": ["ID", "Name", "Username", "Role"],
+      "children": [
+        {"role": "row", "name": "John Sales"},
+        {"role": "row", "name": "Jane Accountant"}
+      ],
+      "moreRows": 45
+    }
+  ]
+}
+```
 
-## Overview
+The insight: **AI agents are a new kind of accessibility-challenged user.** They can't see pixels or interpret visual layout - they need structured semantics. This is exactly the problem ARIA solved for screen readers decades ago. But ARIA has no JSON serialization, and screen readers access accessibility trees via local OS APIs, not network protocols. MARIA fills this gap: the ARIA vocabulary, serialized as JSON, transported over MCP.
 
-This implementation provides the **foundational bridge** between AI assistants and real-world business operations through Moqui ERP. It exposes the complete corporate operating system - screens, services, entities, workflows, and business rules - as MCP tools with **recursive discovery** to arbitrary depth.
+Because humans and agents interact through the same semantic model, they can explain actions to each other in the same terms. "I selected 'Shipped' from the Order Status dropdown" means the same thing whether a human or an agent did it - no translation layer needed.
 
-**Think of this as giving AI agents actual jobs in real companies, with real responsibilities, real consequences, and real accountability.**
+### Why Integrated MARIA Beats Browser Automation
+
+Tools like Playwright MCP let agents control browsers by capturing screenshots and accessibility snapshots. This works, but it's the wrong abstraction for enterprise systems:
+
+| Aspect | Playwright/Browser | Integrated MARIA |
+|--------|-------------------|------------------|
+| **Latency** | Screenshot → Vision model → Action | Direct JSON-RPC round-trip |
+| **Token cost** | Images + DOM snapshots burn tokens | Semantic-only payload |
+| **State access** | Limited to visible DOM | Full server-side context |
+| **Security** | Browser session = full UI access | Fine-grained artifact authorization |
+| **Reliability** | CSS changes break selectors | Stable semantic contracts |
+| **Batch operations** | One click at a time | Bulk actions in single call |
+
+MARIA delivers the accessibility tree directly from the source - no browser rendering, no vision model, no DOM scraping. The agent gets exactly the semantic structure it needs with none of the overhead.
+
+### Render Modes
+
+| Mode | Output | Use Case |
+|------|--------|----------|
+| `aria` | MARIA accessibility tree | Structured agent interaction |
+| `compact` | Condensed JSON summary | Quick screen overview |
+| `mcp` | Full semantic state | Complete metadata access |
+| `text` | Plain text | Simple queries |
+| `html` | Standard HTML | Debugging, human review |
+
+## Example Session
+
+```
+Agent: moqui_browse_screens(path="PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct")
+
+Server: {
+  "summary": "20 products. Forms: NewProductForm. Actions: createProduct",
+  "grids": {"ProductsForm": {"rowCount": 20, "columns": ["ID", "Name", "Type"]}},
+  "actions": {"createProduct": {"service": "create#mantle.product.Product"}}
+}
+
+Agent: I need to create a new product with variants.
+       moqui_browse_screens(
+         path="PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct",
+         action="createProduct",
+         parameters={"productName": "Widget Pro", "productTypeEnumId": "PtVirtual"}
+       )
+
+Server: {
+  "result": {"status": "executed", "productId": "100042"},
+  "summary": "Product created. Navigate to EditProduct to add features."
+}
+```
+
+## Getting Started
+
+```bash
+# Clone with submodules
+git clone --recursive https://github.com/moqui/moqui-mcp
+
+# Build and load demo data  
+./gradlew load
+
+# Start server
+./gradlew run
+
+# MCP endpoint: http://localhost:8080/mcp
+```
+
+### MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `moqui_browse_screens` | Navigate screens, execute actions, render content |
+| `moqui_search_screens` | Find screens by name |
+| `moqui_get_screen_details` | Get field metadata, dropdown options |
 
 ## Architecture
 
-The implementation consists of:
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   AI Agent      │────▶│   MCP Servlet    │────▶│  Moqui Screen   │
+│                 │◀────│  (JSON-RPC 2.0)  │◀────│   Framework     │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+                                │
+                        ┌───────┴───────┐
+                        ▼               ▼
+                ┌──────────────┐ ┌──────────────┐
+                │    MARIA     │ │  Wiki Docs   │
+                │  Transform   │ │  (Guidance)  │
+                └──────────────┘ └──────────────┘
+```
 
-- **EnhancedMcpServlet** - Main MCP servlet handling JSON-RPC 2.0 protocol
-- **McpServices** - Core services for initialization, tool discovery, and execution
-- **Screen Discovery** - Recursive screen traversal with XML parsing
-- **Security Integration** - Moqui artifact authorization system
-- **Test Suite** - Java/Groovy tests (help please!)
+- **MCP Servlet**: JSON-RPC 2.0 protocol, session management, authentication
+- **Screen Framework**: Moqui's rendering engine with MCP output mode
+- **MARIA Transform**: Converts semantic state to accessibility tree format
+- **Wiki Docs**: Screen-specific instructions with path inheritance
 
+## Use Cases
 
+### Autonomous Operations
+- Purchasing agents negotiating with supplier catalogs
+- Inventory agents reordering based on demand forecasts
+- Pricing agents adjusting margins in real-time
+
+### Assisted Workflows  
+- Customer service agents with full order history access
+- Sales agents generating quotes from live pricing
+- Warehouse agents coordinating picks and shipments
+
+### Analysis & Reporting
+- Financial agents querying actuals vs. budgets
+- Operations agents identifying bottlenecks
+- Compliance agents auditing transaction trails
+
+## Security
+
+Production deployments should:
+
+- Create dedicated service accounts for AI agents
+- Use Moqui artifact authorization to limit permissions
+- Enable comprehensive audit logging
+- Consider human-in-the-loop for sensitive operations
+- Start with read-only access, expand incrementally
+
+## Status
+
+This is an active proof-of-concept. Working:
+
+- Screen browsing and discovery
+- Form submission and action execution  
+- MARIA/compact/MCP render modes
+- Wiki documentation with inheritance
+- Artifact security integration
+
+Roadmap:
+
+- Entity-level queries (beyond screen context)
+- Service direct invocation
+- Real-time notifications (ARIA live regions)
+- Multi-agent coordination patterns
+
+## Contributing
+
+Contributions welcome:
+
+- Test coverage and edge cases
+- Additional ARIA role mappings  
+- Performance optimization
+- Documentation and examples
+- Integration patterns for other MCP clients
 
 ## License
 
-This project is in the public domain under CC0 1.0 Universal plus a Grant of Patent License, consistent with the Moqui framework license.
+Public domain under CC0 1.0 Universal plus Grant of Patent License, consistent with Moqui Framework.
 
+## Links
 
-
-## Related Projects
-
-- **Moqui Framework** - https://github.com/moqui/moqui-framework
-- **PopCommerce** - https://github.com/moqui/PopCommerce
-- **MCP Specification** - https://modelcontextprotocol.io/
-
-
-
-## Support
-
-For issues and questions:
-
-1. [Moqui Forum Discussion](https://forum.moqui.org/t/poc-mcp-server-as-a-moqui-component)
-2. Review test examples in `test/`
-3. Consult Moqui documentation
-4. Check server logs for detailed error information
+- [Moqui Framework](https://github.com/moqui/moqui-framework)
+- [MCP Specification](https://modelcontextprotocol.io/)
+- [W3C ARIA](https://www.w3.org/WAI/ARIA/apg/)
+- [Forum Discussion](https://forum.moqui.org/t/poc-mcp-server-as-a-moqui-component)

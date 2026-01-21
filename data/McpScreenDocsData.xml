@@ -24,7 +24,7 @@
     <!-- WikiSpace Root Page -->
     <moqui.resource.DbResource
         resourceId="WIKI_MCP_SCREEN_DOCS"
-        parentResourceId=""
+        parentResourceId="WIKI_SPACE_ROOT"
         filename="MCP_SCREEN_DOCS.md"
         isFile="Y"/>
     <moqui.resource.DbResourceFile
@@ -653,23 +653,46 @@ parameters: {productFeatureId: "ColorBlue"}
 
 ## Creating Products
 
+**IMPORTANT: productId vs pseudoId**
+
+When creating products, Moqui uses TWO different identifiers:
+- **pseudoId**: User-visible ID (e.g., `DEMO_VAR_GR_SM`) - used for display and searches
+- **productId**: Internal database ID (e.g., `100000`) - auto-generated, used by all services
+
+After calling `createProduct`, the response includes `productId` in the result. **You must use this internal productId** (not the pseudoId) for all subsequent operations like:
+- Adding features (`createProductFeature`)
+- Creating associations (`createProductAssoc`)
+- Setting prices (`createProductPrice`)
+
+Example response after createProduct:
+```
+actionResult: {
+  status: "executed",
+  result: { productId: "100000" }  // Use THIS ID
+}
+```
+
 ### Standard Product
 ```
 action: createProduct
 parameters: {
+  pseudoId: "MY_WIDGET_001",  // Optional user-visible ID
   productName: "New Widget",
   productTypeEnumId: "PtAsset",
   assetTypeEnumId: "AstTpInventory"
 }
+// Response includes: productId: "100XXX" - use this for subsequent calls
 ```
 
 ### Virtual Product (for variants)
 ```
 action: createProduct
 parameters: {
+  pseudoId: "MY_VIRTUAL_001",  // Optional user-visible ID  
   productName: "Widget with Options",
   productTypeEnumId: "PtVirtual"
 }
+// Response includes: productId: "100XXX" - use this for subsequent calls
 ```
 
 ## Product Types
@@ -723,7 +746,9 @@ Manage product details, features, prices, categories, and associations.
 
 ## Required Parameter
 
-- **productId**: Product to edit (e.g., `DEMO_1`, `100000`)
+- **productId**: Internal product ID to edit (e.g., `DEMO_1`, `100000`)
+
+**Note:** Always use the internal `productId` (returned from createProduct), NOT the user-visible `pseudoId`. Using pseudoId will cause referential integrity errors.
 
 ## Key Subscreens
 
@@ -735,9 +760,11 @@ Manage product details, features, prices, categories, and associations.
 
 ## Managing Features
 
+Features are managed directly on the EditProduct screen (not a separate EditFeatures subscreen).
+
 ### Add Selectable Feature (Virtual Products)
 ```
-path: PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct/EditFeatures
+path: PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct
 action: createProductFeature
 parameters: {
   productId: "DEMO_VAR",
@@ -748,6 +775,7 @@ parameters: {
 
 ### Add Distinguishing Feature (Variant Products)
 ```
+path: PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct
 action: createProductFeature
 parameters: {
   productId: "DEMO_VAR_RED",
@@ -765,9 +793,11 @@ parameters: {
 
 ## Managing Associations
 
+EditAssocs is a sibling screen to EditProduct under Product (not a child of EditProduct).
+
 ### Link Variant to Parent
 ```
-path: PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct/EditAssocs
+path: PopCommerce/PopCommerceAdmin/Catalog/Product/EditAssocs
 action: createProductAssoc
 parameters: {
   productId: "DEMO_VAR",
@@ -806,5 +836,401 @@ parameters: {
         versionName="v1"
         userId="EX_JOHN_DOE"
         changeDateTime="2025-01-19 00:00:00.000"/>
+
+    <!-- ============================================== -->
+    <!-- MCP Service Documentation Wiki Space          -->
+    <!-- Referenced by describedby in ARIA responses   -->
+    <!-- ============================================== -->
+    
+    <moqui.resource.wiki.WikiSpace wikiSpaceId="MCP_SERVICE_DOCS"
+        description="MCP Service Documentation - Parameter and usage docs for common services"
+        restrictView="N"
+        restrictUpdate="Y"
+        rootPageLocation="dbresource://WikiSpace/MCP_SERVICE_DOCS.md"/>
+
+    <!-- Service Docs Root -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_MCP_SERVICE_DOCS"
+        parentResourceId="WIKI_SPACE_ROOT"
+        filename="MCP_SERVICE_DOCS.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_MCP_SERVICE_DOCS"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# MCP Service Documentation
+
+Documentation for common Moqui services used via MCP actions.
+
+Services are referenced by `describedby` in ARIA mode responses.
+
+## Service Naming Convention
+
+- `create#Entity` - Create new record
+- `update#Entity` - Update existing record  
+- `delete#Entity` - Delete record
+- `store#Entity` - Create or update (upsert)
+- `Namespace.ServiceName.verb#Noun` - Custom service]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <!-- ==================== -->
+    <!-- Product Services     -->
+    <!-- ==================== -->
+
+    <!-- Product Entity -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_SVC_PRODUCT"
+        parentResourceId="WIKI_MCP_SERVICE_DOCS"
+        filename="Product.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_SVC_PRODUCT"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Product Service
+
+Create and update products.
+
+## create#mantle.product.Product
+
+**Required:**
+- `productName` (string): Display name
+
+**Optional:**
+- `pseudoId` (string): User-visible ID (auto-generated if omitted)
+- `productTypeEnumId`: PtAsset (default), PtVirtual, PtService, PtDigital
+- `ownerPartyId`: Organization that owns this product
+- `description`: Long description
+- `assetTypeEnumId`: For physical products - AstTpInventory, AstTpFixed
+- `assetClassEnumId`: AstClsInventoryFin (standard inventory)
+
+**Returns:**
+- `productId`: Internal ID (use this for subsequent operations)
+
+**Example:**
+```
+action: createProduct
+parameters: {
+  productName: "Blue Widget",
+  productTypeEnumId: "PtAsset",
+  ownerPartyId: "ORG_ZIZI_RETAIL"
+}
+```
+
+## update#mantle.product.Product
+
+**Required:**
+- `productId`: Internal product ID to update
+
+**Optional:** Any Product field (productName, description, etc.)]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SERVICE_DOCS/Product"
+        wikiSpaceId="MCP_SERVICE_DOCS"
+        pagePath="Product"
+        publishedVersionName="v1"
+        restrictView="N"/>
+
+    <!-- ProductFeature Service -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_SVC_PRODUCT_FEATURE"
+        parentResourceId="WIKI_MCP_SERVICE_DOCS"
+        filename="ProductFeature.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_SVC_PRODUCT_FEATURE"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# ProductFeature Service
+
+Apply features (like color, size) to products.
+
+## mantle.product.ProductServices.create#ProductFeature
+
+**Required:**
+- `productId`: Product to add feature to
+- `productFeatureId`: Feature ID (e.g., ColorRed, SizeMedium)
+- `applTypeEnumId`: How feature applies to product
+
+**Application Types (applTypeEnumId):**
+- `PfatSelectable`: Customer can choose (use on virtual parent)
+- `PfatDistinguishing`: Identifies specific variant (use on variants)
+- `PfatStandard`: Always included
+- `PfatRequired`: Must be selected at purchase
+
+**Optional:**
+- `fromDate`: When feature becomes active (default: now)
+- `sequenceNum`: Display order
+
+**Example - Virtual Parent:**
+```
+action: createProductFeature
+parameters: {
+  productId: "DEMO_VAR",
+  productFeatureId: "ColorGreen",
+  applTypeEnumId: "PfatSelectable"
+}
+```
+
+**Example - Variant:**
+```
+action: createProductFeature  
+parameters: {
+  productId: "DEMO_VAR_GR_SM",
+  productFeatureId: "ColorGreen",
+  applTypeEnumId: "PfatDistinguishing"
+}
+```
+
+## Common Feature IDs
+
+Colors: ColorRed, ColorBlue, ColorGreen, ColorBlack, ColorWhite
+Sizes: SizeSmall, SizeMedium, SizeLarge, SizeXL]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SERVICE_DOCS/ProductFeature"
+        wikiSpaceId="MCP_SERVICE_DOCS"
+        pagePath="ProductFeature"
+        publishedVersionName="v1"
+        restrictView="N"/>
+
+    <!-- ProductAssoc Service -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_SVC_PRODUCT_ASSOC"
+        parentResourceId="WIKI_MCP_SERVICE_DOCS"
+        filename="ProductAssoc.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_SVC_PRODUCT_ASSOC"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# ProductAssoc Service
+
+Link products together (variants, accessories, etc.)
+
+## create#mantle.product.ProductAssoc
+
+**Required:**
+- `productId`: Parent/source product
+- `toProductId`: Related product
+- `productAssocTypeEnumId`: Type of relationship
+
+**Association Types:**
+- `PatVariant`: Links virtual parent to variant product
+- `PatAccessory`: Suggested accessory
+- `PatComplement`: Complementary product
+- `PatSubstitute`: Equivalent alternative
+- `PatUpSell`: Higher-tier recommendation
+- `PatCrossSell`: Related product suggestion
+
+**Optional:**
+- `fromDate`: When association starts (default: now)
+- `quantity`: For BOM/kits
+- `sequenceNum`: Display order
+
+**Example - Link Variant:**
+```
+action: createProductAssoc
+parameters: {
+  productId: "DEMO_VAR",
+  toProductId: "DEMO_VAR_GR_SM",
+  productAssocTypeEnumId: "PatVariant"
+}
+```
+
+**Note:** Use internal `productId` values, not pseudoId.]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SERVICE_DOCS/ProductAssoc"
+        wikiSpaceId="MCP_SERVICE_DOCS"
+        pagePath="ProductAssoc"
+        publishedVersionName="v1"
+        restrictView="N"/>
+
+    <!-- ProductPrice Service -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_SVC_PRODUCT_PRICE"
+        parentResourceId="WIKI_MCP_SERVICE_DOCS"
+        filename="ProductPrice.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_SVC_PRODUCT_PRICE"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# ProductPrice Service
+
+Manage product pricing.
+
+## create#mantle.product.ProductPrice
+
+**Required:**
+- `productId`: Product to price
+- `price`: Amount
+- `priceTypeEnumId`: Type of price
+- `pricePurposeEnumId`: Purpose/context
+
+**Price Types (priceTypeEnumId):**
+- `PptList`: Standard list price
+- `PptCurrent`: Current selling price
+- `PptMin`: Minimum allowed price
+- `PptMax`: Maximum allowed price
+- `PptCompetitive`: Competitor price
+- `PptPromotional`: Sale/promo price
+
+**Price Purposes (pricePurposeEnumId):**
+- `PppPurchase`: Buying price (from supplier)
+- `PppSales`: Selling price (to customer)
+
+**Optional:**
+- `priceUomId`: Currency (default: USD)
+- `minQuantity`: Quantity break (for tiered pricing)
+- `fromDate`: When price becomes active
+- `thruDate`: When price expires
+- `productStoreId`: Store-specific pricing
+
+**Example - Basic Price:**
+```
+action: createProductPrice
+parameters: {
+  productId: "DEMO_VAR_GR_SM",
+  price: 19.99,
+  priceTypeEnumId: "PptList",
+  pricePurposeEnumId: "PppSales",
+  priceUomId: "USD"
+}
+```
+
+**Example - Quantity Break:**
+```
+action: createProductPrice
+parameters: {
+  productId: "DEMO_VAR_GR_SM",
+  price: 17.99,
+  priceTypeEnumId: "PptList",
+  pricePurposeEnumId: "PppSales",
+  minQuantity: 10
+}
+```]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SERVICE_DOCS/ProductPrice"
+        wikiSpaceId="MCP_SERVICE_DOCS"
+        pagePath="ProductPrice"
+        publishedVersionName="v1"
+        restrictView="N"/>
+
+    <!-- ==================== -->
+    <!-- Party Services       -->
+    <!-- ==================== -->
+
+    <!-- Person Service -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_SVC_PERSON"
+        parentResourceId="WIKI_MCP_SERVICE_DOCS"
+        filename="Person.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_SVC_PERSON"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Person Service
+
+Create and manage people (parties).
+
+## mantle.party.PartyServices.create#Person
+
+**Required:**
+- `firstName`: First name
+- `lastName`: Last name
+
+**Optional:**
+- `middleName`: Middle name
+- `emailAddress`: Primary email
+- `roleTypeId`: Role (Customer, Employee, etc.)
+- `ownerPartyId`: Organization that owns this party record
+
+**Returns:**
+- `partyId`: Internal party ID
+
+**Example:**
+```
+action: createPerson
+parameters: {
+  firstName: "Jane",
+  lastName: "Smith",
+  emailAddress: "jane@example.com"
+}
+```
+
+## mantle.party.PartyServices.update#PartyDetail
+
+**Required:**
+- `partyId`: Party to update
+
+**Optional:** firstName, lastName, middleName, comments, etc.]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SERVICE_DOCS/Person"
+        wikiSpaceId="MCP_SERVICE_DOCS"
+        pagePath="Person"
+        publishedVersionName="v1"
+        restrictView="N"/>
+
+    <!-- CommunicationEvent (Message) Service -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_SVC_MESSAGE"
+        parentResourceId="WIKI_MCP_SERVICE_DOCS"
+        filename="Message.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_SVC_MESSAGE"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Message Service
+
+Send messages between parties.
+
+## mantle.party.CommunicationServices.create#Message
+
+**Required:**
+- `toPartyId`: Recipient party ID
+- `subject`: Message subject
+- `body`: Message content
+
+**Optional:**
+- `fromPartyId`: Sender (defaults to current user)
+- `purposeEnumId`: Message purpose
+- `communicationEventTypeId`: Message type
+
+**Purpose Types (purposeEnumId):**
+- `CpComment`: General comment
+- `CpSupport`: Support request
+- `CpActivityRequest`: Activity/task request
+- `CpBilling`: Billing inquiry
+
+**Example:**
+```
+action: createMessage
+parameters: {
+  toPartyId: "EX_JOHN_DOE",
+  subject: "Green variants ready",
+  body: "The green product variants have been created and are ready for review."
+}
+```
+
+**Screen Path:** Party/PartyMessages]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="MCP_SERVICE_DOCS/Message"
+        wikiSpaceId="MCP_SERVICE_DOCS"
+        pagePath="Message"
+        publishedVersionName="v1"
+        restrictView="N"/>
 
 </entity-facade-xml>

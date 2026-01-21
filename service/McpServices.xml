@@ -195,7 +195,9 @@
                     // Handle internal discovery/utility tools
                     def internalToolMappings = [
                         "moqui_search_screens": "McpServices.mcp#SearchScreens",
-                        "moqui_get_screen_details": "McpServices.mcp#GetScreenDetails"
+                        "moqui_get_screen_details": "McpServices.mcp#GetScreenDetails",
+                        "moqui_get_help": "McpServices.mcp#GetHelp",
+                        "moqui_batch_operations": "McpServices.mcp#BatchOperations"
                     ]
                     
                     def targetServiceName = internalToolMappings[name]
@@ -759,6 +761,7 @@ serializeMoquiObject = { obj, depth = 0 ->
 
 // Convert MCP semantic state to ARIA accessibility tree format
 // This produces a compact, standard representation matching W3C ARIA roles
+// Following ARIA naming guidelines: name (short label), description (brief explanation), details (extended help)
 def convertToAriaTree = { semanticState, targetScreenPath ->
     if (!semanticState) return null
     
@@ -781,55 +784,91 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
             case "number": return "spinbutton"
             case "password": return "textbox"
             case "hidden": return null  // skip hidden fields
+            case "display": return "text"  // read-only display
+            case "link": return "link"
             default: return "textbox"
         }
     }
     
-    // Convert a field to ARIA node
-    def fieldToAriaNode = { field ->
+    // Convert a field to ARIA node with full attributes
+    def fieldToAriaNode = { field, formDataMap ->
         def role = fieldToAriaRole(field)
         if (!role) return null
         
         def node = [
             role: role,
-            name: field.title ?: field.name
+            name: field.title ?: field.name,
+            ref: field.name  // Reference for interaction
         ]
+        
+        // Add current value if available from form data
+        if (formDataMap && formDataMap[field.name] != null) {
+            node.value = formDataMap[field.name]?.toString()
+        }
         
         // Add required attribute
         if (field.required) node.required = true
         
-        // For dropdowns, show option count instead of all options
+        // For dropdowns, show option count and examples
         if (field.type == "dropdown") {
             def optionCount = field.options?.size() ?: 0
             if (field.totalOptions) optionCount = field.totalOptions
             if (optionCount > 0) {
                 node.options = optionCount
+                // Show first few example values
+                if (field.options instanceof List && field.options.size() > 0) {
+                    node.examples = field.options.take(3).collect { opt ->
+                        opt instanceof Map ? (opt.value ?: opt.label) : opt.toString()
+                    }
+                }
                 if (field.optionsTruncated) {
-                    node.fetchHint = field.fetchHint
+                    node.description = "Use moqui_get_screen_details for all ${optionCount} options"
                 }
             }
             // Check for dynamic options
             if (field.dynamicOptions) {
                 node.autocomplete = true
+                node.description = "Type to search, options load dynamically"
             }
         }
         
         return node
     }
     
+    // Generate description for an action based on its name and service
+    def actionDescription = { actionName, serviceName ->
+        def verb = actionName.replaceAll(/([A-Z])/, ' $1').trim().toLowerCase()
+        if (serviceName) {
+            // Extract entity/operation from service name like "create#mantle.product.Product"
+            def parts = serviceName.split('#')
+            if (parts.length == 2) {
+                def operation = parts[0]
+                def entity = parts[1].split('\\.').last()
+                return "${operation} ${entity}"
+            }
+            return serviceName.split('\\.').last()
+        }
+        return verb
+    }
+    
     // Process forms (form-single types become form landmarks)
     formMetadata.each { formName, formData ->
         if (formData.type == "form-list") return  // Handle separately
         
+        // Look for form data (current values)
+        def formDataKey = "${formName}_data"
+        def formDataMap = data[formDataKey] ?: [:]
+        
         def formNode = [
             role: "form",
             name: formData.name ?: formName,
+            ref: formName,
             children: []
         ]
         
-        // Add fields
+        // Add fields with values
         formData.fields?.each { field ->
-            def fieldNode = fieldToAriaNode(field)
+            def fieldNode = fieldToAriaNode(field, formDataMap)
             if (fieldNode) formNode.children << fieldNode
         }
         
@@ -841,7 +880,15 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
             a.name == expectedActionName || a.name?.equalsIgnoreCase(expectedActionName)
         }
         if (submitAction) {
-            formNode.children << [role: "button", name: submitAction.name]
+            def btnNode = [
+                role: "button", 
+                name: submitAction.name,
+                ref: submitAction.name
+            ]
+            if (submitAction.service) {
+                btnNode.description = actionDescription(submitAction.name, submitAction.service)
+            }
+            formNode.children << btnNode
         }
         
         if (formNode.children) children << formNode
@@ -860,6 +907,7 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
         def gridNode = [
             role: "grid",
             name: formData.name ?: formName,
+            ref: formName,
             rowcount: itemCount
         ]
         
@@ -867,14 +915,17 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
         def columns = formData.fields?.collect { it.title ?: it.name }
         if (columns) gridNode.columns = columns
         
-        // Add sample rows (first 3)
+        // Add sample rows with more detail
         if (listData instanceof List && listData.size() > 0) {
             gridNode.children = []
             listData.take(3).each { row ->
                 def rowNode = [role: "row"]
                 // Extract key identifying info
-                def name = row.combinedName ?: row.name ?: row.productName ?: row.pseudoId ?: row.id
+                def id = row.pseudoId ?: row.partyId ?: row.productId ?: row.id
+                def name = row.combinedName ?: row.name ?: row.productName
+                if (id) rowNode.ref = id
                 if (name) rowNode.name = name
+                if (id && name && id != name) rowNode.description = id
                 gridNode.children << rowNode
             }
             if (listData.size() > 3) {
@@ -892,7 +943,8 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
             role: "navigation",
             name: "Links",
             children: navLinks.take(10).collect { link ->
-                [role: "link", name: link.text, path: link.path]
+                def linkNode = [role: "link", name: link.text, ref: link.path]
+                linkNode
             }
         ]
         if (navLinks.size() > 10) {
@@ -901,27 +953,59 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
         children << navNode
     }
     
-    // Process actions as a toolbar
-    def serviceActions = semanticState.actions?.findAll { it.type == "service-action" }
-    if (serviceActions && serviceActions.size() > 0) {
+    // Process ALL actions as buttons (unified - no separate transitions/actions)
+    def allActions = semanticState.actions ?: []
+    if (allActions && allActions.size() > 0) {
         def toolbarNode = [
             role: "toolbar",
             name: "Actions",
-            children: serviceActions.take(10).collect { action ->
-                [role: "button", name: action.name]
+            description: "Available operations on this screen",
+            children: allActions.take(15).collect { action ->
+                def btnNode = [
+                    role: "button", 
+                    name: action.name,
+                    ref: action.name
+                ]
+                // Add description based on service or action type
+                if (action.service) {
+                    btnNode.description = actionDescription(action.name, action.service)
+                    btnNode.service = action.service
+                    // Add describedby for service documentation
+                    // e.g., "mantle.product.ProductServices.create#ProductFeature" -> "wiki:service:ProductServices.create#ProductFeature"
+                    def serviceParts = action.service.split('\\.')
+                    if (serviceParts.length > 0) {
+                        btnNode.describedby = "wiki:service:${serviceParts[-1]}"
+                    }
+                } else if (action.type == "screen-transition") {
+                    btnNode.description = "Navigate"
+                } else if (action.type == "form-action") {
+                    btnNode.description = "Form operation"
+                }
+                btnNode
             }
         ]
-        if (serviceActions.size() > 10) {
-            toolbarNode.moreActions = serviceActions.size() - 10
+        if (allActions.size() > 15) {
+            toolbarNode.moreActions = allActions.size() - 15
         }
         children << toolbarNode
     }
     
-    return [
+    // Build the main node
+    def mainNode = [
         role: "main",
         name: targetScreenPath?.split('/')?.last() ?: "Screen",
+        description: "Use ref values with action parameter to interact",
         children: children
     ]
+    
+    // Add describedby reference if wiki instructions exist for this screen
+    // This follows ARIA pattern: describedby points to extended documentation
+    // Use full screen path since that's how WikiPage.pagePath is stored
+    if (targetScreenPath) {
+        mainNode.describedby = "wiki:screen:${targetScreenPath}"
+    }
+    
+    return mainNode
 }
 
 // Convert MCP semantic state to compact actionable format
@@ -1049,15 +1133,59 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
         // Rows with key data and links
         if (listData instanceof List && listData.size() > 0) {
             gridInfo.rowCount = listData.size()
+            
+            // Get field names from form definition for determining key fields
+            def fieldNames = formData.fields?.collect { it.name } ?: []
+            
             gridInfo.rows = listData.take(10).collect { row ->
                 def rowInfo = [:]
                 
                 // Get identifying info
-                def id = row.pseudoId ?: row.partyId ?: row.productId ?: row.orderId ?: row.id
-                def name = row.combinedName ?: row.productName ?: row.name
+                def id = row.pseudoId ?: row.partyId ?: row.productId ?: row.orderId ?: row.communicationEventId ?: row.id
+                def name = row.combinedName ?: row.productName ?: row.organizationName ?: row.subject ?: row.name
                 
                 if (id) rowInfo.id = id
                 if (name && name != id) rowInfo.name = name
+                
+                // Add key display values (2-3 additional fields beyond id/name)
+                // Priority: status, type, date, amount, role, class fields
+                def keyFieldPriority = [
+                    'statusId', 'status', 'productTypeEnumId', 'productAssocTypeEnumId', 
+                    'communicationEventTypeId', 'roleTypeId', 'partyClassificationId',
+                    'orderPartStatusId', 'placedDate', 'entryDate', 'fromDate', 'thruDate',
+                    'grandTotal', 'quantity', 'price', 'amount',
+                    'username', 'emailAddress', 'fromPartyId', 'toPartyId'
+                ]
+                
+                def extraFields = [:]
+                def extraCount = 0
+                for (fieldName in keyFieldPriority) {
+                    if (extraCount >= 3) break
+                    def value = row[fieldName]
+                    if (value != null && value != '' && value != id && value != name) {
+                        // Simplify enumId suffixes for display
+                        def displayKey = fieldName.replaceAll(/EnumId$/, '').replaceAll(/Id$/, '')
+                        extraFields[displayKey] = value.toString()
+                        extraCount++
+                    }
+                }
+                
+                // If no priority fields found, add first 2-3 non-empty visible fields
+                if (extraCount == 0) {
+                    for (fieldDef in formData.fields?.take(8)) {
+                        if (extraCount >= 3) break
+                        def fieldName = fieldDef.name
+                        if (fieldDef.type == 'hidden') continue
+                        if (fieldName in ['id', 'pseudoId', 'name', 'productId', 'partyId', 'submitButton']) continue
+                        def value = row[fieldName]
+                        if (value != null && value != '' && value != id && value != name) {
+                            extraFields[fieldName] = value.toString()
+                            extraCount++
+                        }
+                    }
+                }
+                
+                if (extraFields) rowInfo.data = extraFields
                 
                 // Find link for this row
                 def rowLinks = data.links?.findAll { link ->
@@ -1178,6 +1306,12 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     }
                 }
                 
+                // Set resolvedScreenDef if we successfully traversed the path
+                if (reachedIndex >= 0 && currentSd && reachedIndex == (screenPathList.size() - 1)) {
+                    resolvedScreenDef = currentSd
+                    ec.logger.info("MCP Path Resolution: Resolved to screen '${resolvedScreenDef?.getScreenName()}' via literal path")
+                }
+                
                 // 2. If literal resolution failed, try Component-based resolution
                 if (reachedIndex == -1 && pathSegments.size() >= 2) {
                     def componentName = pathSegments[0]
@@ -1261,20 +1395,62 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             def actionResult = [:]
             
             if (action && resolvedScreenDef) {
-                // Verify the transition exists
-                def transition = resolvedScreenDef.getAllTransitions().find { it.getName() == action }
+                // Find the transition - must traverse default subscreens like discovery does
+                // because transitions may be defined on default subscreens, not the parent screen
+                def transition = null
+                def transitionScreenDef = null
+                def subscreenPath = ""  // Track the path through default subscreens
+                
+                def currentScreenDef = resolvedScreenDef
+                def depth = 0
+                while (currentScreenDef && depth < 5 && !transition) {
+                    // Check this screen for the transition
+                    transition = currentScreenDef.getAllTransitions().find { it.getName() == action }
+                    if (transition) {
+                        transitionScreenDef = currentScreenDef
+                        ec.logger.info("MCP: Found transition '${action}' on screen '${currentScreenDef.getScreenName()}' at depth ${depth}")
+                        break
+                    }
+                    
+                    // Check for default subscreen to continue traversal
+                    def defaultSubscreenName = currentScreenDef.getDefaultSubscreensItem()
+                    if (defaultSubscreenName) {
+                        def subscreenItem = currentScreenDef.getSubscreensItem(defaultSubscreenName)
+                        if (subscreenItem?.location) {
+                            try {
+                                def subscreenDef = currentScreenDef.sfi.getScreenDefinition(subscreenItem.location)
+                                if (subscreenDef) {
+                                    subscreenPath += "/" + defaultSubscreenName
+                                    currentScreenDef = subscreenDef
+                                    depth++
+                                } else {
+                                    currentScreenDef = null
+                                }
+                            } catch (Exception e) {
+                                ec.logger.warn("MCP: Could not load subscreen for transition lookup: ${e.message}")
+                                currentScreenDef = null
+                            }
+                        } else {
+                            currentScreenDef = null
+                        }
+                    } else {
+                        currentScreenDef = null
+                    }
+                }
+                
                 if (transition) {
-                    // Append transition to path - framework will execute it via recursiveRunTransition
-                    relativePath = "${testScreenPath}/${action}"
+                    // Append subscreen path and transition to the render path
+                    // The framework needs the full path including default subscreens to find the transition
+                    relativePath = testScreenPath + subscreenPath + "/" + action
                     def serviceName = transition.getSingleServiceName()
                     actionResult = [
                         action: action,
                         service: serviceName,
                         status: "pending"  // Will be updated after render based on errors
                     ]
-                    ec.logger.info("MCP Screen Execution: Will execute transition '${action}' via framework (service: ${serviceName ?: 'none'})")
+                    ec.logger.info("MCP Screen Execution: Will execute transition '${action}' via framework path '${relativePath}' (service: ${serviceName ?: 'none'})")
                 } else {
-                    ec.logger.warn("MCP Screen Execution: Action '${action}' not found in screen transitions")
+                    ec.logger.warn("MCP Screen Execution: Action '${action}' not found in screen transitions (checked ${depth + 1} screens in hierarchy)")
                     actionResult = [
                         action: action,
                         status: "error",
@@ -1300,9 +1476,52 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 def errorMessages = testRender.getErrorMessages()
                 def hasError = errorMessages && errorMessages.size() > 0
                 
+                // Also check JSON response for validation errors (more structured)
+                def jsonResponse = testRender.getJsonObject()
+                def validationErrors = []
+                def jsonErrors = []
+                if (jsonResponse instanceof Map) {
+                    // Extract structured validation errors from JSON response
+                    if (jsonResponse.validationErrors) {
+                        validationErrors = jsonResponse.validationErrors.collect { ve ->
+                            // ValidationError.getMap() returns: form, field, serviceName, message
+                            [
+                                field: ve.field ?: ve.fieldPretty,
+                                form: ve.form,
+                                service: ve.serviceName,
+                                message: ve.message ?: ve.messageWithFieldPretty ?: ve.toString()
+                            ]
+                        }
+                        hasError = true
+                    }
+                    // Also capture general errors from JSON
+                    if (jsonResponse.errors) {
+                        jsonErrors = jsonResponse.errors
+                        hasError = true
+                    }
+                }
+                
                 if (hasError) {
                     actionResult.status = "error"
-                    actionResult.message = errorMessages.join("; ")
+                    
+                    // Build comprehensive error message
+                    def allMessages = []
+                    if (errorMessages) allMessages.addAll(errorMessages)
+                    if (jsonErrors) allMessages.addAll(jsonErrors)
+                    actionResult.message = allMessages.join("; ") ?: "Validation failed"
+                    
+                    // Add structured validation errors for field-level feedback
+                    if (validationErrors) {
+                        actionResult.validationErrors = validationErrors
+                        // Also add field-specific summary
+                        def fieldSummary = validationErrors.collect { ve ->
+                            ve.field ? "${ve.field}: ${ve.message}" : ve.message
+                        }.join("; ")
+                        if (!actionResult.message || actionResult.message == "Validation failed") {
+                            actionResult.message = fieldSummary
+                        }
+                    }
+                    
                     ec.logger.error("MCP Screen Execution: Transition '${action}' completed with errors: ${actionResult.message}")
                 } else {
                     actionResult.status = "executed"
@@ -1329,6 +1548,24 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             }
                         }
                     }
+                    
+                    // Also check JSON response for result data
+                    if (jsonResponse instanceof Map) {
+                        // Copy any IDs from JSON response
+                        jsonResponse.each { key, value ->
+                            if (key.toString().endsWith('Id') && value && !key.toString().startsWith('_')) {
+                                def keyStr = key.toString()
+                                if (!['userId', 'username', 'sessionId', 'requestId'].contains(keyStr)) {
+                                    result[keyStr] = value
+                                }
+                            }
+                        }
+                        // Copy messages if present
+                        if (jsonResponse.messages) {
+                            actionResult.messages = jsonResponse.messages
+                        }
+                    }
+                    
                     if (result) {
                         actionResult.result = result
                     }
@@ -1339,8 +1576,22 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             // --- Semantic State Extraction ---
             def semanticState = [:]
 
-            // Get final screen definition using resolved screen location
+            // Get final screen definition - prefer the actual rendered screen from ScreenRender
+            // This ensures we get the deepest screen in the path, not just the root
             def finalScreenDef = resolvedScreenDef
+            try {
+                def screenRender = testRender.getScreenRender()
+                if (screenRender?.screenUrlInfo?.screenPathDefList) {
+                    def pathDefList = screenRender.screenUrlInfo.screenPathDefList
+                    if (pathDefList.size() > 0) {
+                        // Get the last (deepest) screen in the path
+                        finalScreenDef = pathDefList.get(pathDefList.size() - 1)
+                        ec.logger.info("MCP: Using actual rendered screen '${finalScreenDef?.getScreenName()}' from screenPathDefList (${pathDefList.size()} screens in path)")
+                    }
+                }
+            } catch (Exception e) {
+                ec.logger.warn("MCP: Could not get screen from ScreenRender, using resolved: ${e.message}")
+            }
 
             if (finalScreenDef && postContext) {
                 semanticState.screenPath = inputScreenPath
@@ -1355,30 +1606,72 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 }
                 
                 // Extract transitions (Actions) with type classification and metadata
+                // Collect from current screen AND active subscreens (iterative traversal)
                 semanticState.actions = []
-                finalScreenDef.getAllTransitions().each { trans ->
-                    def transName = trans.getName()
-                    def service = trans.getSingleServiceName()
+                def collectedTransitionNames = [] as Set
+                
+                // Build list of screens to process (current + default subscreens chain)
+                def screensToProcess = []
+                def currentScreenDef = finalScreenDef
+                def depth = 0
+                while (currentScreenDef && depth < 5) {
+                    screensToProcess << currentScreenDef
                     
-                    // Classify action type
-                    def actionType = "screen-transition"
-                    def transNameLower = transName?.toString()?.toLowerCase() ?: ''
-                    
-                    if (service) {
-                        actionType = "service-action"
-                    } else if (transNameLower.contains('delete')) {
-                        actionType = "delete-action"
-                    } else if (transNameLower.startsWith('form') || transNameLower == 'find' || transNameLower == 'search') {
-                        actionType = "form-action"
+                    // Check for default subscreen
+                    def defaultSubscreenName = currentScreenDef.getDefaultSubscreensItem()
+                    if (defaultSubscreenName) {
+                        def subscreenItem = currentScreenDef.getSubscreensItem(defaultSubscreenName)
+                        if (subscreenItem?.location) {
+                            try {
+                                def subscreenDef = currentScreenDef.sfi.getScreenDefinition(subscreenItem.location)
+                                if (subscreenDef) {
+                                    ec.logger.info("MCP: Adding default subscreen '${defaultSubscreenName}' at ${subscreenItem.location} to traversal")
+                                    currentScreenDef = subscreenDef
+                                    depth++
+                                } else {
+                                    currentScreenDef = null
+                                }
+                            } catch (Exception e) {
+                                ec.logger.warn("MCP: Could not load subscreen ${subscreenItem.location}: ${e.message}")
+                                currentScreenDef = null
+                            }
+                        } else {
+                            currentScreenDef = null
+                        }
+                    } else {
+                        currentScreenDef = null
                     }
-                    
-                    def actionInfo = [
-                        name: transName,
-                        service: service,
-                        type: actionType
-                    ]
-                    
-                    semanticState.actions << actionInfo
+                }
+                
+                // Now collect transitions from all screens
+                screensToProcess.each { screenDef ->
+                    screenDef.getAllTransitions().each { trans ->
+                        def transName = trans.getName()
+                        if (collectedTransitionNames.contains(transName)) return // skip duplicates
+                        collectedTransitionNames.add(transName)
+                        
+                        def service = trans.getSingleServiceName()
+                        
+                        // Classify action type
+                        def actionType = "screen-transition"
+                        def transNameLower = transName?.toString()?.toLowerCase() ?: ''
+                        
+                        if (service) {
+                            actionType = "service-action"
+                        } else if (transNameLower.contains('delete')) {
+                            actionType = "delete-action"
+                        } else if (transNameLower.startsWith('form') || transNameLower == 'find' || transNameLower == 'search') {
+                            actionType = "form-action"
+                        }
+                        
+                        def actionInfo = [
+                            name: transName,
+                            service: service,
+                            type: actionType
+                        ]
+                        
+                        semanticState.actions << actionInfo
+                    }
                 }
                 
                 // 3. Extract parameters with metadata
@@ -2236,7 +2529,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
     </service>
 
     <service verb="mcp" noun="SearchScreens" authenticate="false" allow-remote="true" transaction-timeout="60">
-        <description>Search for screens by name or path.</description>
+        <description>Search for screens by name, path, or description. Builds an index by walking the screen tree.</description>
         <in-parameters>
             <parameter name="query" required="true"/>
             <parameter name="sessionId"/>
@@ -2250,39 +2543,178 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 
                 ExecutionContext ec = context.ec
                 def matches = []
+                def queryLower = query.toLowerCase()
                 
-                // Helper to convert full component path to simple forward-slash path
-                def convertToSimplePath = { fullPath ->
-                    if (!fullPath) return null
-                    String cleanPath = fullPath
-                    if (cleanPath.startsWith("component://")) cleanPath = cleanPath.substring(12)
-                    if (cleanPath.endsWith(".xml")) cleanPath = cleanPath.substring(0, cleanPath.length() - 4)
-                    List<String> parts = cleanPath.split('/').toList()
-                    if (parts.size() > 1 && parts[1] == "screen") parts.remove(1)
-                    return parts.join('/')
+                // Screen index cache key - use Moqui's cache API properly
+                def cacheKey = "MCP_SCREEN_INDEX"
+                def mcpCache = ec.cache.getCache("mcp.screen.index")
+                def screenIndex = mcpCache.get(cacheKey)
+                
+                if (!screenIndex) {
+                    ec.logger.info("SearchScreens: Building screen index...")
+                    screenIndex = []
+                    
+                    // Helper to load wiki description for a path
+                    def loadWikiDescription = { simplePath ->
+                        try {
+                            def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
+                                .condition("wikiSpaceId", "MCP_SCREEN_DOCS")
+                                .condition("pagePath", simplePath)
+                                .useCache(true)
+                                .one()
+                            
+                            if (wikiPage) {
+                                def dbResource = ec.entity.find("moqui.resource.DbResource")
+                                    .condition("parentResourceId", "WIKI_MCP_SCREEN_DOCS")
+                                    .condition("filename", wikiPage.pagePath + ".md")
+                                    .one()
+                                
+                                if (dbResource) {
+                                    def dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
+                                        .condition("resourceId", dbResource.resourceId)
+                                        .one()
+                                    
+                                    if (dbResourceFile && dbResourceFile.fileData) {
+                                        def content = new String(dbResourceFile.fileData.getBytes(1L, dbResourceFile.fileData.length() as int), "UTF-8")
+                                        // Extract first line or sentence as description
+                                        def lines = content.split('\n')
+                                        for (line in lines) {
+                                            line = line.trim()
+                                            if (line && !line.startsWith('#')) {
+                                                return line.length() > 150 ? line.substring(0, 147) + "..." : line
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            ec.logger.debug("SearchScreens: Error loading wiki for ${simplePath}: ${e.message}")
+                        }
+                        return null
+                    }
+                    
+                    // Recursive function to walk screen tree
+                    def walkScreenTree
+                    walkScreenTree = { screenDef, basePath, depth ->
+                        if (depth > 6 || !screenDef) return  // Limit depth to prevent infinite loops
+                        
+                        try {
+                            screenDef.getSubscreensItemsSorted().each { subItem ->
+                                def subName = subItem.getName()
+                                def subPath = basePath ? "${basePath}/${subName}" : subName
+                                def subLocation = subItem.getLocation()
+                                
+                                if (subLocation) {
+                                    // Get wiki description or generate from name
+                                    def description = loadWikiDescription(subPath)
+                                    if (!description) {
+                                        // Generate description from screen name
+                                        def humanName = subName.replaceAll(/([A-Z])/, ' $1').trim()
+                                        description = "Screen: ${humanName}"
+                                    }
+                                    
+                                    // Extract screen name for search
+                                    def screenName = subName
+                                    
+                                    screenIndex << [
+                                        path: subPath,
+                                        name: screenName,
+                                        description: description,
+                                        depth: depth
+                                    ]
+                                    
+                                    // Recurse into subscreen
+                                    try {
+                                        def subScreenDef = ec.screen.getScreenDefinition(subLocation)
+                                        if (subScreenDef) {
+                                            walkScreenTree(subScreenDef, subPath, depth + 1)
+                                        }
+                                    } catch (Exception e) {
+                                        ec.logger.debug("SearchScreens: Could not load subscreen ${subPath}: ${e.message}")
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            ec.logger.debug("SearchScreens: Error walking ${basePath}: ${e.message}")
+                        }
+                    }
+                    
+                    // Start from webroot
+                    def webrootSd = ec.screen.getScreenDefinition("component://webroot/screen/webroot.xml")
+                    if (webrootSd) {
+                        walkScreenTree(webrootSd, "", 0)
+                    }
+                    
+                    // Cache the index
+                    mcpCache.put(cacheKey, screenIndex)
+                    ec.logger.info("SearchScreens: Built index with ${screenIndex.size()} screens")
                 }
-
-                // Search all screens known to the system
-                def aacvList = ec.entity.find("moqui.security.ArtifactAuthzCheckView")
-                    .condition("artifactTypeEnumId", "AT_XML_SCREEN")
-                    .condition("artifactName", "like", "%${query}%")
-                    .selectField("artifactName")
-                    .distinct(true)
-                    .disableAuthz()
-                    .limit(20)
-                    .list()
                 
-                for (hit in aacvList) {
-                    def simplePath = convertToSimplePath(hit.artifactName)
-                    if (simplePath) {
-                        matches << [
-                            path: simplePath,
-                            description: "Screen: ${hit.artifactName}"
-                        ]
+                // Search the index
+                def scored = []
+                for (screen in screenIndex) {
+                    def score = 0
+                    def nameLower = screen.name?.toLowerCase() ?: ""
+                    def pathLower = screen.path?.toLowerCase() ?: ""
+                    def descLower = screen.description?.toLowerCase() ?: ""
+                    
+                    // Exact name match (highest priority)
+                    if (nameLower == queryLower) {
+                        score += 100
+                    }
+                    // Name starts with query
+                    else if (nameLower.startsWith(queryLower)) {
+                        score += 50
+                    }
+                    // Name contains query
+                    else if (nameLower.contains(queryLower)) {
+                        score += 30
+                    }
+                    
+                    // Path contains query
+                    if (pathLower.contains(queryLower)) {
+                        score += 20
+                    }
+                    
+                    // Description contains query
+                    if (descLower.contains(queryLower)) {
+                        score += 10
+                    }
+                    
+                    // Prefer shallower screens (more likely to be entry points)
+                    if (score > 0) {
+                        score -= (screen.depth ?: 0) * 2
+                        scored << [screen: screen, score: score]
                     }
                 }
                 
-                result = [matches: matches]
+                // Sort by score descending, take top 15
+                scored.sort { -it.score }
+                def topMatches = scored.take(15)
+                
+                for (item in topMatches) {
+                    matches << [
+                        path: item.screen.path,
+                        name: item.screen.name,
+                        description: item.screen.description
+                    ]
+                }
+                
+                // Add hint if no matches
+                def hint = null
+                if (matches.isEmpty()) {
+                    hint = "No screens found matching '${query}'. Try broader terms like 'product', 'order', 'party', or use moqui_browse_screens to explore."
+                } else if (matches.size() >= 15) {
+                    hint = "Showing top 15 results. Refine your search for more specific matches."
+                }
+                
+                def resultMap = hint ? [matches: matches, hint: hint] : [matches: matches]
+                
+                // Return in MCP format - content array with JSON text
+                result = [
+                    content: [[type: "text", text: new groovy.json.JsonBuilder(resultMap).toString()]],
+                    isError: false
+                ]
             ]]></script>
         </actions>
     </service>
@@ -2341,6 +2773,45 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                 "parameters": [type: "object", description: "Optional parameters to set in context before rendering (for autocomplete contexts)."]
                             ],
                             required: ["path"]
+                        ]
+                     ],
+                     [
+                        name: "moqui_get_help",
+                        title: "Get Help",
+                        description: "Fetch extended documentation for a screen or service. Use URIs from 'describedby' fields in ARIA responses.",
+                        inputSchema: [
+                            type: "object",
+                            properties: [
+                                "uri": [type: "string", description: "Help URI (e.g., 'wiki:screen:EditProduct' or 'wiki:service:ProductFeature')"]
+                            ],
+                            required: ["uri"]
+                        ]
+                     ],
+                     [
+                        name: "moqui_batch_operations",
+                        title: "Batch Operations",
+                        description: "Execute multiple screen operations in sequence. Stops on first error. Returns results for each operation.",
+                        inputSchema: [
+                            type: "object",
+                            properties: [
+                                "operations": [
+                                    type: "array",
+                                    description: "Array of operations to execute in sequence",
+                                    items: [
+                                        type: "object",
+                                        properties: [
+                                            "id": [type: "string", description: "Optional operation identifier for result tracking"],
+                                            "path": [type: "string", description: "Screen path"],
+                                            "action": [type: "string", description: "Action/transition to execute"],
+                                            "parameters": [type: "object", description: "Parameters for the action"]
+                                        ],
+                                        required: ["path", "action"]
+                                    ]
+                                ],
+                                "stopOnError": [type: "boolean", description: "Stop execution on first error (default: true)"],
+                                "returnLastOnly": [type: "boolean", description: "Return only last operation result (default: false)"]
+                            ],
+                            required: ["operations"]
                         ]
                      ],
                       [
@@ -2402,6 +2873,270 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
         </actions>
     </service>
 
+    <service verb="mcp" noun="GetHelp" authenticate="true" allow-remote="true" transaction-timeout="30">
+        <description>Fetch extended documentation for a screen or service. Use URIs from 'describedby' fields in ARIA responses.</description>
+        <in-parameters>
+            <parameter name="uri" required="true"><description>Help URI (e.g., 'wiki:screen:EditProduct' or 'wiki:service:ProductFeature')</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                
+                ExecutionContext ec = context.ec
+                
+                def content = null
+                def metadata = [uri: uri]
+                
+                // Parse URI format: wiki:type:name
+                // e.g., wiki:screen:EditProduct, wiki:service:ProductFeature
+                if (uri?.startsWith("wiki:")) {
+                    def parts = uri.split(":", 3)
+                    if (parts.length >= 3) {
+                        def wikiType = parts[1]  // screen, service
+                        def pageName = parts[2]
+                        
+                        metadata.type = wikiType
+                        metadata.name = pageName
+                        
+                        // Determine wiki space based on type
+                        def wikiSpaceId = null
+                        def pagePath = null
+                        
+                        switch (wikiType) {
+                            case "screen":
+                                wikiSpaceId = "MCP_SCREEN_DOCS"
+                                // Try to find by screen name in page path
+                                pagePath = pageName
+                                break
+                            case "service":
+                                wikiSpaceId = "MCP_SERVICE_DOCS"
+                                pagePath = pageName
+                                break
+                            default:
+                                wikiSpaceId = "MCP_SCREEN_DOCS"
+                                pagePath = pageName
+                        }
+                        
+                        // Try to find wiki page by path
+                        def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
+                            .condition("wikiSpaceId", wikiSpaceId)
+                            .condition("pagePath", pagePath)
+                            .useCache(true)
+                            .one()
+                        
+                        // If not found by exact path, try partial match
+                        if (!wikiPage) {
+                            def allPages = ec.entity.find("moqui.resource.wiki.WikiPage")
+                                .condition("wikiSpaceId", wikiSpaceId)
+                                .useCache(true)
+                                .list()
+                            wikiPage = allPages.find { it.pagePath?.endsWith(pagePath) || it.pagePath?.contains(pagePath) }
+                        }
+                        
+                        if (wikiPage) {
+                            // Use direct DbResource/DbResourceFile lookup (like BrowseScreens does)
+                            def parentResourceId = (wikiType == "service") ? "WIKI_MCP_SERVICE_DOCS" : "WIKI_MCP_SCREEN_DOCS"
+                            
+                            def dbResource = ec.entity.find("moqui.resource.DbResource")
+                                .condition("parentResourceId", parentResourceId)
+                                .condition("filename", wikiPage.pagePath + ".md")
+                                .one()
+                            
+
+                            
+                            if (dbResource) {
+                                def dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
+                                    .condition("resourceId", dbResource.resourceId)
+                                    .condition("versionName", wikiPage.publishedVersionName)
+                                    .one()
+                                
+                                if (!dbResourceFile) {
+                                    dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
+                                        .condition("resourceId", dbResource.resourceId)
+                                        .one()
+                                }
+                                
+                                if (dbResourceFile && dbResourceFile.fileData) {
+                                    content = new String(dbResourceFile.fileData.getBytes(new Long(1).longValue(), new Long(dbResourceFile.fileData.length()).intValue()), "UTF-8")
+                                    metadata.found = true
+                                    metadata.pagePath = wikiPage.pagePath
+                                    metadata.resourceId = dbResource.resourceId
+                                }
+                            }
+                        }
+                        
+                        if (!content) {
+                            metadata.found = false
+                            content = "No documentation found for ${wikiType}: ${pageName}. Available documentation can be found in the MCP_SCREEN_DOCS and MCP_SERVICE_DOCS wiki spaces."
+                        }
+                    }
+                } else {
+                    metadata.error = "Invalid URI format. Expected 'wiki:type:name' (e.g., 'wiki:service:ProductFeature')"
+                    content = metadata.error
+                }
+                
+                def resultData = [
+                    content: content,
+                    metadata: metadata
+                ]
+                
+                result = [
+                    content: [[type: "text", text: new JsonBuilder(resultData).toString()]],
+                    isError: false
+                ]
+            ]]></script>
+        </actions>
+    </service>
+
     <!-- NOTE: handle#McpRequest service removed - functionality moved to screen/webapp.xml for unified handling -->
+
+    <service verb="mcp" noun="BatchOperations" authenticate="true" allow-remote="true" transaction-timeout="120">
+        <description>Execute multiple screen operations in sequence. Stops on first error by default. Returns results for each operation.</description>
+        <in-parameters>
+            <parameter name="operations" type="List" required="true"><description>Array of operations to execute in sequence</description></parameter>
+            <parameter name="stopOnError" type="Boolean" default="true"><description>Stop execution on first error (default: true)</description></parameter>
+            <parameter name="returnLastOnly" type="Boolean" default="false"><description>Return only last operation result (default: false)</description></parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="result" type="Map"/>
+        </out-parameters>
+        <actions>
+            <script><![CDATA[
+                import org.moqui.context.ExecutionContext
+                import groovy.json.JsonBuilder
+                import groovy.json.JsonSlurper
+                
+                ExecutionContext ec = context.ec
+                
+                def results = []
+                def hasError = false
+                def lastResult = null
+                def executedCount = 0
+                
+                ec.logger.info("BatchOperations: Starting batch with ${operations?.size()} operations, stopOnError=${stopOnError}")
+                
+                for (int i = 0; i < operations.size(); i++) {
+                    def op = operations[i]
+                    def opId = op.id ?: "op_${i + 1}"
+                    
+                    ec.logger.info("BatchOperations: Executing operation ${opId}: path=${op.path}, action=${op.action}")
+                    
+                    try {
+                        // Call browse screens for each operation
+                        def browseResult = ec.service.sync().name("McpServices.mcp#BrowseScreens")
+                            .parameters([
+                                path: op.path,
+                                action: op.action,
+                                parameters: op.parameters ?: [:],
+                                renderMode: "compact"  // Use compact mode for efficiency
+                            ])
+                            .call()
+                        
+                        // Extract the result content
+                        def opResult = [
+                            id: opId,
+                            path: op.path,
+                            action: op.action,
+                            status: "success"
+                        ]
+                        
+                        // Parse the result to check for errors
+                        if (browseResult?.result?.content) {
+                            def contentList = browseResult.result.content
+                            if (contentList && contentList.size() > 0) {
+                                def rawText = contentList[0].text
+                                if (rawText && rawText.startsWith("{")) {
+                                    try {
+                                        def parsed = new JsonSlurper().parseText(rawText)
+                                        
+                                        // Check if there's an action result with error
+                                        if (parsed.result?.status == "error" || parsed.actionResult?.status == "error") {
+                                            opResult.status = "error"
+                                            opResult.message = parsed.result?.message ?: parsed.actionResult?.message
+                                            opResult.validationErrors = parsed.result?.validationErrors ?: parsed.actionResult?.validationErrors
+                                            hasError = true
+                                        } else {
+                                            // Success - extract relevant data
+                                            opResult.result = parsed.result ?: parsed.actionResult
+                                            if (parsed.result?.result) {
+                                                // Copy any IDs for use in subsequent operations
+                                                opResult.outputIds = parsed.result.result
+                                            }
+                                        }
+                                    } catch (e) {
+                                        // JSON parse failed, treat as success but no parsed data
+                                        opResult.rawOutput = rawText
+                                    }
+                                }
+                            }
+                        }
+                        
+                        executedCount++
+                        lastResult = opResult
+                        results << opResult
+                        
+                        ec.logger.info("BatchOperations: Operation ${opId} completed with status=${opResult.status}")
+                        
+                        // Stop on error if requested
+                        if (hasError && stopOnError) {
+                            ec.logger.info("BatchOperations: Stopping batch due to error in operation ${opId}")
+                            break
+                        }
+                        
+                    } catch (Exception e) {
+                        def opResult = [
+                            id: opId,
+                            path: op.path,
+                            action: op.action,
+                            status: "error",
+                            message: "Exception: ${e.message}"
+                        ]
+                        results << opResult
+                        lastResult = opResult
+                        hasError = true
+                        executedCount++
+                        
+                        ec.logger.error("BatchOperations: Exception in operation ${opId}: ${e.message}", e)
+                        
+                        if (stopOnError) {
+                            break
+                        }
+                    }
+                }
+                
+                def summary = [
+                    totalOperations: operations.size(),
+                    executedOperations: executedCount,
+                    successCount: results.count { it.status == "success" },
+                    errorCount: results.count { it.status == "error" },
+                    hasError: hasError
+                ]
+                
+                def resultData
+                if (returnLastOnly) {
+                    resultData = [
+                        summary: summary,
+                        result: lastResult
+                    ]
+                } else {
+                    resultData = [
+                        summary: summary,
+                        results: results
+                    ]
+                }
+                
+                ec.logger.info("BatchOperations: Completed. Summary: ${summary}")
+                
+                result = [
+                    content: [[type: "text", text: new JsonBuilder(resultData).toString()]],
+                    isError: hasError
+                ]
+            ]]></script>
+        </actions>
+    </service>
 
 </services>

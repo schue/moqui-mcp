@@ -59,4 +59,10 @@
     <moqui.security.UserGroupMember userGroupId="MCP_BUSINESS" userId="ORG_ZIZI_JD" fromDate="2025-01-01 00:00:00.000"/>
     <moqui.security.UserGroupMember userGroupId="MCP_BUSINESS" userId="ORG_ZIZI_BD" fromDate="2025-01-01 00:00:00.000"/>
     -->
+    
+    <!-- Add EX_JOHN_DOE to PopcAdminSales so JohnSales can see/message John Doe in searches -->
+    <moqui.security.UserGroupMember userGroupId="PopcAdminSales" userId="EX_JOHN_DOE" fromDate="2025-01-01 00:00:00.000"/>
+    
+    <!-- Set EX_JOHN_DOE's ownerPartyId to ORG_ZIZI_RETAIL so they appear in org-filtered searches -->
+    <mantle.party.Party partyId="EX_JOHN_DOE" ownerPartyId="ORG_ZIZI_RETAIL"/>
 </entity-facade-xml>

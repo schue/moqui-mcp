@@ -128,6 +128,11 @@
         <#assign formName = (.node["@name"]!"")?string>
         <#assign fieldMetaList = []>
         <#assign dummy = ec.resource.expression("if (mcpSemanticData.formMetadata == null) mcpSemanticData.formMetadata = [:]; mcpSemanticData.formMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', map: '" + (mapName!"")?js_string + "'])", "")!>
+        <#-- Store the actual form data (current entity values) in semanticData -->
+        <#if formMap?has_content>
+            <#assign dummy = ec.context.put("tempFormMapData", formMap)!>
+            <#assign dummy = ec.resource.expression("mcpSemanticData.put('" + formName?js_string + "_data', tempFormMapData)", "")!>
+        </#if>
     </#if>
     <#t>${sri.pushSingleFormMapContext(mapName)}
     <#list formNode["field"] as fieldNode>
