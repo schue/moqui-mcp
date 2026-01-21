@@ -1418,8 +1418,9 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 .auth(ec.user.username)
 
             def renderParams = parameters ?: [:]
-            renderParams.userId = ec.user.userId
-            renderParams.username = ec.user.username
+            // Note: Don't inject userId/username into renderParams as they may conflict with
+            // screen search fields (e.g., FindCustomer has a 'username' search field).
+            // User context is already available via ec.user for authorization purposes.
 
             // Build the screen path - append action/transition if specified
             // This lets the framework handle transition execution properly (inheritance, pre/post actions, etc.)
