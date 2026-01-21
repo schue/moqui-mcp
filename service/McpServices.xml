@@ -601,7 +601,7 @@
             <parameter name="path" required="true"/>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen</description></parameter>
             <parameter name="action"><description>Action being processed: if not null, use real screen rendering instead of test mock</description></parameter>
-            <parameter name="renderMode" default="compact"><description>Render mode: compact (default), aria (accessibility tree), text, html, xml</description></parameter>
+            <parameter name="renderMode" default="compact"><description>Render mode: compact (default), aria (accessibility tree), text, html</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
         </in-parameters>
         <out-parameters>
@@ -2167,7 +2167,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
         <in-parameters>
             <parameter name="path" required="false"><description>Screen path to browse (e.g. 'PopCommerce'). Leave empty for root apps.</description></parameter>
             <parameter name="action"><description>Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name</description></parameter>
-            <parameter name="renderMode" default="compact"><description>Render mode: compact (default), aria (accessibility tree), text, html, xml</description></parameter>
+            <parameter name="renderMode" default="compact"><description>Render mode: compact (default), aria (accessibility tree), text, html</description></parameter>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering or action</description></parameter>
             <parameter name="sessionId"/>
         </in-parameters>
@@ -2790,7 +2790,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             properties: [
                                 "path": [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
                                 "action": [type: "string", description: "Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name"],
-                                "renderMode": [type: "string", description: "Render mode: compact (default), aria (accessibility tree), text, html, xml"],
+                                "renderMode": [type: "string", description: "Render mode: compact (default), aria (accessibility tree), text, html"],
                                 "parameters": [type: "object", description: "Parameters to pass to screen during rendering or action"]
                             ]
                         ]
