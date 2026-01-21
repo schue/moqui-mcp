@@ -266,11 +266,18 @@
     <#assign formListColumnList = formListInfo.getAllColInfo()>
     <#assign listObject = formListInfo.getListObject(false)!>
     <#assign totalItems = (listObject?size)!0>
+    <#-- Get pagination variables from context (set by Moqui's XmlActions) -->
+    <#assign listName = formNode["@list"]!"">
+    <#assign pageIndex = (ec.context[listName + "PageIndex"])!0>
+    <#assign pageSize = (ec.context[listName + "PageSize"])!20>
+    <#assign listCount = (ec.context[listName + "Count"])!totalItems>
+    <#assign pageMaxIndex = (ec.context[listName + "PageMaxIndex"])!0>
     
     <#if mcpSemanticData??>
         <#assign formName = (.node["@name"]!"")?string>
         <#assign displayedItems = (totalItems > 50)?then(50, totalItems)>
         <#assign isTruncated = (totalItems > 50)>
+        <#assign hasMorePages = (pageIndex < pageMaxIndex)>
         <#assign columnNames = []>
         <#list formListColumnList as columnFieldList>
             <#assign fieldNode = columnFieldList[0]>
@@ -395,7 +402,7 @@
         <#assign dummy = ec.context.put("tempListObject", listObject)!>
         <#assign dummy = ec.context.put("tempColumnNames", columnNames)!>
         <#assign dummy = ec.context.put("tempFieldMetaList", fieldMetaList)!>
-        <#assign dummy = ec.resource.expression("mcpSemanticData.put('" + formName?js_string + "', tempListObject); if (mcpSemanticData.formMetadata == null) mcpSemanticData.formMetadata = [:]; mcpSemanticData.formMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', type: 'form-list', map: '', fields: tempFieldMetaList]); if (mcpSemanticData.listMetadata == null) mcpSemanticData.listMetadata = [:]; mcpSemanticData.listMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', totalItems: " + totalItems + ", displayedItems: " + displayedItems + ", truncated: " + isTruncated?string + ", columns: tempColumnNames])", "")!>
+        <#assign dummy = ec.resource.expression("mcpSemanticData.put('" + formName?js_string + "', tempListObject); if (mcpSemanticData.formMetadata == null) mcpSemanticData.formMetadata = [:]; mcpSemanticData.formMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', type: 'form-list', map: '', fields: tempFieldMetaList, pageIndex: " + pageIndex + ", pageSize: " + pageSize + ", pageMaxIndex: " + pageMaxIndex + ", listCount: " + listCount + "]); if (mcpSemanticData.listMetadata == null) mcpSemanticData.listMetadata = [:]; mcpSemanticData.listMetadata.put('" + formName?js_string + "', [name: '" + formName?js_string + "', totalItems: " + totalItems + ", displayedItems: " + displayedItems + ", truncated: " + isTruncated?string + ", columns: tempColumnNames])", "")!>
     </#if>
     
     <#-- Header Row -->

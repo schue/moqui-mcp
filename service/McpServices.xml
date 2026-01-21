@@ -944,12 +944,27 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
             children << searchNode
         }
         
+        // Get pagination info from formData
+        def pageIndex = formData.pageIndex ?: 0
+        def pageSize = formData.pageSize ?: 20
+        def pageMaxIndex = formData.pageMaxIndex ?: 0
+        def listCount = formData.listCount ?: itemCount
+        
         def gridNode = [
             role: "grid",
             name: formData.name ?: formName,
             ref: formName,
-            rowcount: itemCount
+            rowcount: listCount
         ]
+        
+        // Add pagination cursor if there are more pages
+        if (pageIndex < pageMaxIndex) {
+            gridNode.nextCursor = [
+                pageIndex: pageIndex + 1,
+                pageSize: pageSize,
+                hasMore: (pageIndex + 1) < pageMaxIndex
+            ]
+        }
         
         // Add column info (only non-searchable display columns)
         def displayColumns = formData.fields?.findAll { !it.searchable }?.collect { it.title ?: it.name }
@@ -1260,9 +1275,21 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
                 
                 rowInfo
             }
-            if (listData.size() > 10) {
-                gridInfo.more = listData.size() - 10
+            // Add pagination cursor if there are more pages
+            def gridPageIndex = formData.pageIndex ?: 0
+            def gridPageSize = formData.pageSize ?: 20
+            def gridPageMaxIndex = formData.pageMaxIndex ?: 0
+            def gridListCount = formData.listCount ?: listData.size()
+            
+            if (gridPageIndex < gridPageMaxIndex) {
+                // There are more pages - provide nextCursor
+                gridInfo.nextCursor = [
+                    pageIndex: gridPageIndex + 1,
+                    pageSize: gridPageSize,
+                    hasMore: (gridPageIndex + 1) < gridPageMaxIndex
+                ]
             }
+            gridInfo.totalCount = gridListCount
         } else {
             gridInfo.rowCount = 0
         }
