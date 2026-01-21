@@ -40,41 +40,50 @@ This server provides access to Moqui ERP through MCP.
 Use the following discovery tools to explore available functionality:
 - `moqui_browse_screens`: Browse Moqui screen hierarchy
 - `moqui_search_screens`: Search for screens by name to find their paths
-- `moqui_get_screen_details`: Get input parameters for specific screens
+- `moqui_get_screen_details`: Get dropdown options and field details
+- `moqui_get_help`: Get documentation for actions
 
 ## Common Screen Paths
 
 ### Catalog Operations
-- `/PopCommerce/PopCommerceAdmin/Catalog/dashboard`: Catalog overview and management
-- `/PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct`: Search and browse products
-- `/PopCommerce/PopCommerceAdmin/Catalog/Feature/FindFeature`: Search by features like color or size
-- `/PopCommerce/PopCommerceAdmin/Catalog/Product/EditPrices`: View and update product prices
+- `apps/PopcAdmin/Catalog/dashboard`: Catalog overview and management
+- `apps/PopcAdmin/Catalog/Product/FindProduct`: Search and browse products
+- `apps/PopcAdmin/Catalog/Feature/FindFeature`: Search by features like color or size
 
 ### Order Management
-- `/PopCommerce/PopCommerceAdmin/Order/FindOrder`: Lookup and create sales/purchase orders
-- `/PopCommerce/PopCommerceAdmin/QuickSearch`: General order and customer search
+- `apps/PopcAdmin/Order/FindOrder`: Lookup and create sales/purchase orders
 
 ### Party & Customer Management
-- `/PopCommerce/PopCommerceAdmin/Party/FindParty`: Manage all parties (People, Organizations)
-- `/PopCommerce/PopCommerceRoot/Customer`: Customer storefront account management
-- `User`: Internal user account, notifications, and messages
-- `/PopCommerce/PopCommerceAdmin/QuickSearch`: Customer lookup
+- `apps/PopcAdmin/Party/FindParty`: Manage all parties (People, Organizations)
+- `apps/PopcAdmin/Customer/FindCustomer`: Customer management
 
-### Facility & Accounting
-- `/PopCommerce/PopCommerceAdmin/Facility/FindFacility`: Manage warehouses and inventory locations
-- `/PopCommerce/PopCommerceAdmin/Accounting/dashboard`: Financial management and GL accounting
-
-### System & Developer Tools
-- `/tools/Tools`: Developer tools, entity data editing, and service references
-- `/tools/System`: System administration, cache management, and security settings
+### Global Navigation (always available)
+- `apps/my/User/Messages`: Send and receive messages
+- `apps/my/User/Notifications`: View notifications
+- `apps/my/User/Task/MyTasks`: Task management
+- `apps/my/User/Calendar/MyCalendar`: Calendar events
 
 ## Tips for LLM Clients
 
-- All screens support parameterized queries for filtering results
-- Use `moqui_render_screen` with screen path to execute screens
-- Screen paths use forward slash notation (e.g., `/PopCommerce/PopCommerceAdmin/Catalog/Product`)
-- Check `moqui_get_screen_details` for required parameters before rendering
-- Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></fileData>
+### Executing Actions
+- Use `moqui_browse_screens` with `action` parameter to execute transitions
+- **Actions are NOT services** - don't try to call service names directly
+- Example: `moqui_browse_screens(path='...', action='createProduct', parameters={...})`
+
+### Getting Dropdown Options
+- Dropdown fields show `type: "dropdown"` but not the actual options
+- Use `moqui_get_screen_details(path='...', fieldName='fieldName')` to get available options
+- For dependent dropdowns, pass context (e.g., `countryGeoId` for state dropdown)
+
+### Getting Action Documentation
+- Actions include a `help` field like `"help": "wiki:service:ProductAssoc"`
+- Use `moqui_get_help(uri='wiki:service:ProductAssoc')` to get parameter details
+- This explains required/optional parameters and valid values
+
+### General Tips
+- Use `renderMode: "compact"` for efficient structured output
+- Global navigation (Messages, Tasks, Calendar) available in `globalNav` array
+- Screen paths use forward slash notation: `apps/PopcAdmin/Catalog/Product`]]></fileData>
     </moqui.resource.DbResourceFile>
 
     <!-- Root Wiki Page -->
