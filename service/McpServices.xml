@@ -912,7 +912,7 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
         if (formNode.children) children << formNode
     }
     
-    // Process form-lists (become grids)
+    // Process form-lists (become grids with optional search section)
     formMetadata.findAll { k, v -> v.type == "form-list" }.each { formName, formData ->
         def listData = data[formName]
         def itemCount = 0
@@ -922,6 +922,28 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
             itemCount = listData._totalCount
         }
         
+        // Extract searchable fields from header-fields and create a search landmark
+        def searchableFields = formData.fields?.findAll { it.searchable == true }
+        if (searchableFields && searchableFields.size() > 0) {
+            def searchNode = [
+                role: "search",
+                name: "Filter ${formData.name ?: formName}",
+                description: "Pass these as parameters to filter results",
+                children: searchableFields.collect { field ->
+                    def searchField = [
+                        role: (field.type == "dropdown" || field.dynamicOptions) ? "combobox" : "searchbox",
+                        name: field.title ?: field.name,
+                        ref: field.name
+                    ]
+                    if (field.type == "dropdown" || field.dynamicOptions) {
+                        searchField.description = "dropdown - use moqui_get_screen_details for options"
+                    }
+                    searchField
+                }
+            ]
+            children << searchNode
+        }
+        
         def gridNode = [
             role: "grid",
             name: formData.name ?: formName,
@@ -929,9 +951,9 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
             rowcount: itemCount
         ]
         
-        // Add column info
-        def columns = formData.fields?.collect { it.title ?: it.name }
-        if (columns) gridNode.columns = columns
+        // Add column info (only non-searchable display columns)
+        def displayColumns = formData.fields?.findAll { !it.searchable }?.collect { it.title ?: it.name }
+        if (displayColumns) gridNode.columns = displayColumns
         
         // Add all rows with detail (no truncation - model needs complete data)
         if (listData instanceof List && listData.size() > 0) {
@@ -1143,14 +1165,25 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
     }
     if (forms) result.forms = forms
     
-    // Process grids (form-lists)
+    // Process grids (form-lists) - include searchable parameters
     def grids = [:]
+    def searchParams = []  // Collect all searchable params across grids
     formMetadata.findAll { k, v -> v.type == "form-list" }.each { formName, formData ->
         def listData = data[formName]
         def gridInfo = [:]
         
-        // Column names
-        def columns = formData.fields?.findAll { it.type != "hidden" }?.collect { it.title ?: it.name }
+        // Extract searchable fields and add to searchParams
+        def searchableFields = formData.fields?.findAll { it.searchable == true }
+        searchableFields?.each { field ->
+            def paramInfo = [name: field.name]
+            if (field.title && field.title != field.name) paramInfo.label = field.title
+            if (field.type) paramInfo.type = field.type
+            if (field.dynamicOptions) paramInfo.autocomplete = true
+            searchParams << paramInfo
+        }
+        
+        // Column names (display columns only, not search fields)
+        def columns = formData.fields?.findAll { it.type != "hidden" && !it.searchable }?.collect { it.title ?: it.name }
         if (columns) gridInfo.columns = columns
         
         // Rows with key data and links
@@ -1266,11 +1299,16 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
     }
     if (actionMap) result.actions = actionMap
     
+    // Add searchParams if any were collected from form-lists
+    if (searchParams) result.searchParams = searchParams
+    
     // Transitions - screen navigation actions (toolbar buttons, row actions)
+    // Filter out autocomplete/helper transitions that aren't user actions
     def transitionList = actions.findAll { 
         it.type == "screen-transition" && 
         it.name && 
         !it.name.startsWith("form") &&  // Skip formSelectColumns, formSaveFind
+        !it.name.startsWith("get") &&   // Skip getProductList, getFeatureList etc (autocomplete helpers)
         it.name != "actions" &&          // Skip generic 'actions'
         it.name != "screenDoc"           // Skip documentation link
     }.collect { it.name }

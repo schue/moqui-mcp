@@ -277,18 +277,33 @@
             <#assign columnNames = columnNames + [fieldNode["@name"]!""]>
         </#list>
         
-        <#-- Extract Field Metadata for form-list (header fields usually) -->
+        <#-- Extract Field Metadata for form-list - distinguish header (search) from display fields -->
         <#assign fieldMetaList = []>
         <#list formListColumnList as columnFieldList>
             <#assign fieldNode = columnFieldList[0]>
-            <#assign fieldSubNode = fieldNode["header-field"][0]!fieldNode["default-field"][0]!fieldNode["conditional-field"][0]!>
+            <#-- Check if this field has a header-field with search widgets -->
+            <#assign headerFieldNode = fieldNode["header-field"][0]!>
+            <#assign hasSearchWidget = false>
+            <#if headerFieldNode?has_content>
+                <#-- Check for search-capable widgets in header-field -->
+                <#if headerFieldNode["text-find"]?has_content || headerFieldNode["text-line"]?has_content || 
+                     headerFieldNode["drop-down"]?has_content || headerFieldNode["date-find"]?has_content ||
+                     headerFieldNode["date-period"]?has_content || headerFieldNode["range-find"]?has_content>
+                    <#assign hasSearchWidget = true>
+                </#if>
+            </#if>
+            <#assign fieldSubNode = headerFieldNode!fieldNode["default-field"][0]!fieldNode["conditional-field"][0]!>
             
             <#if fieldSubNode?has_content && !fieldSubNode["ignored"]?has_content && !fieldSubNode["hidden"]?has_content>
                 <#assign title><@fieldTitle fieldSubNode/></#assign>
-                <#assign fieldMeta = {"name": (fieldNode["@name"]!""), "title": (title!), "required": (fieldNode["@required"]! == "true")}>
+                <#assign fieldMeta = {"name": (fieldNode["@name"]!""), "title": (title!), "required": (fieldNode["@required"]! == "true"), "searchable": hasSearchWidget}>
                 
                 <#if fieldSubNode["text-line"]?has_content><#assign fieldMeta = fieldMeta + {"type": "text"}></#if>
+                <#if fieldSubNode["text-find"]?has_content><#assign fieldMeta = fieldMeta + {"type": "text-search"}></#if>
                 <#if fieldSubNode["text-area"]?has_content><#assign fieldMeta = fieldMeta + {"type": "textarea"}></#if>
+                <#if fieldSubNode["date-find"]?has_content><#assign fieldMeta = fieldMeta + {"type": "date-search"}></#if>
+                <#if fieldSubNode["date-period"]?has_content><#assign fieldMeta = fieldMeta + {"type": "date-period"}></#if>
+                <#if fieldSubNode["range-find"]?has_content><#assign fieldMeta = fieldMeta + {"type": "range-search"}></#if>
                 <#if fieldSubNode["drop-down"]?has_content>
                     <#-- Evaluate any 'set' nodes from widget-template-include before getting options -->
                     <#list fieldSubNode["set"]! as setNode>
