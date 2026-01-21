@@ -947,10 +947,10 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
         def columns = formData.fields?.collect { it.title ?: it.name }
         if (columns) gridNode.columns = columns
         
-        // Add sample rows with more detail
+        // Add all rows with detail (no truncation - model needs complete data)
         if (listData instanceof List && listData.size() > 0) {
             gridNode.children = []
-            listData.take(3).each { row ->
+            listData.each { row ->
                 def rowNode = [role: "row"]
                 // Extract key identifying info
                 def id = row.pseudoId ?: row.partyId ?: row.productId ?: row.id
@@ -960,39 +960,33 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
                 if (id && name && id != name) rowNode.description = id
                 gridNode.children << rowNode
             }
-            if (listData.size() > 3) {
-                gridNode.moreRows = listData.size() - 3
-            }
         }
         
         children << gridNode
     }
     
-    // Process navigation links
+    // Process navigation links (no truncation)
     def navLinks = semanticState.data?.links?.findAll { it.type == "navigation" }
     if (navLinks && navLinks.size() > 0) {
         def navNode = [
             role: "navigation",
             name: "Links",
-            children: navLinks.take(10).collect { link ->
+            children: navLinks.collect { link ->
                 def linkNode = [role: "link", name: link.text, ref: link.path]
                 linkNode
             }
         ]
-        if (navLinks.size() > 10) {
-            navNode.moreLinks = navLinks.size() - 10
-        }
         children << navNode
     }
     
-    // Process ALL actions as buttons (unified - no separate transitions/actions)
+    // Process ALL actions as buttons (unified - no separate transitions/actions, no truncation)
     def allActions = semanticState.actions ?: []
     if (allActions && allActions.size() > 0) {
         def toolbarNode = [
             role: "toolbar",
             name: "Actions",
             description: "Available operations on this screen",
-            children: allActions.take(15).collect { action ->
+            children: allActions.collect { action ->
                 def btnNode = [
                     role: "button", 
                     name: action.name,
@@ -1016,9 +1010,6 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
                 btnNode
             }
         ]
-        if (allActions.size() > 15) {
-            toolbarNode.moreActions = allActions.size() - 15
-        }
         children << toolbarNode
     }
     
