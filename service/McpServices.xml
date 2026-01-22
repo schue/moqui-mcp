@@ -975,20 +975,41 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
             gridNode.children = []
             listData.each { row ->
                 def rowNode = [role: "row"]
-                // Extract key identifying info - prefer specific IDs over generic productId
-                // For features: productFeatureId, for assocs: toProductId, etc.
-                def id = row.pseudoId ?: row.toProductId ?: row.productFeatureId ?: 
+                // Extract display ID - prefer human-readable pseudoId for display
+                def displayId = row.pseudoId ?: row.toProductId ?: row.productFeatureId ?: 
                          row.partyId ?: row.orderId ?: row.id
                 // Avoid using productId as ref when it's the same for all rows (e.g., feature list)
-                if (!id && row.productId) {
+                if (!displayId && row.productId) {
                     // Only use productId if there's no better identifier
-                    id = row.productId
+                    displayId = row.productId
                 }
                 def name = row.combinedName ?: row.name ?: row.productName ?: 
                            row.description ?: row.abbrev
-                if (id) rowNode.ref = id
+                if (displayId) rowNode.ref = displayId
                 if (name) rowNode.name = name
-                if (id && name && id != name) rowNode.description = id
+                if (displayId && name && displayId != name) rowNode.description = displayId
+                
+                // Extract the primary key from the row's link URL (if any)
+                // This is the actual entity ID that services need, which may differ from pseudoId
+                // Match by displayId in path OR by link text (handles pseudoId != productId case)
+                def rowLink = data.links?.find { link ->
+                    link.type == "navigation" && link.path?.contains("Edit") && (
+                        link.path?.contains(displayId?.toString()) ||
+                        link.text == displayId?.toString() ||
+                        link.text == name
+                    )
+                }
+                if (rowLink?.path) {
+                    def matcher = rowLink.path =~ /(\w+Id)=([^&]+)/
+                    if (matcher.find()) {
+                        def paramName = matcher.group(1)
+                        def paramValue = matcher.group(2)
+                        if (paramValue && paramValue != displayId?.toString()) {
+                            rowNode[paramName] = paramValue
+                        }
+                    }
+                }
+                
                 gridNode.children << rowNode
             }
         }
@@ -1211,17 +1232,16 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
             gridInfo.rows = listData.take(10).collect { row ->
                 def rowInfo = [:]
                 
-                // Get identifying info - prefer specific IDs over generic productId
-                // For features: productFeatureId, for assocs: toProductId, etc.
-                def id = row.pseudoId ?: row.toProductId ?: row.productFeatureId ?: 
+                // Get display ID - prefer human-readable pseudoId for display
+                def displayId = row.pseudoId ?: row.toProductId ?: row.productFeatureId ?: 
                          row.partyId ?: row.orderId ?: row.communicationEventId ?: row.id
-                // Avoid using productId as id when it's the same for all rows (e.g., feature list)
-                if (!id && row.productId) id = row.productId
+                // Avoid using productId as displayId when it's the same for all rows (e.g., feature list)
+                if (!displayId && row.productId) displayId = row.productId
                 def name = row.combinedName ?: row.productName ?: row.organizationName ?: 
                            row.subject ?: row.name ?: row.description ?: row.abbrev
                 
-                if (id) rowInfo.id = id
-                if (name && name != id) rowInfo.name = name
+                if (displayId) rowInfo.id = displayId
+                if (name && name != displayId) rowInfo.name = name
                 
                 // Add key display values (2-3 additional fields beyond id/name)
                 // Priority: status, type, date, amount, role, class fields
@@ -1263,14 +1283,32 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
                 
                 if (extraFields) rowInfo.data = extraFields
                 
-                // Find link for this row
+                // Find link for this row and extract the primary key for service calls
+                // Match by displayId in path OR by link text (handles pseudoId != productId case)
                 def rowLinks = data.links?.findAll { link ->
-                    link.path?.contains(id?.toString()) && link.type == "navigation"
+                    link.type == "navigation" && (
+                        link.path?.contains(displayId?.toString()) ||
+                        link.text == displayId?.toString() ||
+                        link.text == name
+                    )
                 }
                 if (rowLinks && rowLinks.size() > 0) {
                     // Pick the most relevant link (edit/view)
                     def editLink = rowLinks.find { it.path?.contains("Edit") }
-                    rowInfo.link = (editLink ?: rowLinks[0]).path
+                    def linkPath = (editLink ?: rowLinks[0]).path
+                    rowInfo.link = linkPath
+                    
+                    // Extract the primary key from the link URL (e.g., productId=100204)
+                    // This is the actual entity ID that services need, which may differ from pseudoId
+                    def matcher = linkPath =~ /(\w+Id)=([^&]+)/
+                    if (matcher.find()) {
+                        def paramName = matcher.group(1)
+                        def paramValue = matcher.group(2)
+                        // Only include if it differs from the display ID (avoids redundancy)
+                        if (paramValue && paramValue != displayId?.toString()) {
+                            rowInfo[paramName] = paramValue
+                        }
+                    }
                 }
                 
                 rowInfo
