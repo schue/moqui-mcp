@@ -228,8 +228,8 @@
                     def internalToolMappings = [
                         "moqui_search_screens": "McpServices.mcp#SearchScreens",
                         "moqui_get_screen_details": "McpServices.mcp#GetScreenDetails",
-                        "moqui_get_help": "McpServices.mcp#GetHelp",
-                        "moqui_batch_operations": "McpServices.mcp#BatchOperations"
+                        "moqui_get_help": "McpServices.mcp#GetHelp"
+                        // "moqui_batch_operations": "McpServices.mcp#BatchOperations" - hidden until fixed
                     ]
                     
                     def targetServiceName = internalToolMappings[name]
@@ -601,7 +601,7 @@
             <parameter name="path" required="true"/>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen</description></parameter>
             <parameter name="action"><description>Action being processed: if not null, use real screen rendering instead of test mock</description></parameter>
-            <parameter name="renderMode" default="compact"><description>Render mode: compact (default), aria (accessibility tree), text, html</description></parameter>
+            <parameter name="renderMode" default="aria"><description>Render mode: aria (default, accessibility tree), text, html</description></parameter>
             <parameter name="sessionId"><description>Session ID for user context restoration</description></parameter>
         </in-parameters>
         <out-parameters>
@@ -967,31 +967,75 @@ def convertToAriaTree = { semanticState, targetScreenPath ->
         }
         
         // Add column info (only non-searchable display columns)
-        def displayColumns = formData.fields?.findAll { !it.searchable }?.collect { it.title ?: it.name }
+        def displayColumns = formData.fields?.findAll { it.type != "hidden" && it.type != "display" && it.type != "link" && !it.name?.endsWith("Button") }?.collect { it.title ?: it.name }
         if (displayColumns) gridNode.columns = displayColumns
         
-        // Add all rows with detail (no truncation - model needs complete data)
+        // Add all rows with cell values (like Playwright accessibility tree)
         if (listData instanceof List && listData.size() > 0) {
             gridNode.children = []
+            
+            // Get display field definitions (non-hidden, non-display, non-link fields)
+            def displayFields = formData.fields?.findAll { 
+                it.type != 'hidden' && it.type != 'display' && it.type != 'link' && 
+                it.name != 'submitButton' && !it.name?.endsWith('Button')
+            } ?: []
+            
             listData.each { row ->
                 def rowNode = [role: "row"]
-                // Extract display ID - prefer human-readable pseudoId for display
-                def displayId = row.pseudoId ?: row.toProductId ?: row.productFeatureId ?: 
-                         row.partyId ?: row.orderId ?: row.id
-                // Avoid using productId as ref when it's the same for all rows (e.g., feature list)
-                if (!displayId && row.productId) {
-                    // Only use productId if there's no better identifier
-                    displayId = row.productId
+                
+                // Build cells array with actual values
+                def cells = []
+                displayFields.each { field ->
+                    def fieldName = field.name
+                    def rawValue = row[fieldName]
+                    def cellNode = [role: "gridcell", name: field.title ?: fieldName]
+                    
+                    // Resolve enum values to display descriptions, show empty when null
+                    if (fieldName.endsWith('EnumId')) {
+                        if (rawValue) {
+                            def enumVal = ec.entity.find("moqui.basic.Enumeration")
+                                .condition("enumId", rawValue).useCache(true).one()
+                            cellNode.value = enumVal?.description ?: rawValue
+                        } else {
+                            cellNode.value = "(none)"
+                        }
+                    } else {
+                        cellNode.value = rawValue != null && rawValue != '' ? rawValue.toString() : "(none)"
+                    }
+                    cells << cellNode
                 }
+                if (cells) rowNode.children = cells
+                
+                // Extract display ID for human-readable name
+                def displayId = row.pseudoId ?: row.toProductId ?: row.productFeatureId ?: 
+                         row.partyId ?: row.orderId ?: row.id ?: row.productId
+                
                 def name = row.combinedName ?: row.name ?: row.productName ?: 
                            row.description ?: row.abbrev
-                if (displayId) rowNode.ref = displayId
-                if (name) rowNode.name = name
-                if (displayId && name && displayId != name) rowNode.description = displayId
                 
-                // Extract the primary key from the row's link URL (if any)
-                // This is the actual entity ID that services need, which may differ from pseudoId
-                // Match by displayId in path OR by link text (handles pseudoId != productId case)
+                // Build ref from all ID fields in the row data
+                // Ideally we'd use hidden fields from form metadata, but form-list hidden fields
+                // aren't reliably captured yet. Using *Id heuristic as pragmatic fallback.
+                // All fields use key=value format for unambiguous parsing by LLMs.
+                def pkFields = []
+                row.keySet().sort().each { fieldName ->
+                    if (fieldName.endsWith('Id')) {
+                        def pkValue = row[fieldName]
+                        if (pkValue) {
+                            pkFields << "${fieldName}=${pkValue}"
+                        }
+                    }
+                }
+                
+                // Build ref as pipe-delimited key=value pairs
+                if (pkFields) {
+                    rowNode.ref = pkFields.join(' | ')
+                } else if (displayId) {
+                    rowNode.ref = displayId.toString()
+                }
+                if (name) rowNode.name = name
+                
+                // Extract primary key from row's link URL (actual entity ID for service calls)
                 def rowLink = data.links?.find { link ->
                     link.type == "navigation" && link.path?.contains("Edit") && (
                         link.path?.contains(displayId?.toString()) ||
@@ -1110,6 +1154,17 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
     def actions = semanticState.actions ?: []
     def params = semanticState.parameters ?: [:]
     
+    // Cache for enum lookups to avoid repeated queries
+    def enumCache = [:]
+    def resolveEnumValue = { enumId ->
+        if (!enumId) return null
+        if (enumCache.containsKey(enumId)) return enumCache[enumId]
+        def enumVal = ec.entity.find("moqui.basic.Enumeration").condition("enumId", enumId).useCache(true).one()
+        def desc = enumVal?.description ?: enumId
+        enumCache[enumId] = desc
+        return desc
+    }
+    
     def result = [
         screen: targetScreenPath?.split('/')?.last() ?: "Screen"
     ]
@@ -1218,8 +1273,8 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
             searchParams << paramInfo
         }
         
-        // Column names (display columns only, not search fields)
-        def columns = formData.fields?.findAll { it.type != "hidden" && !it.searchable }?.collect { it.title ?: it.name }
+        // Column names (all non-hidden display fields - include fields even if they have search filters)
+        def columns = formData.fields?.findAll { it.type != "hidden" && it.type != "display" && it.type != "link" && !it.name?.endsWith("Button") }?.collect { it.title ?: it.name }
         if (columns) gridInfo.columns = columns
         
         // Rows with key data and links
@@ -1243,41 +1298,21 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
                 if (displayId) rowInfo.id = displayId
                 if (name && name != displayId) rowInfo.name = name
                 
-                // Add key display values (2-3 additional fields beyond id/name)
-                // Priority: status, type, date, amount, role, class fields
-                def keyFieldPriority = [
-                    'statusId', 'status', 'productTypeEnumId', 'productAssocTypeEnumId', 
-                    'communicationEventTypeId', 'roleTypeId', 'partyClassificationId',
-                    'orderPartStatusId', 'placedDate', 'entryDate', 'fromDate', 'thruDate',
-                    'grandTotal', 'quantity', 'price', 'amount',
-                    'username', 'emailAddress', 'fromPartyId', 'toPartyId'
-                ]
-                
+                // Add 3-4 additional display fields using form's column order
+                // This respects the screen designer's intent as defined in form-list-column
                 def extraFields = [:]
                 def extraCount = 0
-                for (fieldName in keyFieldPriority) {
-                    if (extraCount >= 3) break
+                for (fieldDef in formData.fields?.take(6)) {
+                    if (extraCount >= 4) break
+                    def fieldName = fieldDef.name
+                    if (fieldDef.type == 'hidden' || fieldDef.type == 'display') continue
+                    if (fieldName in ['id', 'pseudoId', 'name', 'productId', 'partyId', 'submitButton', 'removeButton']) continue
                     def value = row[fieldName]
                     if (value != null && value != '' && value != id && value != name) {
-                        // Simplify enumId suffixes for display
-                        def displayKey = fieldName.replaceAll(/EnumId$/, '').replaceAll(/Id$/, '')
-                        extraFields[displayKey] = value.toString()
+                        // Resolve enum values to display descriptions
+                        def displayValue = fieldName.endsWith('EnumId') ? resolveEnumValue(value) : value.toString()
+                        extraFields[fieldName.replaceAll(/EnumId$/, '').replaceAll(/Id$/, '')] = displayValue
                         extraCount++
-                    }
-                }
-                
-                // If no priority fields found, add first 2-3 non-empty visible fields
-                if (extraCount == 0) {
-                    for (fieldDef in formData.fields?.take(8)) {
-                        if (extraCount >= 3) break
-                        def fieldName = fieldDef.name
-                        if (fieldDef.type == 'hidden') continue
-                        if (fieldName in ['id', 'pseudoId', 'name', 'productId', 'partyId', 'submitButton']) continue
-                        def value = row[fieldName]
-                        if (value != null && value != '' && value != id && value != name) {
-                            extraFields[fieldName] = value.toString()
-                            extraCount++
-                        }
                     }
                 }
                 
@@ -1298,7 +1333,7 @@ def convertToCompactFormat = { semanticState, targetScreenPath ->
                     def linkPath = (editLink ?: rowLinks[0]).path
                     rowInfo.link = linkPath
                     
-                    // Extract the primary key from the link URL (e.g., productId=100204)
+                    // Extract primary key from link URL (actual entity ID for service calls)
                     // This is the actual entity ID that services need, which may differ from pseudoId
                     def matcher = linkPath =~ /(\w+Id)=([^&]+)/
                     if (matcher.find()) {
@@ -1912,6 +1947,28 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
             } else if (renderMode == "aria" && semanticState) {
                 // Return ARIA accessibility tree format
                 def ariaTree = convertToAriaTree(semanticState, screenPath)
+                
+                // Add action result as ARIA status/alert node (per ARIA live region roles)
+                // role="alert" for errors (urgent), role="status" for success (advisory)
+                if (actionResult) {
+                    def statusNode = [
+                        role: actionResult.status == "error" ? "alert" : "status",
+                        name: actionResult.action,
+                        description: actionResult.message
+                    ]
+                    if (actionResult.validationErrors) {
+                        statusNode.children = actionResult.validationErrors.collect { ve ->
+                            [role: "listitem", name: ve.field ?: "error", description: ve.message]
+                        }
+                    }
+                    // Insert at beginning of children so it's immediately visible
+                    if (ariaTree.children) {
+                        ariaTree.children = [statusNode] + ariaTree.children
+                    } else {
+                        ariaTree.children = [statusNode]
+                    }
+                }
+                
                 def ariaResult = [
                     screenPath: screenPath,
                     aria: ariaTree
@@ -1921,11 +1978,6 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 if (wikiInstructions) {
                     def summary = extractSummary(wikiInstructions)
                     if (summary) ariaResult.summary = summary
-                }
-                
-                // Add action result if an action was executed
-                if (actionResult) {
-                    ariaResult.actionResult = actionResult
                 }
                 
                 content << [
@@ -2266,11 +2318,11 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
     </service>
 
     <service verb="mcp" noun="BrowseScreens" authenticate="false" allow-remote="true" transaction-timeout="60">
-        <description>Browse Moqui screens hierarchically to discover functionality. Renders screen content with renderMode='mcp' by default. Supports action parameter for form submission and transitions.</description>
+        <description>Browse Moqui screens hierarchically to discover functionality. Renders screen content as ARIA accessibility tree by default. Supports action parameter for form submission and transitions.</description>
         <in-parameters>
             <parameter name="path" required="false"><description>Screen path to browse (e.g. 'PopCommerce'). Leave empty for root apps.</description></parameter>
             <parameter name="action"><description>Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name</description></parameter>
-            <parameter name="renderMode" default="compact"><description>Render mode: compact (default), aria (accessibility tree), text, html</description></parameter>
+            <parameter name="renderMode" default="aria"><description>Render mode: aria (default, accessibility tree), text, html</description></parameter>
             <parameter name="parameters" type="Map"><description>Parameters to pass to screen during rendering or action</description></parameter>
             <parameter name="sessionId"/>
         </in-parameters>
@@ -2549,21 +2601,12 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 // Render current screen if not root browsing
                 def renderedContent = null
                 def renderError = null
-                def actualRenderMode = renderMode ?: "compact"
+                def actualRenderMode = renderMode ?: "aria"
 
                 def resultMap = [
                     currentPath: currentPath,
                     subscreens: subscreens,
                     renderMode: actualRenderMode
-                ]
-                
-                // Add global navigation - these are always available regardless of current app
-                // Mirrors the MyAccountNav component in the web UI
-                resultMap.globalNav = [
-                    [name: "My Notifications", path: "apps/my/User/Notifications", icon: "info"],
-                    [name: "My Messages", path: "apps/my/User/Messages/FindMessage", icon: "message"],
-                    [name: "My Calendar", path: "apps/my/User/Calendar/MyCalendar", icon: "calendar"],
-                    [name: "My Tasks", path: "apps/my/User/Task/MyTasks", icon: "tasks"]
                 ]
 
                 if (currentPath != "root") {
@@ -2611,6 +2654,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             } else if (actualRenderMode == "aria" && resultObj && resultObj.aria) {
                                 resultMap.aria = resultObj.aria
                                 if (resultObj.summary) resultMap.summary = resultObj.summary
+                                if (resultObj.actionResult) resultMap.actionResult = resultObj.actionResult
                                 ec.logger.info("BrowseScreens: ARIA mode - passing through aria tree for ${currentPath}")
                             } else if (resultObj && resultObj.semanticState) {
                                 resultMap.semanticState = resultObj.semanticState
@@ -2887,13 +2931,13 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     [
                         name: "moqui_browse_screens",
                         title: "Browse Screens",
-                        description: "Browse Moqui screen hierarchy, process actions, and render screen content. Input 'path' (empty for root). Default renderMode is 'compact'.",
+                        description: "Browse Moqui screen hierarchy, process actions, and render screen content. Input 'path' (empty for root). Default renderMode is 'aria'.",
                         inputSchema: [
                             type: "object",
                             properties: [
                                 "path": [type: "string", description: "Path to browse (e.g. 'PopCommerce')"],
                                 "action": [type: "string", description: "Action to process before rendering: null (browse), 'submit' (form), 'create', 'update', or transition name"],
-                                "renderMode": [type: "string", description: "Render mode: compact (default), aria (accessibility tree), text, html"],
+                                "renderMode": [type: "string", description: "Render mode: aria (default, accessibility tree), text, html"],
                                 "parameters": [type: "object", description: "Parameters to pass to screen during rendering or action"]
                             ]
                         ]
@@ -2936,33 +2980,8 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             required: ["uri"]
                         ]
                      ],
-                     [
-                        name: "moqui_batch_operations",
-                        title: "Batch Operations",
-                        description: "Execute multiple screen operations in sequence. Stops on first error. Returns results for each operation.",
-                        inputSchema: [
-                            type: "object",
-                            properties: [
-                                "operations": [
-                                    type: "array",
-                                    description: "Array of operations to execute in sequence",
-                                    items: [
-                                        type: "object",
-                                        properties: [
-                                            "id": [type: "string", description: "Optional operation identifier for result tracking"],
-                                            "path": [type: "string", description: "Screen path"],
-                                            "action": [type: "string", description: "Action/transition to execute"],
-                                            "parameters": [type: "object", description: "Parameters for the action"]
-                                        ],
-                                        required: ["path", "action"]
-                                    ]
-                                ],
-                                "stopOnError": [type: "boolean", description: "Stop execution on first error (default: true)"],
-                                "returnLastOnly": [type: "boolean", description: "Return only last operation result (default: false)"]
-                            ],
-                            required: ["operations"]
-                        ]
-                     ],
+                     // moqui_batch_operations - hidden until fixed
+                     //
                       [
                         name: "prompts_list",
                         title: "List Prompts",

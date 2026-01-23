@@ -17,9 +17,7 @@ import groovy.json.JsonSlurper
 class McpFieldOptionsService {
     
     static service(String path, String fieldName, Map parameters, ExecutionContext ec) {
-        ec.logger.info("======== MCP GetScreenDetails CALLED - CODE VERSION 3 (ScreenTest) =======")
         if (!path) throw new IllegalArgumentException("path is required")
-        ec.logger.info("MCP GetScreenDetails: screen ${path}, field ${fieldName ?: 'all'}")
 
         def result = [screenPath: path, fields: [:]]
         try {
@@ -30,15 +28,13 @@ class McpFieldOptionsService {
                 .parameters([path: path, parameters: mergedParams, renderMode: "mcp", sessionId: null])
                 .call()
 
-            ec.logger.info("=== browseResult: ${browseResult != null}, result exists: ${browseResult?.result != null} ===")
-
             if (!browseResult?.result?.content) {
-                ec.logger.warn("No content from ScreenAsMcpTool")
+                ec.logger.warn("GetScreenDetails: No content from ScreenAsMcpTool for path ${path}")
                 return result + [error: "No content from ScreenAsMcpTool"]
             }
             def rawText = browseResult.result.content[0].text
             if (!rawText || !rawText.startsWith("{")) {
-                ec.logger.warn("Invalid JSON from ScreenAsMcpTool")
+                ec.logger.warn("GetScreenDetails: Invalid JSON from ScreenAsMcpTool for path ${path}")
                 return result + [error: "Invalid JSON from ScreenAsMcpTool"]
             }
 
@@ -47,14 +43,13 @@ class McpFieldOptionsService {
             def formMetadata = semanticState?.data?.formMetadata
 
             if (!(formMetadata instanceof Map)) {
-                ec.logger.warn("formMetadata is not a Map: ${formMetadata?.class}")
+                ec.logger.warn("GetScreenDetails: formMetadata is not a Map for path ${path}")
                 return result + [error: "No form metadata found"]
             }
 
             def allFields = [:]
-            ec.logger.info("=== Processing formMetadata with ${formMetadata.size()} forms ===")
+            
             formMetadata.each { formName, formItem ->
-                ec.logger.info("=== Processing form: ${formName}, hasFields: ${formItem?.fields != null} ===")
                 if (!(formItem instanceof Map) || !formItem.fields) return
                 formItem.fields.each { field ->
                     if (!(field instanceof Map) || !field.name) return
@@ -70,12 +65,25 @@ class McpFieldOptionsService {
                     def dynamicOptions = field.dynamicOptions
                     if (dynamicOptions instanceof Map) {
                         fieldInfo.dynamicOptions = dynamicOptions
-                        ec.logger.info("Found dynamicOptions for field ${field.name}: ${dynamicOptions}")
                         try {
                             fetchOptions(fieldInfo, path, parameters, dynamicOptions, ec)
                         } catch (Exception e) {
-                            ec.logger.warn("Failed to fetch options for ${field.name}: ${e.message}", e)
+                            ec.logger.warn("GetScreenDetails: Failed to fetch options for ${field.name}: ${e.message}")
                             fieldInfo.optionsError = e.message
+                        }
+                    }
+                    
+                    // Merge fields with same name - prefer version with options
+                    // This handles cases where a field appears in both search and edit forms
+                    def existingField = allFields[field.name]
+                    if (existingField) {
+                        // Keep existing options if new field has none
+                        if (existingField.options && !fieldInfo.options) {
+                            fieldInfo.options = existingField.options
+                        }
+                        // Merge dynamicOptions if existing has them
+                        if (existingField.dynamicOptions && !fieldInfo.dynamicOptions) {
+                            fieldInfo.dynamicOptions = existingField.dynamicOptions
                         }
                     }
                     allFields[field.name] = fieldInfo
@@ -102,12 +110,8 @@ class McpFieldOptionsService {
      * and capture the raw JSON response - exactly how ScreenRenderImpl.getFieldOptions() works.
      */
     private static void fetchOptions(Map fieldInfo, String path, Map parameters, Map dynamicOptions, ExecutionContext ec) {
-        ec.logger.info("=== fetchOptions START: ${fieldInfo.name} ===")
         def transitionName = dynamicOptions.transition
-        if (!transitionName) {
-            ec.logger.info("No transition specified for dynamic options")
-            return
-        }
+        if (!transitionName) return
         
         def optionParams = [:]
         
@@ -135,24 +139,17 @@ class McpFieldOptionsService {
             }
         }
  
-        // 2. Handle serverSearch fields
-        // If serverSearch is true AND no term is provided, skip fetching (matches framework behavior)
-        // The framework's getFieldOptions() skips server-search fields entirely for initial load
+        // 2. Handle serverSearch fields - skip if no search term provided (matches framework behavior)
         def isServerSearch = dynamicOptions.serverSearch == true || dynamicOptions.serverSearch == "true"
         if (isServerSearch) {
             if (parameters?.term != null && parameters.term.toString().length() > 0) {
                 optionParams.term = parameters.term
             } else {
-                // Skip fetching options for server-search fields without a term
-                ec.logger.info("Skipping server-search field ${fieldInfo.name} - no term provided")
-                return
+                return // Skip server-search fields without a term
             }
         }
  
         // 3. Use CustomScreenTestImpl with skipJsonSerialize to call the transition
-        // This is exactly how ScreenRenderImpl.getFieldOptions() works in the framework
-        ec.logger.info("Calling transition ${transitionName} via CustomScreenTestImpl with skipJsonSerialize=true, params: ${optionParams}")
-        
         try {
             def ecfi = (ExecutionContextFactoryImpl) ec.factory
             
@@ -166,9 +163,6 @@ class McpFieldOptionsService {
             fullPath.split('/').each { if (it && it.trim()) pathSegments.add(it) }
             
             // Component-based resolution (same as ScreenAsMcpTool)
-            // Path like "PopCommerce/PopCommerceAdmin/Party/FindParty/transition" becomes:
-            // - rootScreen: component://PopCommerce/screen/PopCommerceAdmin.xml
-            // - testScreenPath: Party/FindParty/transition
             def rootScreen = "component://webroot/screen/webroot.xml"
             def testScreenPath = fullPath
             
@@ -178,7 +172,6 @@ class McpFieldOptionsService {
                 def compRootLoc = "component://${componentName}/screen/${rootScreenName}.xml"
                 
                 if (ec.resource.getLocationReference(compRootLoc).exists) {
-                    ec.logger.info("fetchOptions: Using component root: ${compRootLoc}")
                     rootScreen = compRootLoc
                     testScreenPath = pathSegments.size() > 2 ? pathSegments[2..-1].join('/') : ""
                 }
@@ -190,12 +183,10 @@ class McpFieldOptionsService {
                 .skipJsonSerialize(true)
                 .auth(ec.user.username)
             
-            ec.logger.info("Rendering transition path: ${testScreenPath} (from root: ${rootScreen})")
             def str = screenTest.render(testScreenPath, optionParams, "GET")
             
             // Get JSON object directly (like web UI does)
             def jsonObj = str.getJsonObject()
-            ec.logger.info("Transition returned jsonObj: ${jsonObj?.getClass()?.simpleName}, size: ${jsonObj instanceof Collection ? jsonObj.size() : 'N/A'}")
             
             // Extract value-field and label-field from dynamic-options config
             def valueField = dynamicOptions.valueField ?: dynamicOptions.'value-field' ?: 'value'
@@ -239,20 +230,10 @@ class McpFieldOptionsService {
                         [value: entryObj, label: entryObj?.toString()]
                     }
                 }.findAll { it.value != null }
-                
-                ec.logger.info("Successfully extracted ${fieldInfo.options.size()} autocomplete options via ScreenTest")
-            } else {
-                ec.logger.info("No options found in transition response")
-                
-                // Check if there was output but no JSON (might be an error)
-                def output = str.getOutput()
-                if (output && output.length() > 0 && output.length() < 500) {
-                    ec.logger.warn("Transition output (no JSON): ${output}")
-                }
             }
             
         } catch (Exception e) {
-            ec.logger.warn("Error calling transition ${transitionName}: ${e.message}", e)
+            ec.logger.warn("GetScreenDetails: Error calling transition ${transitionName}: ${e.message}")
             fieldInfo.optionsError = "Transition call failed: ${e.message}"
         }
     }

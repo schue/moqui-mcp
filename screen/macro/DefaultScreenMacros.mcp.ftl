@@ -154,6 +154,7 @@
                     
                     <#-- Evaluate any 'set' nodes from widget-template-include before getting options -->
                     <#-- These set variables like enumTypeId needed by entity-options -->
+                    <#-- Note: set nodes are appended to fieldSubNode after template expansion -->
                     <#assign setNodes = fieldSubNode["set"]!>
                     <#list setNodes as setNode>
                         <#if setNode["@field"]?has_content>
@@ -162,18 +163,18 @@
                     </#list>
                     <#-- Get dropdown options - pass the drop-down node, not fieldSubNode -->
                     <#assign dropdownOptions = sri.getFieldOptions(dropdownNode)!>
+                    <#assign skipTruncation = (ec.context.mcpFullOptions!false) == true>
                     <#if (dropdownOptions?size!0) gt 0>
                         <#-- Build options list from the LinkedHashMap -->
                         <#-- Truncate if > 10 unless mcpFullOptions is set (for get_screen_details) -->
                         <#assign optionsList = []>
                         <#assign totalOptions = dropdownOptions?size>
-                        <#assign skipTruncation = (ec.context.mcpFullOptions!false) == true>
                         <#assign optionLimit = skipTruncation?then(999999, 10)>
                         <#assign optionCount = 0>
-                        <#list (dropdownOptions.keySet())! as optKey>
+                        <#-- Use entrySet() to iterate Java LinkedHashMap - avoids FreeMarker exposing method names as keys -->
+                        <#list dropdownOptions.entrySet() as entry>
                             <#if optionCount lt optionLimit>
-                                <#assign optLabel = (dropdownOptions.get(optKey))!optKey>
-                                <#assign optionsList = optionsList + [{"value": optKey, "label": optLabel}]>
+                                <#assign optionsList = optionsList + [{"value": entry.getKey(), "label": entry.getValue()}]>
                             </#if>
                             <#assign optionCount = optionCount + 1>
                         </#list>
