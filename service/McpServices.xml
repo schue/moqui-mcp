@@ -2837,7 +2837,67 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     if (webrootSd) {
                         walkScreenTree(webrootSd, "", 0)
                     }
-                    
+
+                    // Index workflows from BUSINESS_PROCESSES wiki space
+                    try {
+                        ec.artifactExecution.disableAuthz()
+                        def workflowPageList = ec.entity.find("moqui.resource.wiki.WikiPage")
+                            .condition("wikiSpaceId", "BUSINESS_PROCESSES")
+                            .list()
+
+                        for (def wp in workflowPageList) {
+                            // Skip root page
+                            if (wp.pagePath == "root") continue
+                            def title = wp.pagePath
+                            def description = ""
+
+                            try {
+                                def dbResource = ec.entity.find("moqui.resource.DbResource")
+                                    .condition("parentResourceId", "WIKI_BUSINESS_PROCESSES")
+                                    .condition("filename", wp.pagePath + ".md")
+                                    .one()
+
+                                if (dbResource) {
+                                    def dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
+                                        .condition("resourceId", dbResource.resourceId)
+                                        .one()
+
+                                    if (dbResourceFile && dbResourceFile.fileData) {
+                                        def content = new String(dbResourceFile.fileData.getBytes(1L, dbResourceFile.fileData.length() as int), "UTF-8")
+
+                                        // Extract title from first heading
+                                        def titleMatch = content =~ /^#\s+(.+)$/
+                                        if (titleMatch.find()) {
+                                            title = titleMatch.group(1)
+                                        }
+
+                                        // Extract first paragraph as description
+                                        def lines = content.split('\n')
+                                        for (line in lines) {
+                                            line = line.trim()
+                                            if (line && !line.startsWith('#')) {
+                                                description = line.take(200)
+                                                break
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                ec.logger.debug("SearchScreens: Error loading workflow ${wp.pagePath}: ${e.message}")
+                            }
+
+                            screenIndex << [
+                                path: "wiki:workflow:${wp.pagePath}",
+                                name: title,
+                                description: description,
+                                type: "workflow"
+                            ]
+                        }
+                        ec.logger.info("SearchScreens: Indexed ${workflowPageList.size()} workflows")
+                    } catch (Exception e) {
+                        ec.logger.warn("SearchScreens: Error indexing workflows: ${e.message}")
+                    }
+
                     // Cache the index
                     mcpCache.put(cacheKey, screenIndex)
                     ec.logger.info("SearchScreens: Built index with ${screenIndex.size()} screens")
@@ -2875,8 +2935,11 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     }
                     
                     // Prefer shallower screens (more likely to be entry points)
+                    // Workflows have no depth penalty
                     if (score > 0) {
-                        score -= (screen.depth ?: 0) * 2
+                        if (screen.type != "workflow") {
+                            score -= (screen.depth ?: 0) * 2
+                        }
                         scored << [screen: screen, score: score]
                     }
                 }
@@ -2896,7 +2959,7 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 // Add hint if no matches
                 def hint = null
                 if (matches.isEmpty()) {
-                    hint = "No screens found matching '${query}'. Try broader terms like 'product', 'order', 'party', or use moqui_browse_screens to explore."
+                    hint = "No screens or workflows found matching '${query}'. Try broader terms like 'product', 'order', 'party', or use moqui_browse_screens to explore."
                 } else if (matches.size() >= 15) {
                     hint = "Showing top 15 results. Refine your search for more specific matches."
                 }
@@ -3084,6 +3147,10 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                                 wikiSpaceId = "MCP_SERVICE_DOCS"
                                 pagePath = pageName
                                 break
+                            case "workflow":
+                                wikiSpaceId = "BUSINESS_PROCESSES"
+                                pagePath = pageName
+                                break
                             default:
                                 wikiSpaceId = "MCP_SCREEN_DOCS"
                                 pagePath = pageName
@@ -3107,7 +3174,17 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                         
                         if (wikiPage) {
                             // Use direct DbResource/DbResourceFile lookup (like BrowseScreens does)
-                            def parentResourceId = (wikiType == "service") ? "WIKI_MCP_SERVICE_DOCS" : "WIKI_MCP_SCREEN_DOCS"
+                            def parentResourceId
+                            switch (wikiType) {
+                                case "workflow":
+                                    parentResourceId = "WIKI_BUSINESS_PROCESSES"
+                                    break
+                                case "service":
+                                    parentResourceId = "WIKI_MCP_SERVICE_DOCS"
+                                    break
+                                default:
+                                    parentResourceId = "WIKI_MCP_SCREEN_DOCS"
+                            }
                             
                             def dbResource = ec.entity.find("moqui.resource.DbResource")
                                 .condition("parentResourceId", parentResourceId)

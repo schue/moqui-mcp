@@ -11,7 +11,7 @@
      <https://creativecommons.org/publicdomain/zero/1.0/>. -->
 
 <entity-facade-xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-facade-3.xsd">
+         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-facade-3.xsd" type="seed-initial">
 
     <!-- MCP User Groups -->
     <moqui.security.UserGroup userGroupId="McpUser" description="MCP Server Users"/>

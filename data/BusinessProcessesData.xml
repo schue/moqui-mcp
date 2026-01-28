@@ -1,0 +1,407 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This software is in the public domain under CC0 1.0 Universal plus a
+   Grant of Patent License.
+
+   To the extent possible under law, the author(s) have dedicated all
+   copyright and related and neighboring rights to this software to the
+   public domain worldwide. This software is distributed without any warranty.
+
+   You should have received a copy of the CC0 Public Domain Dedication
+   along with this software. If not, see
+   <http://creativecommons.org/publicdomain/zero/1.0/>.
+ -->
+<entity-facade-xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-facade-3.xsd" type="seed">
+
+    <!-- Business Processes Wiki Space -->
+    <moqui.resource.wiki.WikiSpace wikiSpaceId="BUSINESS_PROCESSES"
+        description="Business Process Workflows - Step-by-step guides for common business operations"
+        restrictView="N"
+        restrictUpdate="Y"
+        rootPageLocation="dbresource://WikiSpace/BUSINESS_PROCESSES.md"/>
+
+    <!-- WikiSpace Root Page -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_BUSINESS_PROCESSES"
+        parentResourceId="WIKI_SPACE_ROOT"
+        filename="BUSINESS_PROCESSES.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_BUSINESS_PROCESSES"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Business Process Workflows
+
+Step-by-step guides for common Moqui ERP operations.
+
+Each workflow includes:
+- Exact MCP tool calls with complete parameters
+- Expected responses and how to interpret them
+- Common pitfalls and troubleshooting
+
+## Available Workflows
+
+- **[Add Product Variant](Product-Variant-Creation)**: Create new product variants with proper features, pricing, and associations
+
+## How to Use These Guides
+
+These workflows are designed to be **executable by LLMs**. Each step provides:
+
+1. **Exact Tool Call**: The complete `moqui_browse_screens` or `moqui_get_screen_details` call
+2. **Parameters**: All required and optional parameters with example values
+3. **Expected Result**: What the response looks like and how to extract needed data
+4. **Next Step**: How to use the result in the next operation
+
+Copy the tool calls exactly as shown, replacing example values with your specific data.
+
+## Key Concepts
+
+- **productId vs pseudoId**: Always use internal `productId` (returned from create operations), NOT user-visible `pseudoId`
+- **Action vs Service**: Use screen `action` parameters, not direct service calls
+- **Feature Application**: Use `applyProductFeatures` for existing features, `createProductFeature` only for new features
+- **Variant Associations**: Link variants to virtual parent using `PatVariant` association type
+
+## Getting Help
+
+- Use `moqui_get_screen_details` to see available fields and dropdown options
+- Use `moqui_get_help` with `wiki:service:EntityName` for service documentation
+- Check `validationErrors` in action responses for failure reasons]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <!-- Root Wiki Page -->
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="BUSINESS_PROCESSES/root"
+        wikiSpaceId="BUSINESS_PROCESSES"
+        pagePath="root"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="BUSINESS_PROCESSES/root"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2026-01-23 00:00:00.000"/>
+
+    <!-- ========================================== -->
+    <!-- Product Variant Creation Workflow          -->
+    <!-- ========================================== -->
+
+    <!-- Product Variant Creation Page -->
+    <moqui.resource.DbResource
+        resourceId="WIKI_BP_PRODUCT_VARIANT"
+        parentResourceId="WIKI_BUSINESS_PROCESSES"
+        filename="Product-Variant-Creation.md"
+        isFile="Y"/>
+    <moqui.resource.DbResourceFile
+        resourceId="WIKI_BP_PRODUCT_VARIANT"
+        mimeType="text/markdown"
+        versionName="v1">
+        <fileData><![CDATA[# Add Product Variant
+
+Complete workflow for creating a new product variant with features, pricing, and association to parent.
+
+## Prerequisites
+
+- A virtual parent product exists (e.g., `DEMO_VAR`)
+- Parent has selectable features defined (e.g., Color, Size options)
+- You know the feature IDs to apply (e.g., `ColorPurple`, `SizeSmall`)
+
+## Overview
+
+This workflow creates a new variant product by:
+1. Finding the parent product
+2. Cloning parent to create the variant (or creating a new product)
+3. Applying distinguishing features to identify this variant
+4. Setting pricing (Current and List prices)
+5. Linking variant to virtual parent
+
+## Step 1: Find Parent Product
+
+Locate the virtual parent product to clone from.
+
+```bash
+moqui_browse_screens(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct",
+    parameters={productId: "DEMO_VAR"}
+)
+```
+
+**Expected Result:**
+- Product list showing `DEMO_VAR` with its pseudoId
+- Note the internal `productId` from the response (or use pseudoId for search)
+- Click product link to navigate to EditProduct screen
+
+**Next Step:** Use the parent product ID for cloning.
+
+## Step 2: Clone Product to Create Variant
+
+Clone the parent product to create a new variant. This copies features and prices.
+
+```bash
+moqui_browse_screens(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct",
+    action="cloneProduct",
+    parameters={
+        productId: "DEMO_VAR",
+        newProductId: "DEMO_VAR_PUR_SM",
+        newProductName: "Demo with Variants Purple Small",
+        copyFeatures: "Y",
+        copyPrices: "Y",
+        copyCategories: "Y",
+        copyAssocs: "N",
+        copyContent: "N",
+        copyInventory: "N",
+        copyFacilities: "N",
+        copyProductStore: "N"
+    }
+)
+```
+
+**Parameters:**
+- `productId`: Parent product to clone (use pseudoId or internal ID)
+- `newProductId`: New product's pseudoId (user-visible identifier)
+- `newProductName`: Display name for the variant
+- `copyFeatures`: "Y" to copy features from parent
+- `copyPrices`: "Y" to copy pricing from parent
+
+**Expected Result:**
+- Response with `status: "executed"`
+- `actionResult.result.productId` contains the **internal product ID** of the new variant
+- Save this `productId` for all subsequent operations
+
+**Next Step:** Find the new variant product to get its internal `productId`.
+
+## Step 3: Find New Variant Product
+
+Search for the newly created variant to get its internal `productId`.
+
+```bash
+moqui_browse_screens(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct",
+    parameters={productId: "DEMO_VAR_PUR_SM"}
+)
+```
+
+**Expected Result:**
+- Product list shows `DEMO_VAR_PUR_SM`
+- Click product link to navigate to EditProduct
+- The response includes the `productId` field - **use this internal ID for all next steps**
+
+**Next Step:** Apply distinguishing features to the variant.
+
+## Step 4: Apply Distinguishing Features
+
+Apply features that make this variant unique (e.g., Purple color, Small size).
+
+```bash
+moqui_browse_screens(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct",
+    action="applyProductFeatures",
+    parameters={
+        productId: "100000",
+        productFeatureIdList: ["ColorPurple", "SizeSmall"],
+        applTypeEnumId: "PfatDistinguishing",
+        fromDate: "2026-01-23"
+    }
+)
+```
+
+**Parameters:**
+- `productId`: **Internal product ID** from Step 3 (NOT the pseudoId!)
+- `productFeatureIdList`: Array of feature IDs to apply
+  - Must be existing features (use `moqui_get_screen_details` to list available options)
+  - Example: `["ColorPurple", "SizeSmall"]`
+- `applTypeEnumId`: "PfatDistinguishing" for variants (NOT "PfatSelectable")
+- `fromDate`: Optional, defaults to current date
+
+**Expected Result:**
+- Response with `status: "executed"`
+- ProductFeatures grid shows the applied features
+
+**Available Feature Types:**
+- Colors: `ColorRed`, `ColorBlue`, `ColorGreen`, `ColorPurple`, `ColorBlack`, `ColorWhite`
+- Sizes: `SizeSmall`, `SizeMedium`, `SizeLarge`, `SizeXL`
+
+**Next Step:** Set pricing for the variant.
+
+## Step 5: Add Current Price
+
+Set the selling price for the variant.
+
+```bash
+moqui_browse_screens(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditPrices",
+    action="createProductPrice",
+    parameters={
+        productId: "100000",
+        priceTypeEnumId: "PptCurrent",
+        pricePurposeEnumId: "PppSales",
+        price: "26.99",
+        priceUomId: "USD",
+        minQuantity: "1",
+        fromDate: "2026-01-23"
+    }
+)
+```
+
+**Parameters:**
+- `productId`: **Internal product ID** from Step 3
+- `priceTypeEnumId`: "PptCurrent" for selling price
+- `pricePurposeEnumId`: "PppSales" for sales transactions
+- `price`: Decimal amount (e.g., "26.99")
+- `priceUomId`: Currency code (default: "USD")
+- `minQuantity`: Minimum quantity for this price (1 for standard pricing)
+
+**Expected Result:**
+- Response with `status: "executed"`
+- ProductPrice record created
+
+**Next Step:** Add list price for MSRP display.
+
+## Step 6: Add List Price
+
+Set the list price (MSRP) for the variant.
+
+```bash
+moqui_browse_screens(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditPrices",
+    action="createProductPrice",
+    parameters={
+        productId: "100000",
+        priceTypeEnumId: "PptList",
+        pricePurposeEnumId: "PppSales",
+        price: "31.99",
+        priceUomId: "USD",
+        minQuantity: "1",
+        fromDate: "2026-01-23"
+    }
+)
+```
+
+**Parameters:**
+- `priceTypeEnumId`: "PptList" for list price
+- All other parameters same as Step 5
+
+**Expected Result:**
+- Response with `status: "executed"`
+- Variant now has both Current and List prices
+
+**Next Step:** Link variant to virtual parent.
+
+## Step 7: Link Variant to Parent
+
+Create an association between the variant and the virtual parent product.
+
+```bash
+moqui_browse_screens(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditAssocs",
+    action="createProductAssoc",
+    parameters={
+        productId: "DEMO_VAR",
+        toProductId: "100000",
+        productAssocTypeEnumId: "PatVariant",
+        fromDate: "2026-01-23"
+    }
+)
+```
+
+**Parameters:**
+- `productId`: Parent product pseudoId or internal ID (the virtual product)
+- `toProductId`: **Internal product ID** of the variant (from Step 3)
+- `productAssocTypeEnumId`: "PatVariant" for variant relationship
+- `fromDate`: Optional, defaults to current date
+
+**Expected Result:**
+- Response with `status: "executed"`
+- ProductAssoc record created linking parent to variant
+
+**Next Step:** Verify the complete setup.
+
+## Step 8: Verify Setup
+
+Verify that the variant is properly configured.
+
+```bash
+moqui_browse_screens(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct",
+    parameters={productId: "100000"}
+)
+```
+
+**Check:**
+1. **Features tab**: Shows `ColorPurple` and `SizeSmall` with `PfatDistinguishing` type
+2. **Prices tab**: Shows both Current ($26.99) and List ($31.99) prices
+3. **Assocs tab**: Shows association to `DEMO_VAR` with type `PatVariant`
+
+**Expected Result:**
+- All features, prices, and associations are visible
+- Variant is ready for use in catalog
+
+## Quick Reference: Common Variant Patterns
+
+### Purple Small (Example)
+- PseudoId: `DEMO_VAR_PUR_SM`
+- Features: `["ColorPurple", "SizeSmall"]`
+- Current: $26.99, List: $31.99
+
+### Purple Medium
+- PseudoId: `DEMO_VAR_PUR_MD`
+- Features: `["ColorPurple", "SizeMedium"]`
+- Current: $28.99, List: $33.99
+
+### Purple Large
+- PseudoId: `DEMO_VAR_PUR_LG`
+- Features: `["ColorPurple", "SizeLarge"]`
+- Current: $30.99, List: $35.99
+
+### Purple XL
+- PseudoId: `DEMO_VAR_PUR_XL`
+- Features: `["ColorPurple", "SizeXL"]`
+- Current: $32.99, List: $37.99
+
+## Troubleshooting
+
+### Error: "Product already has feature"
+The feature is already applied. Check existing features and remove or use different features.
+
+### Error: "No product found with ID"
+You're using `pseudoId` instead of internal `productId`. Always use the internal `productId` returned from create operations.
+
+### Error: "Invalid productFeatureId"
+The feature ID doesn't exist. Use `moqui_get_screen_details` on EditProduct to see available features:
+```bash
+moqui_get_screen_details(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct",
+    fieldName="productFeatureIdList"
+)
+```
+
+### Variant not showing on parent
+Check that:
+1. `PatVariant` association exists (Step 7)
+2. Parent has `PfatSelectable` features for the same feature type
+3. Variant has `PfatDistinguishing` features, not `PfatSelectable`
+
+### Missing pricing
+Prices are optional. If not set, the variant will use parent's default pricing or no pricing.]]></fileData>
+    </moqui.resource.DbResourceFile>
+
+    <moqui.resource.wiki.WikiPage
+        wikiPageId="BP/ProductVariant"
+        wikiSpaceId="BUSINESS_PROCESSES"
+        pagePath="Product-Variant-Creation"
+        publishedVersionName="v1"
+        restrictView="N">
+    </moqui.resource.wiki.WikiPage>
+
+    <moqui.resource.wiki.WikiPageHistory
+        wikiPageId="BP/ProductVariant"
+        historySeqId="1"
+        versionName="v1"
+        userId="EX_JOHN_DOE"
+        changeDateTime="2026-01-23 00:00:00.000"/>
+
+</entity-facade-xml>

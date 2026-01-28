@@ -12,7 +12,7 @@
    <http://creativecommons.org/publicdomain/zero/1.0/>.
  -->
 <entity-facade-xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-facade-3.xsd">
+          xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-facade-3.xsd" type="seed">
 
     <!-- MCP Screen Documentation Wiki Space -->
     <moqui.resource.wiki.WikiSpace wikiSpaceId="MCP_SCREEN_DOCS"
@@ -112,17 +112,57 @@ Use the following discovery tools to explore available functionality:
         resourceId="WIKI_MCP_DOCS_ROOT"
         mimeType="text/markdown"
         versionName="v1">
-        <fileData><![CDATA[# Moqui MCP Server
+         <fileData><![CDATA[# Moqui MCP Server
 
-This server provides access to Moqui ERP through MCP. Typically you will be searching for a product by name or by a feature like size or color.
-If it is a feature based query it is probably best to use the FindFeature screen to locate the feature and then use FindProduct to search for products with that feature.
+This server provides access to Moqui ERP through MCP. Use the following tools to discover functionality and get help with common tasks.
 
-## Getting Started
+## Help & Discovery Tools
 
-Use the following discovery tools to explore available functionality:
-- `moqui_browse_screens`: Browse Moqui screen hierarchy
-- `moqui_search_screens`: Search for screens by name to find their paths
-- `moqui_get_screen_details`: Get input parameters for specific screens
+Use these tools to find information:
+
+- **`moqui_search_screens`**: Search for screens and workflows by name
+  - Example: `moqui_search_screens(query="variant")` finds the Product Variant Creation workflow
+  - Returns both screens and business process workflows
+
+- **`moqui_browse_screens`**: Browse Moqui screen hierarchy
+  - Use empty path for root: `moqui_browse_screens(path="")`
+  - Navigate deep: `moqui_browse_screens(path="PopCommerce/Catalog/Product/FindProduct")`
+  - Execute actions: `moqui_browse_screens(path="...", action="createProduct", parameters={...})`
+
+- **`moqui_get_screen_details`**: Get dropdown options and field details
+  - Use before submitting forms to understand available options
+  - Example: `moqui_get_screen_details(path="PopCommerce/Party/EditParty", fieldName="countryGeoId")`
+
+- **`moqui_get_help`**: Get extended documentation
+  - Screen help: `moqui_get_help(uri="wiki:screen:EditProduct")`
+  - Service help: `moqui_get_help(uri="wiki:service:Product")`
+  - **Workflow help**: `moqui_get_help(uri="wiki:workflow:Product-Variant-Creation")`
+
+## Business Process Workflows
+
+Complex multi-step operations are documented as workflows. Use `moqui_search_screens` to find them:
+
+**Example: Creating a Product Variant**
+
+1. Search for variant workflow:
+   ```
+   moqui_search_screens(query="variant")
+   ```
+   Returns: `{"path": "wiki:workflow:Product-Variant-Creation", ...}`
+
+2. Get workflow documentation:
+   ```
+   moqui_get_help(uri="wiki:workflow:Product-Variant-Creation")
+   ```
+   Returns: Complete 8-step guide with exact tool calls and parameters
+
+3. Execute each step using the provided tool calls:
+   - Clone parent product
+   - Apply distinguishing features (e.g., ColorPurple, SizeSmall)
+   - Set pricing (Current and List prices)
+   - Link variant to virtual parent
+
+The workflow documentation includes exact tool calls, expected responses, and troubleshooting guidance.
 
 ## Common Screen Paths
 
@@ -148,15 +188,16 @@ Use the following discovery tools to explore available functionality:
 
 ### System & Developer Tools
 - `/tools/Tools`: Developer tools, entity data editing, and service references
-- `/tools/System`: System administration, cache management, and security settings
 
 ## Tips for LLM Clients
 
-- All screens support parameterized queries for filtering results
-- Use `moqui_render_screen` with screen path to execute screens
-- Screen paths use forward slash notation (e.g., `/PopCommerce/PopCommerceAdmin/Catalog/Product`)
-- Check `moqui_get_screen_details` for required parameters before rendering
-- Use `renderMode: "mcp"` for structured JSON output or `"text"` for human-readable format]]></fileData>
+- **Actions are NOT services** - Use screen actions, not direct service calls
+- **Use exact parameter names** - Tool calls in workflows use precise field names
+- **Extract IDs from responses** - Create operations return internal IDs (not pseudoIds) for use in subsequent steps
+- **Check dropdown options** - Use `moqui_get_screen_details` to see valid values before submitting
+- **Use `renderMode: "compact"`** for efficient structured output
+- **Check validation errors** - Action responses include `validationErrors` with field-specific messages
+- **Read `help` fields** - Actions include `help` URIs (e.g., `wiki:service:ProductAssoc`) for detailed documentation]]></fileData>
     </moqui.resource.DbResourceFile>
 
     <!-- PopCommerce Root Screen Documentation -->
