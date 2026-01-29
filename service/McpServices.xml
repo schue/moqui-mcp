@@ -37,46 +37,11 @@
                 // Permissions are handled by Moqui's artifact authorization system
                 // Users must be in appropriate groups (McpUser, MCP_BUSINESS) with access to McpServices artifact group
                 
-                // Disable authz to prevent automatic Visit updates during MCP operations
+                // Authentication is handled by MoquiAuthFilter - user context is already set
+                // No need to re-validate session ownership here
                 ec.artifactExecution.disableAuthz()
-                
-                // Get Visit (session) created by servlet and validate access
-                def visit = ec.entity.find("moqui.server.Visit")
-                    .condition("visitId", sessionId)
-                    .one()
-                
-                if (!visit) {
-                    throw new Exception("Invalid session: ${sessionId}")
-                }
-                
-                if (visit.userId != ec.user.userId) {
-                    throw new Exception("Access denied for session: ${sessionId}")
-                }
-                
-                // Update Visit with MCP initialization data
-                UserInfo adminUserInfo = null
-                try {
-                    adminUserInfo = ec.user.pushUser("ADMIN")
-                    def metadata = [:]
-                    try {
-                        metadata = groovy.json.JsonSlurper().parseText(visit.initialRequest ?: "{}") as Map
-                    } catch (Exception e) {
-                        ec.logger.debug("Failed to parse Visit metadata: ${e.message}")
-                    }
-                    
-                    metadata.mcpInitialized = true
-                    metadata.mcpProtocolVersion = protocolVersion
-                    metadata.mcpCapabilities = capabilities
-                    metadata.mcpClientInfo = clientInfo
-                    metadata.mcpInitializedAt = System.currentTimeMillis()
-                    
-                    // Session metadata stored in memory only - no Visit updates to prevent lock contention
-                    ec.logger.info("SESSIONID: ${sessionId} - metadata stored in memory")
-                } finally {
-                    if (adminUserInfo != null) {
-                        ec.user.popUser()
-                    }
-                }
+
+                ec.logger.info("MCP Initialize for session ${sessionId}, user ${ec.user.userId}")
                 
                 // Validate protocol version - support common MCP versions with version negotiation
                 def supportedVersions = ["2025-11-25", "2025-06-18", "2024-11-05", "2024-10-07", "2023-06-05"]
