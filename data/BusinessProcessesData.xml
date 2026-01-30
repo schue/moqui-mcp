@@ -112,71 +112,67 @@ Complete workflow for creating a new product variant with features, pricing, and
 ## Overview
 
 This workflow creates a new variant product by:
-1. Finding the parent product
-2. Cloning parent to create the variant (or creating a new product)
-3. Applying distinguishing features to identify this variant
-4. Setting pricing (Current and List prices)
+1. Finding an existing variant to clone from (not the virtual parent)
+2. Cloning the variant to create a new one with the same structure
+3. Updating distinguishing features to identify this variant
+4. Setting pricing (if different from cloned variant)
 5. Linking variant to virtual parent
 
-## Step 1: Find Parent Product
+**Important:** Always clone from an existing variant (e.g., `DEMO_VAR_BU_SM`), not the virtual parent. This ensures the new product has the correct product type, asset settings, and feature structure.
 
-Locate the virtual parent product to clone from.
+## Step 1: Find an Existing Variant to Clone
+
+Locate an existing variant product to use as a template. Choose one with the same size if possible.
 
 ```bash
 moqui_browse_screens(
-    path="PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct",
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditAssocs",
     parameters={productId: "DEMO_VAR"}
 )
 ```
 
 **Expected Result:**
-- Product list showing `DEMO_VAR` with its pseudoId
-- Note the internal `productId` from the response (or use pseudoId for search)
-- Click product link to navigate to EditProduct screen
+- Shows parent's selectable features and existing variant associations
+- Find a variant to clone (e.g., `DEMO_VAR_BU_SM` for Blue Small)
+- Note the variant's pseudoId for the next step
 
-**Next Step:** Use the parent product ID for cloning.
+**Next Step:** Navigate to the variant and clone it.
 
-## Step 2: Clone Product to Create Variant
+## Step 2: Clone Existing Variant
 
-Clone the parent product to create a new variant. This copies features and prices.
+Navigate to an existing variant's EditProduct screen and clone it.
 
 ```bash
 moqui_browse_screens(
-    path="PopCommerce/PopCommerceAdmin/Catalog/Product/FindProduct",
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct",
     action="cloneProduct",
     parameters={
-        productId: "DEMO_VAR",
-        newProductId: "DEMO_VAR_PUR_SM",
-        newProductName: "Demo with Variants Purple Small",
+        productId: "DEMO_VAR_BU_SM",
+        pseudoId: "DEMO_VAR_PUR_SM",
+        productName: "Demo with Variants Purple Small",
         copyFeatures: "Y",
         copyPrices: "Y",
-        copyCategories: "Y",
-        copyAssocs: "N",
-        copyContent: "N",
-        copyInventory: "N",
-        copyFacilities: "N",
-        copyProductStore: "N"
+        copyCategories: "Y"
     }
 )
 ```
 
 **Parameters:**
-- `productId`: Parent product to clone (use pseudoId or internal ID)
-- `newProductId`: New product's pseudoId (user-visible identifier)
-- `newProductName`: Display name for the variant
-- `copyFeatures`: "Y" to copy features from parent
-- `copyPrices`: "Y" to copy pricing from parent
+- `productId`: Existing variant to clone (use pseudoId or internal ID)
+- `pseudoId`: New product's pseudoId (user-visible identifier)
+- `productName`: Display name for the new variant
+- `copyFeatures`: "Y" to copy features (will need to update color)
+- `copyPrices`: "Y" to copy pricing from source variant
 
 **Expected Result:**
 - Response with `status: "executed"`
-- `actionResult.result.productId` contains the **internal product ID** of the new variant
-- Save this `productId` for all subsequent operations
+- New variant created with same structure as source
 
-**Next Step:** Find the new variant product to get its internal `productId`.
+**Next Step:** Find the new variant and update its features.
 
 ## Step 3: Find New Variant Product
 
-Search for the newly created variant to get its internal `productId`.
+Search for the newly created variant.
 
 ```bash
 moqui_browse_screens(
@@ -187,45 +183,47 @@ moqui_browse_screens(
 
 **Expected Result:**
 - Product list shows `DEMO_VAR_PUR_SM`
-- Click product link to navigate to EditProduct
-- The response includes the `productId` field - **use this internal ID for all next steps**
+- Note the internal `productId` from the row ref
+- The cloned product has Blue features that need to be changed to Purple
 
-**Next Step:** Apply distinguishing features to the variant.
+**Next Step:** Update the distinguishing features.
 
-## Step 4: Apply Distinguishing Features
+## Step 4: Update Distinguishing Features
 
-Apply features that make this variant unique (e.g., Purple color, Small size).
+Remove the copied color feature and apply the correct one. The cloned product has Blue - change to Purple.
+
+First, view current features:
+```bash
+moqui_browse_screens(
+    path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct",
+    parameters={productId: "DEMO_VAR_PUR_SM"}
+)
+```
+
+Then update the color feature using `updateProductFeatureAppl` to expire the old one and `applyProductFeatures` to add the new one:
 
 ```bash
 moqui_browse_screens(
     path="PopCommerce/PopCommerceAdmin/Catalog/Product/EditProduct",
     action="applyProductFeatures",
     parameters={
-        productId: "100000",
-        productFeatureIdList: ["ColorPurple", "SizeSmall"],
-        applTypeEnumId: "PfatDistinguishing",
-        fromDate: "2026-01-23"
+        productId: "DEMO_VAR_PUR_SM",
+        productFeatureIdList: ["ColorPurple"],
+        applTypeEnumId: "PfatDistinguishing"
     }
 )
 ```
 
 **Parameters:**
-- `productId`: **Internal product ID** from Step 3 (NOT the pseudoId!)
+- `productId`: The new variant's ID
 - `productFeatureIdList`: Array of feature IDs to apply
-  - Must be existing features (use `moqui_get_screen_details` to list available options)
-  - Example: `["ColorPurple", "SizeSmall"]`
-- `applTypeEnumId`: "PfatDistinguishing" for variants (NOT "PfatSelectable")
-- `fromDate`: Optional, defaults to current date
-
-**Expected Result:**
-- Response with `status: "executed"`
-- ProductFeatures grid shows the applied features
+- `applTypeEnumId`: "PfatDistinguishing" for variants
 
 **Available Feature Types:**
 - Colors: `ColorRed`, `ColorBlue`, `ColorGreen`, `ColorPurple`, `ColorBlack`, `ColorWhite`
 - Sizes: `SizeSmall`, `SizeMedium`, `SizeLarge`, `SizeXL`
 
-**Next Step:** Set pricing for the variant.
+**Next Step:** Update pricing if needed.
 
 ## Step 5: Add Current Price
 
