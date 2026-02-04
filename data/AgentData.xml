@@ -38,17 +38,17 @@
     <!-- Sample AI Configuration (for testing)                        -->
     <!-- ========================================================= -->
 
-    <!-- Using localhost:11434 for Ollama (if available) -->
-    <!-- Or configure for your VLLM/OpenAI endpoint -->
+    <!-- VLLM Configuration for Brainfood -->
     <moqui.mcp.agent.ProductStoreAiConfig 
         productStoreId="POPCOMMERCE_RETAIL" 
         aiConfigId="DEFAULT"
-        serviceTypeEnumId="AistOllama"
-        description="Default AI Config for Testing (Ollama)"
-        endpointUrl="http://localhost:11434/v1"
-        modelName="llama3.2:3b"
+        serviceTypeEnumId="AistVllm"
+        description="Brainfood VLLM for Agent Runtime"
+        endpointUrl="http://crunchy.private.brainfood.com:11434/v1"
+        apiKey="brainfood"
+        modelName="bf-ai"
         temperature="0.7"
-        maxTokens="2048"
+        maxTokens="4096"
         />
 
 </entity-facade-xml>
