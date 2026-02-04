@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-facade-3.xsd" type="seed">
+
+    <!-- ========================================================= -->
+    <!-- Agent Runtime Scheduled Job                               -->
+    <!-- ========================================================= -->
+
+    <moqui.service.ScheduledJob 
+        jobName="AgentQueuePoller" 
+        description="Polls Agent Queue and processes pending tasks"
+        serviceName="AgentServices.poll#AgentQueue"
+        cronExpression="0/30 * * * * ?" 
+        runAsUser="ADMIN"
+        paused="N"/>
+
+    <!-- ========================================================= -->
+    <!-- Agent User Account (for authentication)                     -->
+    <!-- ========================================================= -->
+
+    <moqui.security.UserAccount 
+        userId="AGENT_CLAUDE" 
+        username="agent-claude" 
+        currentPassword="16ac58bbfa332c1c55bd98b53e60720bfa90d394" 
+        passwordHashType="SHA"
+        enabled="Y"
+        description="Agent user for AI runtime"/>
+
+    <moqui.security.UserGroup userGroupId="AgentUsers" description="AI Agent Users"/>
+    <moqui.security.UserGroupMember userGroupId="AgentUsers" userId="AGENT_CLAUDE" fromDate="2026-02-04 00:00:00.000"/>
+
+    <!-- Agent users have permission to execute the delegation service -->
+    <moqui.security.ArtifactGroup artifactGroupId="AgentDelegationServices" description="Agent Tool Delegation Services"/>
+    <moqui.security.ArtifactGroupMember artifactGroupId="AgentDelegationServices" artifactName="AgentServices.call#McpToolWithDelegation" artifactTypeEnumId="AT_SERVICE"/>
+    <moqui.security.ArtifactAuthz userGroupId="AgentUsers" artifactGroupId="AgentDelegationServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
+
+    <!-- ========================================================= -->
+    <!-- Sample AI Configuration (for testing)                        -->
+    <!-- ========================================================= -->
+
+    <!-- Using localhost:11434 for Ollama (if available) -->
+    <!-- Or configure for your VLLM/OpenAI endpoint -->
+    <moqui.mcp.agent.ProductStoreAiConfig 
+        productStoreId="POPCOMMERCE_RETAIL" 
+        aiConfigId="DEFAULT"
+        serviceTypeEnumId="AistOllama"
+        description="Default AI Config for Testing (Ollama)"
+        endpointUrl="http://localhost:11434/v1"
+        modelName="llama3.2:3b"
+        temperature="0.7"
+        maxTokens="2048"
+        />
+
+</entity-facade-xml>
