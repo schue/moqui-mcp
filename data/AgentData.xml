@@ -17,26 +17,9 @@
     <moqui.security.UserGroup userGroupId="AgentUsers" description="AI Agent Users"/>
     <moqui.security.UserGroupMember userGroupId="AgentUsers" userId="AGENT_CLAUDE" fromDate="2026-02-04 00:00:00.000"/>
 
-    <!-- Agent users have permission to execute the delegation service -->
+    <!-- Agent users have permission to execute delegation service -->
     <moqui.security.ArtifactGroup artifactGroupId="AgentDelegationServices" description="Agent Tool Delegation Services"/>
     <moqui.security.ArtifactGroupMember artifactGroupId="AgentDelegationServices" artifactName="AgentServices.call#McpToolWithDelegation" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactAuthz userGroupId="AgentUsers" artifactGroupId="AgentDelegationServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
-
-    <!-- ========================================================= -->
-    <!-- Sample AI Configuration (for testing)                        -->
-    <!-- ========================================================= -->
-
-    <!-- VLLM Configuration for Brainfood -->
-    <ProductStoreAiConfig 
-        productStoreId="POPC_DEFAULT" 
-        aiConfigId="DEFAULT"
-        serviceTypeEnumId="AistVllm"
-        description="Brainfood VLLM for Agent Runtime"
-        endpointUrl="http://crunchy.private.brainfood.com:11434/v1"
-        apiKey="brainfood"
-        modelName="bf-ai"
-        temperature="0.7"
-        maxTokens="4096"
-        />
 
 </entity-facade-xml>
