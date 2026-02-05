@@ -10,9 +10,7 @@
         userId="AGENT_CLAUDE" 
         username="agent-claude" 
         currentPassword="16ac58bbfa332c1c55bd98b53e60720bfa90d394" 
-        passwordHashType="SHA"
-        enabled="Y"
-        description="Agent user for AI runtime"/>
+        passwordHashType="SHA"/>
 
     <moqui.security.UserGroup userGroupId="AgentUsers" description="AI Agent Users"/>
     <moqui.security.UserGroupMember userGroupId="AgentUsers" userId="AGENT_CLAUDE" fromDate="2026-02-04 00:00:00.000"/>
