@@ -26,6 +26,7 @@
 
     <!-- Agent Task Message Type -->
     <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyAgentTask" description="Agent Task"
-        contentType="application/json"/>
+        contentType="application/json"
+        consumeServiceName="AgentServices.poll#AgentQueue"/>
 
 </entity-facade-xml>
