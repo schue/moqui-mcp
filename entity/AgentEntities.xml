@@ -19,6 +19,9 @@
         <field name="aiConfigId" type="id">
             <description>Specific AI configuration used for this task.</description>
         </field>
+        <field name="rootCommEventId" type="id">
+            <description>The root CommunicationEvent ID for the conversation thread.</description>
+        </field>
 
         <relationship type="one" title="RequestedBy" related="mantle.party.Party">
             <key-map field-name="requestedByPartyId" related="partyId"/>
