@@ -12,6 +12,43 @@ The interface is **model-agnostic** - works with GPT, Claude, local models, or a
 
 ---
 
+## 🏗️ Agent Runtime Architecture
+
+Moqui MCP now includes an **Agent Runtime** that allows Moqui to host its own autonomous agents (via OpenAI-compatible APIs like VLLM, Ollama, etc.) that process background tasks.
+
+### Architecture Overview
+
+```
+┌────────────────────────┐      ┌────────────────────────┐      ┌────────────────────────┐
+│   Moqui Core           │      │   Agent Queue          │      │   Agent Runtime        │
+│                        │      │                        │      │                        │
+│ User Request           │ ---> │ SystemMessage (Pending)│ <--- │ Poll & Lock Message    │
+│ (Trigger/Service)      │      │ Type: AgentTask        │      │                        │
+└────────────────────────┘      └────────────────────────┘      │ 1. Build Prompt        │
+                                                                │ 2. Call VLLM API       │
+                                                                │ 3. Receive Tool Call   │
+                                                                │ 4. Impersonate User    │
+                                                                │ 5. Execute MCP Tool    │
+                                                                │ 6. Save Result         │
+                                                                └────────────────────────┘
+```
+
+### Key Components
+
+1.  **Agent Client**: Connects to OpenAI-compatible endpoints (VLLM, OpenAI, etc.).
+2.  **Agent Runner**: Orchestrates the conversation loop (Think → Act → Observe).
+3.  **Secure Bridge**: Executes tools with user delegation (impersonation) to enforce RBAC.
+4.  **ProductStoreAiConfig**: Configures AI models and endpoints per Product Store.
+
+### Security Model
+
+- **Authentication**: Agents authenticate as a dedicated service user (e.g., `AGENT_CLAUDE`).
+- **Authorization**: Agents **impersonate** the requesting human user for specific tool executions.
+    - If user `john.doe` cannot create products, the agent acting as `john.doe` cannot create products.
+    - RBAC is fully enforced at the tool execution layer.
+
+---
+
 ## 🧩 How Models Use the Interface
 
 ### Discovery Workflow

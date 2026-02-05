@@ -150,7 +150,7 @@
                     .condition("systemMessageId", systemMessageId)
                     .one()
                 
-                if (!taskMsg) return
+                 if (!taskMsg) return
                 
                 // Get AI Config
                 def aiConfig = ec.entity.find("moqui.mcp.agent.ProductStoreAiConfig")
@@ -189,10 +189,6 @@
                 
                 // Default temperature if missing
                 if (temperature == null) temperature = 0.7
-
-                // 2. Prepare Tools (Convert MCP tools to OpenAI format)
-                def mcpToolAdapter = new org.moqui.mcp.adapter.McpToolAdapter()
-                def moquiTools = mcpToolAdapter.listTools()
                 
                 // Filter out dangerous tools if needed? For now, we rely on RBAC delegation.
                 
@@ -281,11 +277,40 @@
                             ])
                         }
                         // Loop continues to let LLM see results
-                    } else {
+                     } else {
                         // No tool calls = Final Response
                         taskComplete = true
-                        taskMsg.statusId = "SmsProcessed"
-                        taskMsg.messageText += "\n\n=== RESPONSE ===\n${responseMsg.content}"
+                        
+                        // Create response SystemMessage (child of task)
+                        def responseMsg = responseMsg.content
+                        def responseJson = [
+                            role: "assistant",
+                            content: responseMsg
+                        ]
+                        
+                        // Queue the response message
+                        ec.service.sync().name("org.moqui.impl.SystemMessageServices.queue#SystemMessage")
+                            .parameters([
+                                systemMessageTypeId: "SmtyAgentTask",
+                                parentMessageId: taskMsg.systemMessageId,
+                                isOutgoing: "Y",
+                                statusId: "SmsgProduced"
+                                messageText: new JsonBuilder(responseJson).toString()
+                            ])
+                            .call()
+                        
+                        // Update task with ackMessageId
+                        ec.service.sync().name("org.moqui.impl.SystemMessageServices.queue#SystemMessage")
+                            .parameters([
+                                systemMessageId: taskMsg.systemMessageId,
+                                statusId: "SmsgConsumed",
+                                ackMessageId: ec.context.lastResult.systemMessageId
+                            ])
+                            .call()
+                        
+                        // Update task status and append response to text (for display)
+                        taskMsg.statusId = "SmsgConfirmed"
+                        taskMsg.messageText += "\n\n=== RESPONSE ===\n${responseMsg}"
                         taskMsg.update()
                     }
                 }

@@ -75,7 +75,8 @@ class McpToolAdapter {
         logger.debug("Calling tool ${toolName} -> service ${serviceName} with args: ${arguments}")
 
         try {
-            ec.artifactExecution.disableAuthz()
+            // NOTE: Authorization is NOT disabled here.
+            // Tools run with the current user's permissions (or the impersonated user's permissions).
             def result = ec.service.sync()
                 .name(serviceName)
                 .parameters(arguments ?: [:])
@@ -89,11 +90,22 @@ class McpToolAdapter {
             }
             return result ?: [:]
 
+        } catch (org.moqui.context.ArtifactAuthorizationException e) {
+            logger.warn("Security rejection for tool ${toolName} (user: ${ec.user.username}): ${e.message}")
+            return [
+                error: [
+                    code: -32001,
+                    message: "Permission Denied: You do not have access to ${e.artifactName}",
+                    data: [
+                        artifact: e.artifactName, 
+                        action: e.authzActionEnumId,
+                        message: e.message
+                    ]
+                ]
+            ]
         } catch (Exception e) {
             logger.error("Error calling tool ${toolName}: ${e.message}", e)
             return [error: [code: -32000, message: e.message]]
-        } finally {
-            ec.artifactExecution.enableAuthz()
         }
     }
 
@@ -114,7 +126,7 @@ class McpToolAdapter {
         logger.debug("Calling method ${method} -> service ${serviceName}")
 
         try {
-            ec.artifactExecution.disableAuthz()
+            // Standard RBAC applies
             def result = ec.service.sync()
                 .name(serviceName)
                 .parameters(params ?: [:])
@@ -128,11 +140,12 @@ class McpToolAdapter {
             }
             return result ?: [:]
 
+        } catch (org.moqui.context.ArtifactAuthorizationException e) {
+             logger.warn("Security rejection for method ${method}: ${e.message}")
+             return [error: [code: -32001, message: "Permission Denied: ${e.message}"]]
         } catch (Exception e) {
             logger.error("Error calling method ${method}: ${e.message}", e)
             return [error: [code: -32603, message: "Internal error: ${e.message}"]]
-        } finally {
-            ec.artifactExecution.enableAuthz()
         }
     }
 
