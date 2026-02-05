@@ -18,10 +18,12 @@
     <service-factory load-path="service/" />
     <screen-factory load-path="screen/" />
     
-     <!-- Load seed data -->
-     <entity-factory load-data="data/McpSecuritySeedData.xml" />
+      <!-- Load seed data -->
+      <entity-factory load-data="data/McpSecuritySeedData.xml" />
     <entity-factory load-data="data/McpPromptsData.xml" />
     <entity-factory load-data="data/McpScreenDocsData.xml" />
+    <entity-factory load-data="data/AgentData.xml" />
+    <entity-factory load-data="data/AgentEnumData.xml" />
 
     <!-- Webapp Configuration -->
     <webapp-list>
