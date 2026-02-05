@@ -218,7 +218,7 @@
                     [role: "user", content: taskMsg.messageText]
                 ]
                 
-                // 4. The Loop (Max 5 turns for safety)
+                 // 4. The Loop (Max 5 turns for safety)
                 int maxTurns = 5
                 int currentTurn = 0
                 boolean taskComplete = false
@@ -276,42 +276,9 @@
                                 content: JsonOutput.toJson(executionResult)
                             ])
                         }
-                        // Loop continues to let LLM see results
-                     } else {
+                    } else {
                         // No tool calls = Final Response
                         taskComplete = true
-                        
-                        // Create response SystemMessage (child of task)
-                        def responseMsg = responseMsg.content
-                        def responseJson = [
-                            role: "assistant",
-                            content: responseMsg
-                        ]
-                        
-                        // Queue the response message
-                        ec.service.sync().name("org.moqui.impl.SystemMessageServices.queue#SystemMessage")
-                            .parameters([
-                                systemMessageTypeId: "SmtyAgentTask",
-                                parentMessageId: taskMsg.systemMessageId,
-                                isOutgoing: "Y",
-                                statusId: "SmsgProduced"
-                                messageText: new JsonBuilder(responseJson).toString()
-                            ])
-                            .call()
-                        
-                        // Update task with ackMessageId
-                        ec.service.sync().name("org.moqui.impl.SystemMessageServices.queue#SystemMessage")
-                            .parameters([
-                                systemMessageId: taskMsg.systemMessageId,
-                                statusId: "SmsgConsumed",
-                                ackMessageId: ec.context.lastResult.systemMessageId
-                            ])
-                            .call()
-                        
-                        // Update task status and append response to text (for display)
-                        taskMsg.statusId = "SmsgConfirmed"
-                        taskMsg.messageText += "\n\n=== RESPONSE ===\n${responseMsg}"
-                        taskMsg.update()
                     }
                 }
             ]]></script>
@@ -323,7 +290,7 @@
     <!-- ========================================================= -->
     
     <service verb="poll" noun="AgentQueue" authenticate="false">
-        <description>Scheduled service to pick up pending tasks.</description>
+        <description>Scheduled service to pick up pending tasks and process them.</description>
         <actions>
             <script><![CDATA[
                 import org.moqui.entity.EntityCondition
@@ -338,11 +305,20 @@
                 
                 pendingTasks.each { task ->
                     // Mark as In Progress
-                    task.statusId = "SmsConsumed" // Or 'In Progress'
+                    task.statusId = "SmsConsumed"
                     task.update()
                     
-                    // Run Async
-                    ec.service.async().name("AgentServices.run#AgentTask")
+                    // Run Agent Task service (noStatusUpdate=false to prevent auto status change)
+                    ec.service.sync().name("AgentServices.run#AgentTask")
+                        .parameters([
+                            systemMessageId: task.systemMessageId,
+                            noStatusUpdate: false
+                        ])
+                        .call()
+                }
+            ]]></script>
+        </actions>
+    </service>
                         .parameters([systemMessageId: task.systemMessageId])
                         .call()
                 }
