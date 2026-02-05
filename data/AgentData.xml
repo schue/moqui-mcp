@@ -20,7 +20,12 @@
     <moqui.security.ArtifactGroupMember artifactGroupId="AgentDelegationServices" artifactName="AgentServices.call#McpToolWithDelegation" artifactTypeEnumId="AT_SERVICE"/>
     <moqui.security.ArtifactAuthz userGroupId="AgentUsers" artifactGroupId="AgentDelegationServices" authzTypeEnumId="AUTHZT_ALLOW" authzActionEnumId="AUTHZA_ALL"/>
 
+    <!-- Agent Queue Poller Job -->
+    <moqui.service.job.ServiceJob jobName="AgentQueuePoller" description="Poll Agent Queue and process tasks with AI"
+        serviceName="AgentServices.poll#AgentQueue" cronExpression="0/30 * * * * ?" paused="N"/>
+
     <!-- Agent Task Message Type -->
-    <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyAgentTask" description="Agent Task"/>
+    <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyAgentTask" description="Agent Task"
+        consumeServiceName="AgentServices.poll#AgentQueue"/>
 
 </entity-facade-xml>
