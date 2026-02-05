@@ -25,7 +25,7 @@
     <!-- Agent Task Message Type -->
     <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyAgentTask" description="Agent Task"
         contentType="application/json"
-        consumeServiceName="AgentServices.poll#AgentQueue"/>
+        consumeServiceName="AgentServices.run#AgentTaskTurn"/>
 
     <!-- Default AI Config (Brainfood VLLM) -->
     <moqui.mcp.agent.ProductStoreAiConfig 

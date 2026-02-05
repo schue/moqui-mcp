@@ -55,7 +55,7 @@
     <!-- Agent Client (OpenAI-Compatible API Wrapper)              -->
     <!-- ========================================================= -->
 
-    <service verb="call" noun="OpenAiChatCompletion">
+    <service verb="call" noun="OpenAiChatCompletion" authenticate="false">
         <description>Generic wrapper for OpenAI-compatible chat completions (VLLM, OpenAI, etc.)</description>
         <in-parameters>
             <parameter name="endpointUrl" required="true"/>
@@ -267,6 +267,8 @@
         <description>Scheduled service to pick up pending tasks and process them.</description>
         <actions>
             <script><![CDATA[
+                ec.logger.info("POLL AGENT QUEUE: Checking for SmtyAgentTask messages in SmsReceived status...")
+                
                 // Find pending tasks
                 def pendingTasks = ec.entity.find("moqui.service.message.SystemMessage")
                     .condition("statusId", "SmsgReceived")
@@ -275,7 +277,10 @@
                     .disableAuthz()
                     .list()
                 
+                ec.logger.info("POLL AGENT QUEUE: Found ${pendingTasks.size()} tasks to process.")
+                
                 pendingTasks.each { task ->
+                    ec.logger.info("POLL AGENT QUEUE: Processing task ${task.systemMessageId}")
                     // Run Agent Task Turn
                     ec.service.sync().name("AgentServices.run#AgentTaskTurn")
                         .parameters([systemMessageId: task.systemMessageId])
