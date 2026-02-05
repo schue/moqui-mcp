@@ -6,11 +6,11 @@
     <!-- Agent Tool Bridge (The Secure Gateway)                    -->
     <!-- ========================================================= -->
     
-    <service verb="call" noun="McpToolWithDelegation">
+    <service verb="call" noun="McpToolWithDelegation" authenticate="false">
         <description>
-            Securely executes an MCP tool by impersonating the target user (runAsUserId).
-            The calling agent must have permission to use this service, but the 
-            tool execution itself is subject to the target user's permissions.
+            Securely executes an MCP tool by impersonating target user (runAsUserId).
+            The calling agent must have permission to use this service, but 
+            tool execution itself is subject to target user's permissions.
         </description>
         <in-parameters>
             <parameter name="toolName" required="true"/>
@@ -132,7 +132,7 @@
     <!-- Agent Runner (The Loop)                                   -->
     <!-- ========================================================= -->
     
-    <service verb="run" noun="AgentTask">
+    <service verb="run" noun="AgentTask" authenticate="false">
         <description>
             Processes a single Agent Task SystemMessage.
             Handles the loop of: Prompt -> LLM -> Tool Call -> Tool Execution -> Prompt.
@@ -297,7 +297,7 @@
     <!-- Task Scheduler (Polls Queue)                              -->
     <!-- ========================================================= -->
     
-    <service verb="poll" noun="AgentQueue">
+    <service verb="poll" noun="AgentQueue" authenticate="false">
         <description>Scheduled service to pick up pending tasks.</description>
         <actions>
             <script><![CDATA[
