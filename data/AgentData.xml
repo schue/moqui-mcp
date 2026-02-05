@@ -27,8 +27,8 @@
     <!-- ========================================================= -->
 
     <!-- VLLM Configuration for Brainfood -->
-    <moqui.mcp.agent.ProductStoreAiConfig 
-        productStoreId="POPCOMMERCE_RETAIL" 
+    <ProductStoreAiConfig 
+        productStoreId="POPC_DEFAULT" 
         aiConfigId="DEFAULT"
         serviceTypeEnumId="AistVllm"
         description="Brainfood VLLM for Agent Runtime"
