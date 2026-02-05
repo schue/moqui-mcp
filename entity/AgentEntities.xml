@@ -78,15 +78,6 @@
             <moqui.basic.Enumeration enumId="AistVllm" description="VLLM (OpenAI Compatible)" enumTypeId="AiServiceType"/>
             <moqui.basic.Enumeration enumId="AistAnthropic" description="Anthropic" enumTypeId="AiServiceType"/>
             <moqui.basic.Enumeration enumId="AistOllama" description="Ollama" enumTypeId="AiServiceType"/>
-            
-            <!-- Agent Task Message Type -->
-            <moqui.basic.Enumeration enumId="SmtyAgentTask" description="Agent Task" enumTypeId="SystemMessageType"/>
-            
-            <!-- AI Product Store Settings -->
-            <moqui.basic.Enumeration enumId="AiEndpointUrl" description="AI Endpoint URL" enumTypeId="ProductStoreSettingType"/>
-            <moqui.basic.Enumeration enumId="AiApiKey" description="AI API Key" enumTypeId="ProductStoreSettingType"/>
-            <moqui.basic.Enumeration enumId="AiModelName" description="AI Model Name" enumTypeId="ProductStoreSettingType"/>
-            <moqui.basic.Enumeration enumId="AiTemperature" description="AI Temperature" enumTypeId="ProductStoreSettingType"/>
         </seed-data>
     </entity>
 
