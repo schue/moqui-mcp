@@ -10,6 +10,6 @@
     <moqui.basic.Enumeration enumId="AistOllama" description="Ollama" enumTypeId="AiServiceType"/>
 
     <!-- Agent Task Message Type -->
-    <moqui.basic.Enumeration enumId="SmtyAgentTask" description="Agent Task" enumTypeId="SystemMessageType"/>
+    <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyAgentTask" description="Agent Task"/>
 
 </entity-facade-xml>
