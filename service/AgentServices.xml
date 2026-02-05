@@ -319,11 +319,5 @@
             ]]></script>
         </actions>
     </service>
-                        .parameters([systemMessageId: task.systemMessageId])
-                        .call()
-                }
-            ]]></script>
-        </actions>
-    </service>
 
 </services>
