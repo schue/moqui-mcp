@@ -26,12 +26,11 @@
     <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyAgentTask" description="Agent Task"
         contentType="application/json"
         consumeServiceName="AgentServices.run#AgentTaskTurn"/>
-
-    <!-- Default AI Config (Brainfood VLLM) -->
-    <moqui.mcp.agent.ProductStoreAiConfig 
-        productStoreId="POPC_DEFAULT" aiConfigId="DEFAULT"
-        serviceTypeEnumId="AistVllm" description="Brainfood VLLM"
-        endpointUrl="http://crunchy.private.brainfood.com:11434/v1" apiKey="brainfood"
-        modelName="bf-ai" temperature="0.7" maxTokens="4096"/>
-
+    
+    <!-- LLM Request/Response Message Types -->
+    <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyLlmRequest" description="LLM Request"
+        consumeServiceName="AgentServices.run#AgentTaskTurn"/>
+    
+    <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyLlmResponse" description="LLM Response"/>
+    
 </entity-facade-xml>

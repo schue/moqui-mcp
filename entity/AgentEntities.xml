@@ -42,7 +42,7 @@
         <field name="llmResponse" type="text-very-long">
             <description>Raw LLM response content (stored for audit/debug).</description>
         </field>
- 
+  
         <relationship type="one" title="RequestedBy" related="mantle.party.Party">
             <key-map field-name="requestedByPartyId" related="partyId"/>
         </relationship>
