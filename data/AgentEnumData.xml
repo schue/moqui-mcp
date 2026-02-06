@@ -11,5 +11,9 @@
 
     <!-- Agent Task Message Type -->
     <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyAgentTask" description="Agent Task"/>
-
+    
+    <!-- LLM Request/Response Message Types -->
+    <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyLlmRequest" description="LLM Request"/>
+    <moqui.service.message.SystemMessageType systemMessageTypeId="SmtyLlmResponse" description="LLM Response"/>
+    
 </entity-facade-xml>

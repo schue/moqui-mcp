@@ -20,11 +20,37 @@
             <description>Specific AI configuration used for this task.</description>
         </field>
         <field name="rootCommEventId" type="id">
-            <description>The root CommunicationEvent ID for the conversation thread.</description>
+            <description>The root CommunicationEvent ID for conversation thread.</description>
         </field>
-
+        
+        <!-- Callback and Audit Fields for LLM Request/Response Pattern -->
+        <field name="parentSystemMessageId" type="id">
+            <description>Parent SystemMessage ID (links Response to Request).</description>
+        </field>
+        <field name="callbackServiceName" type="text-medium">
+            <description>Service to call with LLM response when complete.</description>
+        </field>
+        <field name="callbackParameters" type="text-very-long">
+            <description>JSON parameters to pass to callback service.</description>
+        </field>
+        <field name="sourceTypeEnumId" type="id">
+            <description>Type of entity that triggered this request (Order, CommEvent, etc.).</description>
+        </field>
+        <field name="sourceId" type="id">
+            <description>ID of the triggering entity (orderId, communicationEventId, etc.).</description>
+        </field>
+        <field name="llmResponse" type="text-very-long">
+            <description>Raw LLM response content (stored for audit/debug).</description>
+        </field>
+ 
         <relationship type="one" title="RequestedBy" related="mantle.party.Party">
             <key-map field-name="requestedByPartyId" related="partyId"/>
+        </relationship>
+        <relationship type="one" title="ParentSystemMessage" related="moqui.service.message.SystemMessage">
+            <key-map field-name="parentSystemMessageId" related="systemMessageId"/>
+        </relationship>
+        <relationship type="many" title="ChildSystemMessages" related="moqui.service.message.SystemMessage" fk-name="SysMsgToSysMsg">
+            <key-map field-name="systemMessageId" related="parentSystemMessageId"/>
         </relationship>
         <!-- Note: effectiveUserId links to UserAccount, but we don't force FK to allow system users -->
         <relationship type="one" related="mantle.product.store.ProductStore">
