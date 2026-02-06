@@ -193,7 +193,9 @@
                     def internalToolMappings = [
                         "moqui_search_screens": "McpServices.mcp#SearchScreens",
                         "moqui_get_screen_details": "McpServices.mcp#GetScreenDetails",
-                        "moqui_get_help": "McpServices.mcp#GetHelp"
+                        "moqui_get_help": "McpServices.mcp#GetHelp",
+                        "moqui_prompts_list": "McpServices.mcp#PromptsList",
+                        "moqui_prompts_get": "McpServices.mcp#PromptsGet"
                         // "moqui_batch_operations": "McpServices.mcp#BatchOperations" - hidden until fixed
                     ]
                     
@@ -654,16 +656,16 @@ def getWikiInstructions = { lookupPath ->
 
             if (!wikiSpace) continue
 
-            // Build the resource location for the page
-            def pageLocation = wikiSpace.rootPageLocation
-            if (!pageLocation.endsWith('/')) {
-                pageLocation += '/'
-            }
-            pageLocation += wikiPage.pagePath + '.md'
-
-            // Get the resource reference and text content
-            def pageRef = ec.resource.getLocationReference(pageLocation)
-            def wikiText = pageRef?.getText()
+                // Build the resource location for the page
+                // rootPageLocation is dbresource://WikiSpace/MCP_PROMPTS.md
+                // Need to construct: dbresource://WikiSpace/MCP_PROMPTS/get-started.md
+                // TEST - adding marker
+                def pageLocation = wikiSpace.rootPageLocation
+                // Replace .md with /pagePath.md
+                if (pageLocation.endsWith('.md')) {
+                    pageLocation = pageLocation.substring(0, pageLocation.length() - 3) + '/' + wikiPage.pagePath + '.md'
+                }
+                ec.logger.error("MCP PromptsGet: TEST MARKER - Using location: ${pageLocation}")
 
             if (wikiText) {
                 if (tryPath != normalizedPath) {
@@ -2107,24 +2109,29 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                     .list()
                 
                 for (def wp in wikiPageList) {
-                    // Try to load argument schema from attachment
+                    // Try to load argument schema from DbResource
                     def arguments = []
                     try {
-                        def attachment = ec.entity.find("moqui.resource.wiki.WikiPageAttachment")
-                            .condition("wikiPageId", wp.wikiPageId)
-                            .condition("filename", "arguments.json")
+                        // Build resourceId for arguments file (e.g., WIKI_MCP_GET_STARTED_ARGS)
+                        def argsResourceId = "WIKI_MCP_${wp.pagePath.toUpperCase().replace('-', '_')}_ARGS"
+                        def dbResource = ec.entity.find("moqui.resource.DbResource")
+                            .condition("resourceId", argsResourceId)
                             .one()
-                        if (attachment) {
-                            def attachmentRef = ec.resource.getLocationReference(attachment.getLocation())
-                            def jsonText = attachmentRef?.getText()
-                            if (jsonText) {
-                                arguments = new JsonSlurper().parseText(jsonText) ?: []
+                        if (dbResource) {
+                            def dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
+                                .condition("resourceId", argsResourceId)
+                                .one()
+                            if (dbResourceFile) {
+                                def jsonText = dbResourceFile.fileData?.getText()
+                                if (jsonText) {
+                                    arguments = new JsonSlurper().parseText(jsonText) ?: []
+                                }
                             }
                         }
                     } catch (Exception e) {
                         ec.logger.debug("Could not parse arguments for ${wp.pagePath}: ${e.message}")
                     }
-                    
+
                     prompts << [
                         name: wp.pagePath,
                         title: wp.pagePath.split('-').collect { it.capitalize() }.join(' '),
@@ -2153,16 +2160,25 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 import groovy.text.GStringTemplateEngine
                 import groovy.json.JsonSlurper
                 import groovy.json.JsonBuilder
-                
+
                 ExecutionContext ec = context.ec
-                
-                ec.logger.info("MCP PromptsGet: Retrieving prompt '${name}' from wiki space MCP_PROMPTS")
-                
+
+                ec.logger.info("MCP PromptsGet: START v2.0 - Retrieving prompt '${name}' from wiki space MCP_PROMPTS")
+
+                // Debug: Check what wiki pages exist in MCP_PROMPTS space
+                def allPages = ec.entity.find("moqui.resource.wiki.WikiPage")
+                    .condition("wikiSpaceId", "MCP_PROMPTS")
+                    .useCache(true)
+                    .list()
+                ec.logger.info("MCP PromptsGet: All pages in MCP_PROMPTS space: ${allPages.collect { [pageId: it.wikiPageId, pagePath: it.pagePath] }}")
+
                 // Get the wiki page for this prompt
                 def wikiPage = ec.entity.find("moqui.resource.wiki.WikiPage")
                     .condition("wikiSpaceId", "MCP_PROMPTS")
                     .condition("pagePath", name)
+                    .useCache(true)
                     .one()
+                ec.logger.info("MCP PromptsGet: Looking for pagePath='${name}', found: ${wikiPage?.wikiPageId}")
                 
                 if (!wikiPage) {
                     throw new Exception("Prompt not found: ${name}")
@@ -2171,37 +2187,68 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                 // Get the wiki space to build the page location
                 def wikiSpace = ec.entity.find("moqui.resource.wiki.WikiSpace")
                     .condition("wikiSpaceId", "MCP_PROMPTS")
+                    .useCache(true)
                     .one()
                 
                 if (!wikiSpace) {
                     throw new Exception("MCP Prompts wiki space not found")
                 }
                 
-                // Build the resource location for the page (root + page path + .md)
-                def pageLocation = wikiSpace.rootPageLocation
-                if (!pageLocation.endsWith('/')) {
-                    pageLocation += '/'
+                // Build resource location using framework's findChildFile pattern
+                // Note: pagePath is "get-started" but file is "get-started.md"
+                ec.logger.info("MCP PromptsGet: rootPageLocation=${wikiSpace.rootPageLocation}, pagePath=${wikiPage.pagePath}")
+                def rootPageRef = ec.resource.getLocationReference(wikiSpace.rootPageLocation)
+                ec.logger.info("MCP PromptsGet: rootPageRef.location=${rootPageRef?.location}")
+
+                // Try with .md extension first, then without
+                def pageRef = rootPageRef.findChildFile(wikiPage.pagePath + '.md')
+                if (!pageRef) {
+                    pageRef = rootPageRef.findChildFile(wikiPage.pagePath)
                 }
-                pageLocation += name + '.md'
-                
-                // Get the resource reference and text content
-                def pageRef = ec.resource.getLocationReference(pageLocation)
+                ec.logger.info("MCP PromptsGet: pageRef.location=${pageRef?.location}")
+
                 def templateText = pageRef?.getText()
-                
+                ec.logger.info("MCP PromptsGet: templateText.length=${templateText?.length() ?: 'null'}")
+
                 if (!templateText) {
                     throw new Exception("Prompt template not found: ${name}")
                 }
                 
+                // Load arguments schema from DbResource for prompt metadata
+                def promptArguments = []
+                try {
+                    def argsResourceId = "WIKI_MCP_${name.toUpperCase().replace('-', '_')}_ARGS"
+                    def dbResource = ec.entity.find("moqui.resource.DbResource")
+                        .condition("resourceId", argsResourceId)
+                        .useCache(true)
+                        .one()
+                    if (dbResource) {
+                        def dbResourceFile = ec.entity.find("moqui.resource.DbResourceFile")
+                            .condition("resourceId", argsResourceId)
+                            .useCache(true)
+                            .one()
+                        if (dbResourceFile) {
+                            def jsonText = dbResourceFile.fileData?.getText()
+                            if (jsonText) {
+                                promptArguments = new JsonSlurper().parseText(jsonText) ?: []
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    ec.logger.debug("Could not parse arguments for ${name}: ${e.message}")
+                }
+
                 // Render template using Groovy GString engine
                 def templateEngine = new GStringTemplateEngine()
                 def template = templateEngine.createTemplate(templateText)
                 def binding = arguments ?: [:]
                 def rendered = template.make(binding).toString()
-                
+
                 ec.logger.info("MCP PromptsGet: Rendered prompt '${name}' with ${binding.size()} arguments")
                 
                 result = [
                     description: "MCP prompt template",
+                    arguments: promptArguments,
                     messages: [[
                         role: "user",
                         content: [type: "text", text: rendered]
@@ -3008,19 +3055,19 @@ def wikiInstructions = getWikiInstructions(inputScreenPath)
                             required: ["uri"]
                         ]
                      ],
-                     // moqui_batch_operations - hidden until fixed
-                     //
-                      [
-                        name: "prompts_list",
-                        title: "List Prompts",
-                        description: "List available MCP prompt templates.",
-                        inputSchema: [
-                            type: "object",
-                            properties: [:]
-                        ]
+                      // moqui_batch_operations - hidden until fixed
+                      //
+                       [
+                         name: "moqui_prompts_list",
+                         title: "List Prompts",
+                         description: "List available MCP prompt templates.",
+                         inputSchema: [
+                             type: "object",
+                             properties: [:]
+                         ]
                     ],
                     [
-                        name: "prompts_get",
+                        name: "moqui_prompts_get",
                         title: "Get Prompt",
                         description: "Retrieve and render a specific MCP prompt template.",
                         inputSchema: [

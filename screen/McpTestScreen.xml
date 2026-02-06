@@ -30,6 +30,21 @@
         <set field="locale" from="ec.user?.locale ?: 'en_US'"/>
     </actions>
     
+    <transition name="fixConfig">
+        <actions>
+            <script><![CDATA[
+                ec.entity.find("moqui.mcp.agent.ProductStoreAiConfig")
+                  .condition("productStoreId", "POPC_DEFAULT")
+                  .condition("aiConfigId", "DEFAULT")
+                  .one()
+                  .set("modelName", "devstral")
+                  .update()
+            ]]></script>
+            <set field="message" value="Config updated successfully to devstral"/>
+        </actions>
+        <default-response type="screen-last"/>
+    </transition>
+    
     <widgets>
         <container style="mcp-test-screen">
             <container style="text-center">
